@@ -1,24 +1,37 @@
 # AGENTS.md
 
-## Repository purpose
-This repository contains generic adapters for acquiring and normalizing external knowledge sources into local, LLM-ready artifacts.
+## Purpose
+Build and maintain adapters that acquire and normalize external knowledge sources into local, LLM-ready artifacts.
 
-The current implementation focus is the Confluence adapter.
+Current focus: Confluence adapter.
 
-## Safety and scope rules
+---
+
+## Core principles
 - Keep the repository public-safe.
-- Never hardcode secrets, tokens, cookies, internal URLs, or environment-specific values.
-- Do not add live integration logic that requires private systems for tests.
-- Prefer sanitized fixtures and stubs over real remote access.
+- Prefer minimal, reversible changes.
+- Preserve the adapter contract unless a task explicitly requires change.
+- Keep all environment-specific details runtime-injected.
+
+---
+
+## Safety rules
+- Never hardcode secrets, tokens, cookies, or internal URLs.
+- Do not introduce live integration logic in tests.
+- Prefer sanitized fixtures or stubs over real external systems.
+
+---
 
 ## Engineering rules
-- Prefer minimal, reversible changes.
-- Do not perform broad rewrites unless explicitly requested.
-- Preserve the current adapter contract and repository shape unless the task requires a focused improvement.
-- Keep source-specific details runtime-injected.
+- Avoid broad refactors unless explicitly requested.
+- Change only what is required for the task.
+- Keep modules focused and testable.
+- Do not introduce new dependencies without justification.
+
+---
 
 ## Validation
-Before considering a task complete, run:
+Before a task is considered complete, run:
 
 ```bash
 ruff check . --fix
