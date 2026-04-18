@@ -38,3 +38,10 @@ ruff check . --fix
 mypy src
 pytest
 ```
+## Branch naming
+Use:
+<type>/<area>-<short-description>
+
+Examples:
+test/resolve-edge-cases
+feat/confluence-cli-smoke-test

@@ -13,6 +13,8 @@ This repository is a public-by-design workspace for building source adapters tha
 
 The initial implementation focuses on a **Confluence adapter**, but the repository is intentionally scoped for multiple adapters over time.
 
+---
+
 ## Design Goals
 
 - **Public-safe by default**
@@ -36,12 +38,18 @@ The initial implementation focuses on a **Confluence adapter**, but the reposito
   - start with one adapter and one clean contract
   - prioritize small, reversible changes over broad abstractions
 
+---
+
 ## Current Scope
 
 ### Implemented
 - repository structure
 - initial documentation
-- Confluence adapter planning
+- Confluence adapter scaffold
+- CLI entrypoint
+- basic end-to-end pipeline (resolve → fetch stub → normalize → write)
+- CI (ruff, mypy, pytest)
+- initial unit tests
 
 ### Planned MVP
 - Confluence adapter
@@ -53,6 +61,8 @@ The initial implementation focuses on a **Confluence adapter**, but the reposito
   - track state with a manifest
   - support dry-run behavior
 
+---
+
 ## Out of Scope for Initial MVP
 
 - embeddings or vector databases
@@ -62,6 +72,8 @@ The initial implementation focuses on a **Confluence adapter**, but the reposito
 - browser automation
 - handling every Confluence macro or attachment type perfectly
 - multiple source adapters in the first implementation
+
+---
 
 ## Security Model
 
@@ -80,6 +92,8 @@ Instead:
 - keep local config and token storage outside the repo
 - use synthetic or sanitized fixtures for tests
 
+---
+
 ## Workflow
 
 1. Define the adapter contract
@@ -88,25 +102,24 @@ Instead:
 4. Add tests and automation around the contract
 5. Expand only after shared patterns become clear
 
+---
+
 ## Repository Layout
 
 ```text
 knowledge-adapters/
 ├── README.md
+├── CONTRIBUTING.md
+├── AGENTS.md
 ├── docs/
 │   ├── vision.md
-│   └── adapter-spec.md
+│   ├── adapter-spec.md
+│   └── codex-workflow.md
 ├── adapters/
 │   └── confluence/
 │       └── README.md
+├── src/
+│   └── knowledge_adapters/
 ├── tests/
 └── .gitignore
 ```
-
-## Development Environment
-
-Recommended Python version: 3.13.x (tested)
-
-## License
-
-Licensed under the Apache License, Version 2.0.
