@@ -188,6 +188,11 @@ Release completion requires all of the following:
 This step is required after the release PR is merged and the version tag has been
 created and pushed. It must happen before starting the next feature.
 
+A feature arc is not complete until post-release capture is performed. Do not
+start the next feature arc until capture is complete. If capture produces a clear
+workflow or prompt improvement, commit it in a small follow-up PR before starting
+the next feature.
+
 ### Trigger
 
 - after merge
