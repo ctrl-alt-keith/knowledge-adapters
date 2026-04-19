@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from pytest import CaptureFixture
+
 from knowledge_adapters.cli import main
 from knowledge_adapters.local_files.client import fetch_file
 from knowledge_adapters.local_files.normalize import normalize_to_markdown
@@ -75,3 +77,32 @@ Line one.
 Line two.
 """
     )
+
+
+def test_local_files_cli_dry_run_reports_output_without_writing(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    source_file = tmp_path / "meeting-notes.txt"
+    source_file.write_text("Line one.\nLine two.\n", encoding="utf-8")
+    output_dir = tmp_path / "out"
+
+    exit_code = main(
+        [
+            "local_files",
+            "--file-path",
+            str(source_file),
+            "--output-dir",
+            str(output_dir),
+            "--dry-run",
+        ]
+    )
+
+    assert exit_code == 0
+
+    output_path = output_dir / "pages" / "meeting-notes.md"
+    assert not output_path.exists()
+
+    captured = capsys.readouterr()
+    assert f"Dry run: would write {output_path}" in captured.out
+    assert "Line one." in captured.out
