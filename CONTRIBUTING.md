@@ -11,10 +11,12 @@ This project is designed to be **public-safe, reproducible, and adapter-focused*
 Bootstrap your local development environment:
 
 ```bash
+make check-env
 make dev
 ```
 
-This will:
+These commands will:
+- verify GitHub CLI (`gh`) is installed and authenticated
 - create a local `.venv`
 - install all development dependencies (`pytest`, `ruff`, `mypy`, etc.)
 
@@ -25,6 +27,7 @@ This will:
 ## Common Commands
 
 ```bash
+make check-env   # verify required GitHub tooling
 make test        # run tests
 make lint        # check linting (ruff)
 make fix         # auto-fix lint issues where possible

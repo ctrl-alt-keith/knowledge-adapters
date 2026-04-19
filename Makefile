@@ -1,4 +1,4 @@
-.PHONY: dev test lint fix format typecheck check clean
+.PHONY: dev test lint fix format typecheck check check-env clean
 
 VENV = .venv
 PYTHON = $(VENV)/bin/python
@@ -13,6 +13,10 @@ $(VENV)/bin/activate:
 	$(PIP) install -e '.[dev]'
 
 dev: $(VENV)/bin/activate
+
+check-env:
+	@command -v gh >/dev/null 2>&1 || { echo "Error: GitHub CLI (gh) is required but is not installed." >&2; exit 1; }
+	@gh auth status >/dev/null 2>&1 || { echo "Error: GitHub CLI authentication is required. Run 'gh auth login' and try again." >&2; exit 1; }
 
 test: $(VENV)/bin/activate
 	$(PYTEST)
