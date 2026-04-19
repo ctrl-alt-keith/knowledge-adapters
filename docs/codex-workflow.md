@@ -24,6 +24,8 @@ Preferred pattern:
 
 Do not use Codex as the source of truth for architecture. Use it to implement and refine within an already-defined repo structure.
 
+A task is not complete until a pull request has been created.
+
 ---
 
 ## Where Codex fits
@@ -89,6 +91,15 @@ PR titles should mirror branch intent, for example:
 - test: expand resolve_target edge cases
 - feat: add CLI dry-run smoke test
 
+PR descriptions should follow this structure:
+
+Summary
+- high-level description of the change
+- key implementation details
+
+Testing
+- how the change was validated (typically `make check`)
+
 ---
 
 ## Task prompt pattern
@@ -123,16 +134,19 @@ Constraints:
 
 Validation:
 Run the full local validation before considering the task complete:
-- ruff check . --fix
-- mypy src
-- pytest
+- make check
+
+Do not consider the task complete until:
+- changes are committed
+- the branch is pushed
+- a pull request is created
 
 Delivery:
 When done:
 1. summarize files changed
 2. summarize behavior covered by the new tests
 3. list any assumptions
-4. commit with a clear message
+4. commit using Conventional Commits format
 5. push the branch
 6. open a PR with a concise summary
 
@@ -163,7 +177,5 @@ A Codex task is not considered complete until validation succeeds.
 At the time of writing, validation is:
 
 ```bash
-ruff check . --fix
-mypy src
-pytest
+make check
 ```
