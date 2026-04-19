@@ -68,6 +68,9 @@ Before committing or opening a PR:
 make check
 ```
 
+Run validation through the Makefile targets for this repository.
+Do not invoke `pytest`, `mypy`, or `ruff` directly; use `make check` and other documented `make` targets instead.
+
 If lint issues are auto-fixable:
 
 ```bash
