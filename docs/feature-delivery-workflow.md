@@ -126,6 +126,15 @@ In practice, that means prompts should explicitly state:
 - what must not change
 - how success will be validated
 - what completion requires, including commit, push, and PR creation
+- whether the PR should be ready for review or draft when the task is complete
+
+Open PRs as ready for review by default.
+
+Use a draft PR only when:
+
+- the task explicitly asks for a draft PR
+- the work is intentionally incomplete
+- feedback is needed before the task is considered complete
 
 ## Release Process
 
