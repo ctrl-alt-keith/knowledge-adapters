@@ -208,13 +208,15 @@ This preserves the current fail-fast, no-partial-success-manifest behavior.
 
 ### Output directory reused for a different target
 
-Because the manifest is the only source of truth, reusing the same output directory for a different root target is allowed but may still produce skips for overlapping canonical page IDs.
+Reusing the same output directory for a different target is allowed.
 
-This is acceptable in v1 because:
+In v1, incremental sync is based only on canonical page ID and output path. The system does not track, persist, or validate root target identity.
 
-- canonical page ID is the identity key
-- output path is deterministic from canonical page ID
-- target-specific isolation is out of scope
+As a result, reusing an output directory may cause pages to be skipped when the new run includes canonical page IDs that overlap with artifacts already recorded in the existing manifest and still present on disk.
+
+This is expected behavior in v1, not an error condition.
+
+The output directory is treated as a canonical artifact store keyed by canonical page ID. Users are responsible for choosing separate output directories when target-level isolation is required.
 
 ### Stale entries for pages not in the current run
 
