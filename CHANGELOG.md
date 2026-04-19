@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0
+
+- Added manifest-based incremental sync for Confluence so repeated runs can skip rewriting pages that were already written.
+- Defined skip eligibility using only matching `canonical_id`, matching `output_path`, and on-disk file existence for the expected artifact.
+- Improved recursive dry-run reporting to show both would-write and would-skip counts alongside the planned output paths.
+- Updated replacement manifests to include both newly written pages and skipped pages from the current run.
+- Added hardening coverage and README guidance for incremental sync, including artifact-based output-directory reuse behavior.
+
 ## 0.2.0
 
 - Added recursive Confluence traversal with `--tree` and depth-limited traversal via `--max-depth`.
