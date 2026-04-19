@@ -1,0 +1,74 @@
+"""Incremental sync helpers for the Confluence adapter."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from knowledge_adapters.confluence.manifest import manifest_path
+
+
+def load_previous_manifest_index(output_dir: str) -> dict[str, str] | None:
+    """Load and validate the previous manifest for incremental comparisons."""
+    path = manifest_path(output_dir)
+    if not path.exists():
+        return None
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Could not read prior manifest {path}.") from exc
+
+    files = payload.get("files")
+    if not isinstance(files, list):
+        raise RuntimeError(f"Prior manifest {path} is invalid: expected a files list.")
+
+    entries_by_id: dict[str, str] = {}
+    seen_output_paths: set[str] = set()
+
+    for entry in files:
+        if not isinstance(entry, dict):
+            raise RuntimeError(
+                f"Prior manifest {path} is invalid: each files entry must be an object."
+            )
+
+        canonical_id = entry.get("canonical_id")
+        output_path = entry.get("output_path")
+        if not isinstance(canonical_id, str) or not isinstance(output_path, str):
+            raise RuntimeError(
+                f"Prior manifest {path} is invalid: files entries must include string "
+                "canonical_id and output_path values."
+            )
+
+        if canonical_id in entries_by_id:
+            raise RuntimeError(
+                f"Prior manifest {path} is invalid: duplicate canonical_id {canonical_id!r}."
+            )
+        if output_path in seen_output_paths:
+            raise RuntimeError(
+                f"Prior manifest {path} is invalid: duplicate output_path {output_path!r}."
+            )
+
+        entries_by_id[canonical_id] = output_path
+        seen_output_paths.add(output_path)
+
+    return entries_by_id
+
+
+def is_already_written(
+    output_dir: str,
+    previous_manifest_index: dict[str, str] | None,
+    *,
+    canonical_id: str,
+    output_path: Path,
+) -> bool:
+    """Return whether the candidate page is already written for v1 sync rules."""
+    if previous_manifest_index is None:
+        return False
+
+    expected_output_path = output_path.relative_to(Path(output_dir)).as_posix()
+    prior_output_path = previous_manifest_index.get(canonical_id)
+    if prior_output_path != expected_output_path:
+        return False
+
+    return (Path(output_dir) / prior_output_path).exists()

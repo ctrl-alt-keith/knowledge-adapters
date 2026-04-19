@@ -178,7 +178,18 @@ def test_recursive_manifest_records_root_run_context_and_current_run_files_only(
     output_dir = tmp_path / "out"
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "manifest.json").write_text(
-        json.dumps({"generated_at": "old", "files": [{"canonical_id": "stale"}]}),
+        json.dumps(
+            {
+                "generated_at": "old",
+                "files": [
+                    {
+                        "canonical_id": "stale",
+                        "source_url": "https://example.com/wiki/pages/stale",
+                        "output_path": "pages/stale.md",
+                    }
+                ],
+            }
+        ),
         encoding="utf-8",
     )
 
