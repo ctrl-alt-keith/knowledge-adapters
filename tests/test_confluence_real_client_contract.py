@@ -143,6 +143,7 @@ Stub content for page 12345.
         }
     ]
 
+
 def test_explicit_real_client_mode_selects_real_fetch_path(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -176,6 +177,7 @@ def test_explicit_real_client_mode_selects_real_fetch_path(
     assert "<p>Hello from Confluence.</p>" in rendered
     assert "Stub content for page 12345." not in rendered
 
+
 @pytest.mark.parametrize(
     ("extra_args", "expected_fragment"),
     [
@@ -199,6 +201,7 @@ def test_real_client_mode_rejects_tree_or_depth_usage_in_v1(
     captured = capsys.readouterr()
     assert "real" in captured.err
     assert expected_fragment in captured.err
+
 
 @pytest.mark.parametrize(
     "token_value",
@@ -230,6 +233,7 @@ def test_real_fetch_requires_nonempty_bearer_token_before_request(
 
     assert request_count == 0
 
+
 def test_real_fetch_maps_valid_confluence_response_into_adapter_payload(
     monkeypatch: MonkeyPatch,
 ) -> None:
@@ -249,18 +253,91 @@ def test_real_fetch_maps_valid_confluence_response_into_adapter_payload(
     }
     assert str(page["source_url"]).startswith("https://")
 
+
 @pytest.mark.parametrize(
-    ("status_code", "expected_fragment"),
+    ("base_url", "webui", "expected_source_url"),
     [
-        (401, "auth"),
-        (403, "auth"),
-        (404, "not found"),
+        (
+            "https://example.com/wiki",
+            "/spaces/ENG/pages/12345",
+            "https://example.com/wiki/spaces/ENG/pages/12345",
+        ),
+        (
+            "https://example.com/wiki/",
+            "/spaces/ENG/pages/12345",
+            "https://example.com/wiki/spaces/ENG/pages/12345",
+        ),
+        (
+            "https://example.com/wiki/",
+            "spaces/ENG/pages/12345",
+            "https://example.com/wiki/spaces/ENG/pages/12345",
+        ),
+        (
+            "https://other.example.test/root",
+            "https://example.com/wiki/spaces/ENG/pages/12345",
+            "https://example.com/wiki/spaces/ENG/pages/12345",
+        ),
+    ],
+)
+def test_real_fetch_constructs_absolute_source_url_for_link_variations(
+    monkeypatch: MonkeyPatch,
+    base_url: str,
+    webui: str,
+    expected_source_url: str,
+) -> None:
+    payload = _valid_confluence_payload()
+    payload["_links"] = {
+        "base": base_url,
+        "webui": webui,
+    }
+
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda *args, **kwargs: _FakeHTTPResponse(payload),
+    )
+
+    page = _fetch_real_page(_real_target())
+
+    assert page["source_url"] == expected_source_url
+
+
+def test_real_fetch_ignores_extra_irrelevant_fields_in_valid_response(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    payload = _valid_confluence_payload()
+    payload["version"] = {"number": 7}
+    payload["space"] = {"key": "ENG"}
+    payload["ignored"] = ["extra", "fields"]
+
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda *args, **kwargs: _FakeHTTPResponse(payload),
+    )
+
+    page = _fetch_real_page(_real_target())
+
+    assert page == {
+        "canonical_id": "12345",
+        "title": "Real Page",
+        "content": "<p>Hello from Confluence.</p>",
+        "source_url": "https://example.com/wiki/spaces/ENG/pages/12345",
+    }
+
+
+@pytest.mark.parametrize(
+    ("status_code", "expected_message"),
+    [
+        (401, "Confluence auth failure."),
+        (403, "Confluence auth failure."),
+        (404, "Confluence page not found."),
     ],
 )
 def test_real_fetch_maps_http_status_failures(
     monkeypatch: MonkeyPatch,
     status_code: int,
-    expected_fragment: str,
+    expected_message: str,
 ) -> None:
     def raise_http_error(*args: object, **kwargs: object) -> object:
         raise _http_error(status_code)
@@ -268,8 +345,9 @@ def test_real_fetch_maps_http_status_failures(
     monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
     monkeypatch.setattr("urllib.request.urlopen", raise_http_error)
 
-    with pytest.raises(RuntimeError, match=expected_fragment):
+    with pytest.raises(RuntimeError, match=f"^{expected_message}$"):
         _fetch_real_page(_real_target())
+
 
 @pytest.mark.parametrize(
     ("payload", "expected_fragment"),
@@ -287,6 +365,54 @@ def test_real_fetch_maps_http_status_failures(
         ),
         (
             {
+                "id": "",
+                "title": "Real Page",
+                "body": {
+                    "storage": {
+                        "value": "<p>Hello from Confluence.</p>",
+                    }
+                },
+                "_links": {
+                    "base": "https://example.com/wiki",
+                    "webui": "/spaces/ENG/pages/12345",
+                },
+            },
+            "id",
+        ),
+        (
+            {
+                "id": "12345",
+                "title": "",
+                "body": {
+                    "storage": {
+                        "value": "<p>Hello from Confluence.</p>",
+                    }
+                },
+                "_links": {
+                    "base": "https://example.com/wiki",
+                    "webui": "/spaces/ENG/pages/12345",
+                },
+            },
+            "title",
+        ),
+        (
+            {
+                "id": "12345",
+                "title": "Real Page",
+                "body": {
+                    "storage": {
+                        "value": 123,
+                    }
+                },
+                "_links": {
+                    "base": "https://example.com/wiki",
+                    "webui": "/spaces/ENG/pages/12345",
+                },
+            },
+            "content",
+        ),
+        (
+            {
                 "id": "12345",
                 "title": "Real Page",
                 "body": {
@@ -295,6 +421,54 @@ def test_real_fetch_maps_http_status_failures(
                     }
                 },
                 "_links": {},
+            },
+            "source_url",
+        ),
+        (
+            {
+                "id": "12345",
+                "title": "Real Page",
+                "body": {
+                    "storage": {
+                        "value": "<p>Hello from Confluence.</p>",
+                    }
+                },
+                "_links": {
+                    "base": "example.com/wiki",
+                    "webui": "/spaces/ENG/pages/12345",
+                },
+            },
+            "source_url",
+        ),
+        (
+            {
+                "id": "12345",
+                "title": "Real Page",
+                "body": {
+                    "storage": {
+                        "value": "<p>Hello from Confluence.</p>",
+                    }
+                },
+                "_links": {
+                    "base": "https://example.com/wiki",
+                    "webui": "",
+                },
+            },
+            "source_url",
+        ),
+        (
+            {
+                "id": "12345",
+                "title": "Real Page",
+                "body": {
+                    "storage": {
+                        "value": "<p>Hello from Confluence.</p>",
+                    }
+                },
+                "_links": {
+                    "base": "https://example.com/wiki",
+                    "webui": 123,
+                },
             },
             "source_url",
         ),
@@ -317,3 +491,36 @@ def test_real_fetch_fails_fast_on_invalid_response_shapes(
 
     with pytest.raises(ValueError, match=expected_fragment):
         _fetch_real_page(_real_target())
+
+
+@pytest.mark.parametrize(
+    ("raised_error", "expected_message"),
+    [
+        (RuntimeError("Confluence auth failure."), "Confluence auth failure."),
+        (RuntimeError("Confluence page not found."), "Confluence page not found."),
+        (ValueError("Response error: missing source_url."), "Response error: missing source_url."),
+    ],
+)
+def test_real_client_cli_surfaces_fetch_failures_as_concise_cli_errors(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+    raised_error: Exception,
+    expected_message: str,
+) -> None:
+    from knowledge_adapters.confluence import client as client_module
+
+    def raise_fetch_error(*args: object, **kwargs: object) -> dict[str, object]:
+        raise raised_error
+
+    monkeypatch.setattr(client_module, "fetch_real_page", raise_fetch_error, raising=False)
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(_confluence_argv(tmp_path / "out", "--client-mode", "real"))
+
+    assert exc_info.value.code == 2
+
+    captured = capsys.readouterr()
+    assert captured.err == f"knowledge-adapters confluence: error: {expected_message}\n"
+    assert not (tmp_path / "out" / "manifest.json").exists()
+    assert not (tmp_path / "out" / "pages" / "12345.md").exists()

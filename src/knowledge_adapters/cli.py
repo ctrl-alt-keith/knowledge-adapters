@@ -243,7 +243,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"\nManifest: {manifest}")
             return 0
 
-        page = selected_fetch_page(target)
+        try:
+            page = selected_fetch_page(target)
+        except (RuntimeError, ValueError) as exc:
+            exit_with_cli_error(str(exc))
         page_id = str(page["canonical_id"])
         output_path = markdown_path(confluence_config.output_dir, page_id)
         previous_manifest_index = load_previous_manifest_index(confluence_config.output_dir)
