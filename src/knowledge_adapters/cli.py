@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -34,6 +34,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--output-dir",
         required=True,
         help="Directory to write normalized local artifacts.",
+    )
+    confluence_parser.add_argument(
+        "--client-mode",
+        choices=("stub", "real"),
+        default="stub",
+        help="Client mode. Defaults to the stub client.",
     )
     confluence_parser.add_argument(
         "--auth-method",
@@ -92,7 +98,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "confluence":
-        from knowledge_adapters.confluence.client import fetch_page
+        from knowledge_adapters.confluence.client import fetch_page, fetch_real_page
         from knowledge_adapters.confluence.config import ConfluenceConfig
         from knowledge_adapters.confluence.incremental import (
             is_already_written,
@@ -103,6 +109,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             write_manifest,
             write_manifest_with_context,
         )
+        from knowledge_adapters.confluence.models import ResolvedTarget
         from knowledge_adapters.confluence.normalize import normalize_to_markdown
         from knowledge_adapters.confluence.resolve import resolve_target
         from knowledge_adapters.confluence.traversal import walk_pages
@@ -112,6 +119,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             base_url=args.base_url,
             target=args.target,
             output_dir=args.output_dir,
+            client_mode=args.client_mode,
             auth_method=args.auth_method,
             dry_run=args.dry_run,
             tree=args.tree,
@@ -131,10 +139,32 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"  base_url: {confluence_config.base_url}")
         print(f"  target: {target.raw_value}")
         print(f"  output_dir: {confluence_config.output_dir}")
+        print(f"  client_mode: {confluence_config.client_mode}")
         print(f"  auth_method: {confluence_config.auth_method}")
         print(f"  dry_run: {confluence_config.dry_run}")
         print(f"  tree: {confluence_config.tree}")
         print(f"  max_depth: {confluence_config.max_depth}")
+
+        if confluence_config.client_mode == "real":
+            if confluence_config.tree:
+                exit_with_cli_error(
+                    "--client-mode real does not support --tree in v1."
+                )
+            if confluence_config.max_depth > 0:
+                exit_with_cli_error(
+                    "--client-mode real does not support --max-depth greater than 0 in v1."
+                )
+
+        selected_fetch_page: Callable[[ResolvedTarget], dict[str, object]]
+        if confluence_config.client_mode == "real":
+            def selected_fetch_page(resolved_target: ResolvedTarget) -> dict[str, object]:
+                return fetch_real_page(
+                    resolved_target,
+                    base_url=confluence_config.base_url,
+                    auth_method=confluence_config.auth_method,
+                )
+        else:
+            selected_fetch_page = fetch_page
 
         def _build_manifest_entry_for_page(
             page: dict[str, object],
@@ -152,7 +182,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             root_page_id, pages = walk_pages(
                 target,
                 max_depth=confluence_config.max_depth,
-                fetch_page=fetch_page,
+                fetch_page=selected_fetch_page,
             )
             previous_manifest_index = load_previous_manifest_index(
                 confluence_config.output_dir
@@ -213,7 +243,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"\nManifest: {manifest}")
             return 0
 
-        page = fetch_page(target)
+        page = selected_fetch_page(target)
         page_id = str(page["canonical_id"])
         output_path = markdown_path(confluence_config.output_dir, page_id)
         previous_manifest_index = load_previous_manifest_index(confluence_config.output_dir)
