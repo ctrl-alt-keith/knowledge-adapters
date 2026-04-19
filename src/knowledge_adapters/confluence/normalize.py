@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 
-def normalize_to_markdown(page: dict[str, object]) -> str:
+
+def normalize_to_markdown(page: Mapping[str, object]) -> str:
     """Normalize a fetched page payload into markdown."""
     title = str(page.get("title", "untitled"))
     canonical_id = str(page.get("canonical_id", ""))

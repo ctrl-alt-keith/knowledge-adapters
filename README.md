@@ -2,6 +2,30 @@
 
 Generic adapters for acquiring knowledge from external sources and normalizing it into local, LLM-ready artifacts.
 
+---
+
+## Quickstart
+
+```bash
+git clone <repo>
+cd <repo>
+
+make dev
+make check
+```
+
+Common commands:
+
+```bash
+make test
+make lint
+make fix
+make format
+make typecheck
+```
+
+---
+
 ## Purpose
 
 This repository is a public-by-design workspace for building source adapters that:
@@ -79,7 +103,7 @@ The initial implementation focuses on a **Confluence adapter**, but the reposito
 
 This repository contains only generic tooling, abstractions, and documentation.
 
-Never commit:
+**Never commit:**
 - secrets
 - tokens
 - cookies
@@ -87,7 +111,7 @@ Never commit:
 - source content from private systems
 - environment-specific config files
 
-Instead:
+**Instead:**
 - inject credentials via environment variables, CLI args, or local-only config
 - keep local config and token storage outside the repo
 - use synthetic or sanitized fixtures for tests
