@@ -94,6 +94,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "confluence":
         from knowledge_adapters.confluence.client import fetch_page
         from knowledge_adapters.confluence.config import ConfluenceConfig
+        from knowledge_adapters.confluence.manifest import (
+            build_manifest_entry,
+            write_manifest,
+        )
         from knowledge_adapters.confluence.normalize import normalize_to_markdown
         from knowledge_adapters.confluence.resolve import resolve_target
         from knowledge_adapters.confluence.writer import write_markdown
@@ -139,12 +143,28 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(markdown)
             return 0
 
+        write_manifest(
+            confluence_config.output_dir,
+            [
+                build_manifest_entry(
+                    canonical_id=page_id,
+                    source_url=str(page.get("source_url", "")),
+                    output_path=output_path,
+                    output_dir=confluence_config.output_dir,
+                    title=str(page["title"]) if page.get("title") else None,
+                )
+            ],
+        )
         print(f"\nWrote: {output_path}")
         return 0
 
     if args.command == "local_files":
         from pathlib import Path
 
+        from knowledge_adapters.confluence.manifest import (
+            build_manifest_entry,
+            write_manifest,
+        )
         from knowledge_adapters.local_files.client import fetch_file
         from knowledge_adapters.local_files.config import LocalFilesConfig
         from knowledge_adapters.local_files.normalize import normalize_to_markdown
@@ -177,6 +197,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(markdown)
             return 0
 
+        write_manifest(
+            local_files_config.output_dir,
+            [
+                build_manifest_entry(
+                    canonical_id=str(page["canonical_id"]),
+                    source_url=str(page.get("source_url", "")),
+                    output_path=output_path,
+                    output_dir=local_files_config.output_dir,
+                    title=str(page["title"]) if page.get("title") else None,
+                )
+            ],
+        )
         print(f"\nWrote: {output_path}")
         return 0
 

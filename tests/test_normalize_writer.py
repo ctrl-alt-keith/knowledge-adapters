@@ -1,9 +1,11 @@
+import json
 from pathlib import Path
 
 import pytest
 from pytest import CaptureFixture
 
 from knowledge_adapters.cli import main
+from knowledge_adapters.confluence.manifest import build_manifest_entry, write_manifest
 from knowledge_adapters.confluence.normalize import normalize_to_markdown
 from knowledge_adapters.confluence.writer import write_markdown
 
@@ -64,6 +66,52 @@ def test_write_markdown_dry_run_returns_path_without_writing(tmp_path: Path) -> 
     assert not output_path.exists()
 
 
+def test_build_manifest_entry_uses_relative_output_path_and_optional_title(
+    tmp_path: Path,
+) -> None:
+    output_path = tmp_path / "pages" / "page-42.md"
+
+    entry = build_manifest_entry(
+        canonical_id="page-42",
+        source_url="https://example.com/wiki/pages/42",
+        output_path=output_path,
+        output_dir=str(tmp_path),
+        title="Page 42",
+    )
+
+    assert entry == {
+        "canonical_id": "page-42",
+        "source_url": "https://example.com/wiki/pages/42",
+        "output_path": "pages/page-42.md",
+        "title": "Page 42",
+    }
+
+
+def test_write_manifest_writes_minimal_payload_for_current_run(tmp_path: Path) -> None:
+    manifest = write_manifest(
+        str(tmp_path),
+        [
+            {
+                "canonical_id": "page-42",
+                "source_url": "https://example.com/wiki/pages/42",
+                "output_path": "pages/page-42.md",
+            }
+        ],
+    )
+
+    assert manifest == tmp_path / "manifest.json"
+
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    assert payload["files"] == [
+        {
+            "canonical_id": "page-42",
+            "source_url": "https://example.com/wiki/pages/42",
+            "output_path": "pages/page-42.md",
+        }
+    ]
+    assert isinstance(payload["generated_at"], str)
+
+
 def test_confluence_cli_dry_run_reports_output_without_writing(
     tmp_path: Path,
     capsys: CaptureFixture[str],
@@ -87,10 +135,40 @@ def test_confluence_cli_dry_run_reports_output_without_writing(
 
     output_path = output_dir / "pages" / "12345.md"
     assert not output_path.exists()
+    assert not (output_dir / "manifest.json").exists()
 
     captured = capsys.readouterr()
     assert f"Dry run: would write {output_path}" in captured.out
     assert "# stub-page-12345" in captured.out
+
+
+def test_confluence_cli_writes_manifest_for_normal_run(tmp_path: Path) -> None:
+    output_dir = tmp_path / "out"
+
+    exit_code = main(
+        [
+            "confluence",
+            "--base-url",
+            "https://example.com/wiki",
+            "--target",
+            "12345",
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+
+    assert exit_code == 0
+
+    payload = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert payload["files"] == [
+        {
+            "canonical_id": "12345",
+            "source_url": "",
+            "output_path": "pages/12345.md",
+            "title": "stub-page-12345",
+        }
+    ]
+    assert isinstance(payload["generated_at"], str)
 
 
 def test_confluence_cli_invalid_target_reports_expected_shapes(
