@@ -1,4 +1,4 @@
-.PHONY: dev test lint fix format typecheck check check-env clean
+.PHONY: dev test smoke lint fix format typecheck check check-env clean
 
 VENV = .venv
 PYTHON = $(VENV)/bin/python
@@ -6,6 +6,7 @@ PIP = $(VENV)/bin/pip
 RUFF = $(VENV)/bin/ruff
 MYPY = $(VENV)/bin/mypy
 PYTEST = $(VENV)/bin/pytest
+CLI = $(VENV)/bin/knowledge-adapters
 
 $(VENV)/bin/activate:
 	python3 -m venv $(VENV)
@@ -20,6 +21,9 @@ check-env:
 
 test: $(VENV)/bin/activate
 	$(PYTEST)
+
+smoke: $(VENV)/bin/activate
+	$(PYTEST) tests/test_cli_smoke.py
 
 lint: $(VENV)/bin/activate
 	$(RUFF) check .
