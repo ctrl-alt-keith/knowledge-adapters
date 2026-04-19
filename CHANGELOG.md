@@ -2,12 +2,27 @@
 
 Confluence release notes below describe shipped CLI wiring, manifest behavior,
 design docs, and contract coverage in this repository. The default Confluence
-client in `src/knowledge_adapters/confluence/client.py` is still a stub and does
-not yet perform live network fetches against Confluence.
+client remains the stub path, while the opt-in real client path now supports
+single-page live fetches for Confluence.
 
 Formal changelog coverage begins at `0.2.0`, when this repository started using
 `CHANGELOG.md` as part of the release flow. Earlier tagged releases `v0.1.0` and
 `v0.1.1` predate that practice and are not backfilled here.
+
+## 0.4.0
+
+- Added opt-in real Confluence client support through `--client-mode real` while
+  preserving the existing stub client as the default behavior.
+- Shipped v1 single-page live fetches by canonical page ID, returning real page
+  title, content, canonical ID, and absolute source URL for the existing
+  normalization and write pipeline.
+- Added `bearer-env` authentication for real mode via `CONFLUENCE_BEARER_TOKEN`.
+- Added fail-fast real-client error handling for missing auth, `401/403` auth
+  failures, `404` not-found responses, malformed payloads, URL construction
+  failures, and page ID mismatches.
+- Added contract coverage for stub-versus-real mode selection and real-client
+  mapping behavior, plus hardening coverage for response-shape and source-URL
+  edge cases.
 
 ## 0.3.0
 
