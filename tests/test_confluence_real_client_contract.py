@@ -1,0 +1,331 @@
+from __future__ import annotations
+
+import io
+import json
+from email.message import Message
+from pathlib import Path
+from typing import Any, Literal, cast
+from urllib.error import HTTPError
+
+import pytest
+from pytest import CaptureFixture, MonkeyPatch
+
+from knowledge_adapters.cli import main
+from knowledge_adapters.confluence.models import ResolvedTarget
+
+
+def _confluence_argv(output_dir: Path, *extra_args: str) -> list[str]:
+    return [
+        "confluence",
+        "--base-url",
+        "https://example.com/wiki",
+        "--target",
+        "12345",
+        "--output-dir",
+        str(output_dir),
+        *extra_args,
+    ]
+
+
+def _load_manifest(output_dir: Path) -> dict[str, object]:
+    payload = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    return cast(dict[str, object], payload)
+
+
+def _real_target(page_id: str = "12345") -> ResolvedTarget:
+    return ResolvedTarget(
+        raw_value=page_id,
+        page_id=page_id,
+        page_url=None,
+    )
+
+
+def _fetch_real_page(
+    target: ResolvedTarget,
+    *,
+    base_url: str = "https://example.com/wiki",
+    auth_method: str = "bearer-env",
+) -> dict[str, object]:
+    from knowledge_adapters.confluence import client as client_module
+
+    client_module_any = cast(Any, client_module)
+    page = client_module_any.fetch_real_page(
+        target,
+        base_url=base_url,
+        auth_method=auth_method,
+    )
+    return cast(dict[str, object], page)
+
+
+class _FakeHTTPResponse:
+    def __init__(self, payload: dict[str, object], *, status: int = 200) -> None:
+        self.status = status
+        self._payload = payload
+
+    def __enter__(self) -> _FakeHTTPResponse:
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> Literal[False]:
+        return False
+
+    def read(self) -> bytes:
+        return json.dumps(self._payload).encode("utf-8")
+
+    def getcode(self) -> int:
+        return self.status
+
+
+def _valid_confluence_payload(
+    *,
+    page_id: str = "12345",
+) -> dict[str, object]:
+    return {
+        "id": page_id,
+        "title": "Real Page",
+        "body": {
+            "storage": {
+                "value": "<p>Hello from Confluence.</p>",
+            }
+        },
+        "_links": {
+            "base": "https://example.com/wiki",
+            "webui": f"/spaces/ENG/pages/{page_id}",
+        },
+    }
+
+
+def _http_error(status_code: int) -> HTTPError:
+    headers = Message()
+    return HTTPError(
+        url="https://example.com/wiki/api/content/12345",
+        code=status_code,
+        msg=f"synthetic http error {status_code}",
+        hdrs=headers,
+        fp=io.BytesIO(b"{}"),
+    )
+
+
+def test_default_cli_behavior_without_client_mode_still_uses_stub_client(
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "out"
+
+    exit_code = main(_confluence_argv(output_dir))
+
+    assert exit_code == 0
+
+    output_path = output_dir / "pages" / "12345.md"
+    assert output_path.read_text(encoding="utf-8") == (
+        """# stub-page-12345
+
+## Metadata
+- source: confluence
+- canonical_id: 12345
+- parent_id:
+- source_url: 
+- fetched_at:
+- updated_at:
+- adapter: confluence
+
+## Content
+
+Stub content for page 12345.
+"""
+    )
+
+    payload = _load_manifest(output_dir)
+    assert payload["files"] == [
+        {
+            "canonical_id": "12345",
+            "source_url": "",
+            "output_path": "pages/12345.md",
+            "title": "stub-page-12345",
+        }
+    ]
+
+
+@pytest.mark.xfail(strict=True, reason="real client CLI mode is not implemented yet")
+def test_explicit_real_client_mode_selects_real_fetch_path(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    from knowledge_adapters.confluence import client as client_module
+
+    def stub_real_fetch(*args: object, **kwargs: object) -> dict[str, object]:
+        return {
+            "canonical_id": "12345",
+            "title": "Real Page",
+            "content": "<p>Hello from Confluence.</p>",
+            "source_url": "https://example.com/wiki/spaces/ENG/pages/12345",
+        }
+
+    def fail_if_stub_used(target: ResolvedTarget) -> dict[str, object]:
+        raise AssertionError(
+            f"stub client should not be used in real mode for {target.page_id}"
+        )
+
+    monkeypatch.setattr(client_module, "fetch_real_page", stub_real_fetch, raising=False)
+    monkeypatch.setattr(client_module, "fetch_page", fail_if_stub_used)
+
+    output_dir = tmp_path / "out"
+    exit_code = main(_confluence_argv(output_dir, "--client-mode", "real"))
+
+    assert exit_code == 0
+
+    output_path = output_dir / "pages" / "12345.md"
+    rendered = output_path.read_text(encoding="utf-8")
+    assert "# Real Page" in rendered
+    assert "<p>Hello from Confluence.</p>" in rendered
+    assert "Stub content for page 12345." not in rendered
+
+
+@pytest.mark.xfail(strict=True, reason="real client tree guardrails are not implemented yet")
+@pytest.mark.parametrize(
+    ("extra_args", "expected_fragment"),
+    [
+        (["--client-mode", "real", "--tree"], "--tree"),
+        (["--client-mode", "real", "--max-depth", "1"], "--max-depth"),
+    ],
+)
+def test_real_client_mode_rejects_tree_or_depth_usage_in_v1(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    extra_args: list[str],
+    expected_fragment: str,
+) -> None:
+    output_dir = tmp_path / "out"
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(_confluence_argv(output_dir, *extra_args))
+
+    assert exc_info.value.code == 2
+
+    captured = capsys.readouterr()
+    assert "real" in captured.err
+    assert expected_fragment in captured.err
+
+
+@pytest.mark.xfail(strict=True, reason="bearer-env token validation is not implemented yet")
+@pytest.mark.parametrize(
+    "token_value",
+    [
+        None,
+        "",
+    ],
+)
+def test_real_fetch_requires_nonempty_bearer_token_before_request(
+    monkeypatch: MonkeyPatch,
+    token_value: str | None,
+) -> None:
+    request_count = 0
+
+    def fail_if_requested(*args: object, **kwargs: object) -> object:
+        nonlocal request_count
+        request_count += 1
+        raise AssertionError("network request should not be attempted without auth")
+
+    if token_value is None:
+        monkeypatch.delenv("CONFLUENCE_BEARER_TOKEN", raising=False)
+    else:
+        monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", token_value)
+
+    monkeypatch.setattr("urllib.request.urlopen", fail_if_requested)
+
+    with pytest.raises(ValueError, match="CONFLUENCE_BEARER_TOKEN"):
+        _fetch_real_page(_real_target())
+
+    assert request_count == 0
+
+
+@pytest.mark.xfail(strict=True, reason="real response mapping is not implemented yet")
+def test_real_fetch_maps_valid_confluence_response_into_adapter_payload(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda *args, **kwargs: _FakeHTTPResponse(_valid_confluence_payload()),
+    )
+
+    page = _fetch_real_page(_real_target())
+
+    assert page == {
+        "canonical_id": "12345",
+        "title": "Real Page",
+        "content": "<p>Hello from Confluence.</p>",
+        "source_url": "https://example.com/wiki/spaces/ENG/pages/12345",
+    }
+    assert str(page["source_url"]).startswith("https://")
+
+
+@pytest.mark.xfail(strict=True, reason="real HTTP error mapping is not implemented yet")
+@pytest.mark.parametrize(
+    ("status_code", "expected_fragment"),
+    [
+        (401, "auth"),
+        (403, "auth"),
+        (404, "not found"),
+    ],
+)
+def test_real_fetch_maps_http_status_failures(
+    monkeypatch: MonkeyPatch,
+    status_code: int,
+    expected_fragment: str,
+) -> None:
+    def raise_http_error(*args: object, **kwargs: object) -> object:
+        raise _http_error(status_code)
+
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr("urllib.request.urlopen", raise_http_error)
+
+    with pytest.raises(RuntimeError, match=expected_fragment):
+        _fetch_real_page(_real_target())
+
+
+@pytest.mark.xfail(strict=True, reason="real response validation is not implemented yet")
+@pytest.mark.parametrize(
+    ("payload", "expected_fragment"),
+    [
+        (
+            {
+                "id": "12345",
+                "title": "Real Page",
+                "_links": {
+                    "base": "https://example.com/wiki",
+                    "webui": "/spaces/ENG/pages/12345",
+                },
+            },
+            "content",
+        ),
+        (
+            {
+                "id": "12345",
+                "title": "Real Page",
+                "body": {
+                    "storage": {
+                        "value": "<p>Hello from Confluence.</p>",
+                    }
+                },
+                "_links": {},
+            },
+            "source_url",
+        ),
+        (
+            _valid_confluence_payload(page_id="99999"),
+            "canonical_id",
+        ),
+    ],
+)
+def test_real_fetch_fails_fast_on_invalid_response_shapes(
+    monkeypatch: MonkeyPatch,
+    payload: dict[str, object],
+    expected_fragment: str,
+) -> None:
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda *args, **kwargs: _FakeHTTPResponse(payload),
+    )
+
+    with pytest.raises(ValueError, match=expected_fragment):
+        _fetch_real_page(_real_target())
