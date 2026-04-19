@@ -35,7 +35,7 @@ This repository is a public-by-design workspace for building source adapters tha
 - keep source-specific logic separate from downstream processing
 - avoid embedding environment-specific details in the codebase
 
-The initial implementation focuses on a **Confluence adapter**, but the repository is intentionally scoped for multiple adapters over time.
+The initial implementation focuses on **Confluence** and **local file** adapters, but the repository is intentionally scoped for additional adapters over time.
 
 ---
 
@@ -70,6 +70,7 @@ The initial implementation focuses on a **Confluence adapter**, but the reposito
 - repository structure
 - initial documentation
 - Confluence adapter scaffold
+- local files adapter scaffold
 - CLI entrypoint
 - basic end-to-end pipeline (resolve → fetch stub → normalize → write)
 - CI (ruff, mypy, pytest)
@@ -84,6 +85,10 @@ The initial implementation focuses on a **Confluence adapter**, but the reposito
   - write local artifacts to a specified output directory
   - track state with a manifest
   - support dry-run behavior
+- local files adapter
+  - accept a runtime-provided file path
+  - normalize file contents into markdown plus metadata
+  - write local artifacts to a specified output directory
 
 ---
 
@@ -146,4 +151,14 @@ knowledge-adapters/
 │   └── knowledge_adapters/
 ├── tests/
 └── .gitignore
+```
+
+## Example
+
+Normalize a local text file into the standard markdown artifact:
+
+```bash
+knowledge-adapters local_files \
+  --file-path ./notes/today.txt \
+  --output-dir ./artifacts
 ```
