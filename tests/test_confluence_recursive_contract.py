@@ -53,15 +53,19 @@ def _run_recursive_cli(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
     *,
+    pages: dict[str, dict[str, object]] | None = None,
+    target: str = "100",
     max_depth: int,
     dry_run: bool = False,
     fail_on_ids: set[str] | None = None,
-) -> tuple[int, Path]:
-    pages = _synthetic_pages()
+) -> tuple[int, Path, dict[str, int]]:
+    pages = pages or _synthetic_pages()
     fail_ids = fail_on_ids or set()
+    fetch_counts: dict[str, int] = {}
 
     def stub_fetch_page(target: ResolvedTarget) -> dict[str, object]:
         page_id = str(target.page_id)
+        fetch_counts[page_id] = fetch_counts.get(page_id, 0) + 1
         if page_id in fail_ids:
             raise RuntimeError(f"synthetic fetch failure for {page_id}")
         return dict(pages[page_id])
@@ -74,7 +78,7 @@ def _run_recursive_cli(
         "--base-url",
         "https://example.com/wiki",
         "--target",
-        "100",
+        target,
         "--output-dir",
         str(output_dir),
         "--tree",
@@ -85,7 +89,7 @@ def _run_recursive_cli(
         argv.append("--dry-run")
 
     exit_code = main(argv)
-    return exit_code, output_dir
+    return exit_code, output_dir, fetch_counts
 
 
 def _load_manifest(output_dir: Path) -> dict[str, object]:
@@ -111,7 +115,7 @@ def test_recursive_depth_semantics_are_encoded_in_manifest(
     max_depth: int,
     expected_ids: list[str],
 ) -> None:
-    exit_code, output_dir = _run_recursive_cli(
+    exit_code, output_dir, _fetch_counts = _run_recursive_cli(
         tmp_path,
         monkeypatch,
         max_depth=max_depth,
@@ -129,7 +133,7 @@ def test_recursive_run_deduplicates_by_canonical_page_id(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
 ) -> None:
-    exit_code, output_dir = _run_recursive_cli(
+    exit_code, output_dir, fetch_counts = _run_recursive_cli(
         tmp_path,
         monkeypatch,
         max_depth=2,
@@ -142,13 +146,14 @@ def test_recursive_run_deduplicates_by_canonical_page_id(
 
     assert canonical_ids == ["100", "200", "300", "205", "210"]
     assert canonical_ids.count("200") == 1
+    assert fetch_counts["200"] == 1
 
 
 def test_recursive_manifest_ordering_is_breadth_first_then_lexical(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
 ) -> None:
-    exit_code, output_dir = _run_recursive_cli(
+    exit_code, output_dir, _fetch_counts = _run_recursive_cli(
         tmp_path,
         monkeypatch,
         max_depth=2,
@@ -177,7 +182,7 @@ def test_recursive_manifest_records_root_run_context_and_current_run_files_only(
         encoding="utf-8",
     )
 
-    exit_code, _ = _run_recursive_cli(
+    exit_code, _, _fetch_counts = _run_recursive_cli(
         tmp_path,
         monkeypatch,
         max_depth=2,
@@ -245,7 +250,7 @@ def test_recursive_dry_run_reports_unique_planned_outputs_without_writing(
     monkeypatch: MonkeyPatch,
     capsys: CaptureFixture[str],
 ) -> None:
-    exit_code, output_dir = _run_recursive_cli(
+    exit_code, output_dir, _fetch_counts = _run_recursive_cli(
         tmp_path,
         monkeypatch,
         max_depth=2,
@@ -261,3 +266,188 @@ def test_recursive_dry_run_reports_unique_planned_outputs_without_writing(
     for page_id in ["100", "200", "300", "205", "210"]:
         assert output.count(f"{output_dir / 'pages' / f'{page_id}.md'}") == 1
     assert output.count("5 unique pages") == 1
+
+
+def test_recursive_deeper_tree_excludes_descendants_beyond_max_depth(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    pages: dict[str, dict[str, object]] = {
+        "100": {
+            "canonical_id": "100",
+            "title": "Root",
+            "source_url": "https://example.com/wiki/pages/100",
+            "content": "Root",
+            "children": ["200"],
+        },
+        "200": {
+            "canonical_id": "200",
+            "title": "Depth 1",
+            "source_url": "https://example.com/wiki/pages/200",
+            "content": "Depth 1",
+            "children": ["300"],
+        },
+        "300": {
+            "canonical_id": "300",
+            "title": "Depth 2",
+            "source_url": "https://example.com/wiki/pages/300",
+            "content": "Depth 2",
+            "children": ["400"],
+        },
+        "400": {
+            "canonical_id": "400",
+            "title": "Depth 3",
+            "source_url": "https://example.com/wiki/pages/400",
+            "content": "Depth 3",
+            "children": [],
+        },
+    }
+
+    exit_code, output_dir, fetch_counts = _run_recursive_cli(
+        tmp_path,
+        monkeypatch,
+        pages=pages,
+        max_depth=2,
+    )
+
+    assert exit_code == 0
+
+    payload = _load_manifest(output_dir)
+    assert [entry["canonical_id"] for entry in _manifest_files(payload)] == [
+        "100",
+        "200",
+        "300",
+    ]
+    assert "400" not in fetch_counts
+
+
+def test_recursive_wide_tree_orders_many_siblings_lexically_within_a_depth(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    pages: dict[str, dict[str, object]] = {
+        "100": {
+            "canonical_id": "100",
+            "title": "Root",
+            "source_url": "https://example.com/wiki/pages/100",
+            "content": "Root",
+            "children": ["450", "220", "410", "205", "330"],
+        },
+        "205": {
+            "canonical_id": "205",
+            "title": "205",
+            "source_url": "https://example.com/wiki/pages/205",
+            "content": "205",
+            "children": [],
+        },
+        "220": {
+            "canonical_id": "220",
+            "title": "220",
+            "source_url": "https://example.com/wiki/pages/220",
+            "content": "220",
+            "children": [],
+        },
+        "330": {
+            "canonical_id": "330",
+            "title": "330",
+            "source_url": "https://example.com/wiki/pages/330",
+            "content": "330",
+            "children": [],
+        },
+        "410": {
+            "canonical_id": "410",
+            "title": "410",
+            "source_url": "https://example.com/wiki/pages/410",
+            "content": "410",
+            "children": [],
+        },
+        "450": {
+            "canonical_id": "450",
+            "title": "450",
+            "source_url": "https://example.com/wiki/pages/450",
+            "content": "450",
+            "children": [],
+        },
+    }
+
+    exit_code, output_dir, _fetch_counts = _run_recursive_cli(
+        tmp_path,
+        monkeypatch,
+        pages=pages,
+        max_depth=1,
+    )
+
+    assert exit_code == 0
+
+    payload = _load_manifest(output_dir)
+    assert [entry["canonical_id"] for entry in _manifest_files(payload)] == [
+        "100",
+        "205",
+        "220",
+        "330",
+        "410",
+        "450",
+    ]
+
+
+def test_recursive_duplicate_heavy_graph_fetches_each_repeated_page_once(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    pages: dict[str, dict[str, object]] = {
+        "100": {
+            "canonical_id": "100",
+            "title": "Root",
+            "source_url": "https://example.com/wiki/pages/100",
+            "content": "Root",
+            "children": ["300", "200", "200", "400"],
+        },
+        "200": {
+            "canonical_id": "200",
+            "title": "Shared",
+            "source_url": "https://example.com/wiki/pages/200",
+            "content": "Shared",
+            "children": ["500", "500", "500"],
+        },
+        "300": {
+            "canonical_id": "300",
+            "title": "Branch A",
+            "source_url": "https://example.com/wiki/pages/300",
+            "content": "Branch A",
+            "children": ["200", "500", "500"],
+        },
+        "400": {
+            "canonical_id": "400",
+            "title": "Branch B",
+            "source_url": "https://example.com/wiki/pages/400",
+            "content": "Branch B",
+            "children": ["200", "500"],
+        },
+        "500": {
+            "canonical_id": "500",
+            "title": "Leaf",
+            "source_url": "https://example.com/wiki/pages/500",
+            "content": "Leaf",
+            "children": [],
+        },
+    }
+
+    exit_code, output_dir, fetch_counts = _run_recursive_cli(
+        tmp_path,
+        monkeypatch,
+        pages=pages,
+        max_depth=2,
+    )
+
+    assert exit_code == 0
+
+    payload = _load_manifest(output_dir)
+    assert [entry["canonical_id"] for entry in _manifest_files(payload)] == [
+        "100",
+        "200",
+        "300",
+        "400",
+        "500",
+    ]
+    assert fetch_counts["200"] == 1
+    assert fetch_counts["500"] == 1

@@ -172,7 +172,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 for page, output_path in page_records
             ]
-            write_manifest_with_context(
+            manifest = write_manifest_with_context(
                 confluence_config.output_dir,
                 files,
                 root_page_id=root_page_id,
@@ -180,6 +180,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             for _page, output_path in page_records:
                 print(f"\nWrote: {output_path}")
+            print(f"\nManifest: {manifest}")
             return 0
 
         page = fetch_page(target)

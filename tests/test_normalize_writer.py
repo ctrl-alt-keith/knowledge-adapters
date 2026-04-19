@@ -171,6 +171,33 @@ def test_confluence_cli_writes_manifest_for_normal_run(tmp_path: Path) -> None:
     assert isinstance(payload["generated_at"], str)
 
 
+def test_confluence_cli_tree_run_reports_manifest_path(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    output_dir = tmp_path / "out"
+
+    exit_code = main(
+        [
+            "confluence",
+            "--base-url",
+            "https://example.com/wiki",
+            "--target",
+            "12345",
+            "--output-dir",
+            str(output_dir),
+            "--tree",
+            "--max-depth",
+            "0",
+        ]
+    )
+
+    assert exit_code == 0
+
+    captured = capsys.readouterr()
+    assert f"Manifest: {output_dir / 'manifest.json'}" in captured.out
+
+
 def test_confluence_cli_invalid_target_reports_expected_shapes(
     tmp_path: Path,
     capsys: CaptureFixture[str],
