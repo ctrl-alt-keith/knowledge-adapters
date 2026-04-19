@@ -8,11 +8,6 @@ from pytest import CaptureFixture, MonkeyPatch
 from knowledge_adapters.cli import main
 from knowledge_adapters.confluence.models import ResolvedTarget
 
-pytestmark = pytest.mark.xfail(
-    reason="Recursive Confluence traversal is not implemented yet.",
-    strict=True,
-)
-
 
 def _synthetic_pages() -> dict[str, dict[str, object]]:
     return {

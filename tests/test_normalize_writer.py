@@ -197,3 +197,34 @@ def test_confluence_cli_invalid_target_reports_expected_shapes(
         "knowledge-adapters confluence: error: Could not resolve target "
         "'not-a-page'. Expected a Confluence page ID or full Confluence page URL.\n"
     ) in captured.err
+
+
+def test_confluence_cli_rejects_negative_max_depth(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    output_dir = tmp_path / "out"
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            [
+                "confluence",
+                "--base-url",
+                "https://example.com/wiki",
+                "--target",
+                "12345",
+                "--output-dir",
+                str(output_dir),
+                "--tree",
+                "--max-depth",
+                "-1",
+            ]
+        )
+
+    assert exc_info.value.code == 2
+
+    captured = capsys.readouterr()
+    assert (
+        "knowledge-adapters confluence: error: --max-depth must be greater than or "
+        "equal to 0.\n"
+    ) in captured.err
