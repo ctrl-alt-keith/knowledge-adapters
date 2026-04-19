@@ -99,7 +99,9 @@ Field mapping rules for v1:
 - `canonical_id` is the canonical page ID returned by Confluence and must match the resolved page ID used for the request
 - `title` is the page title from the Confluence response
 - `content` is the single body field used by normalization in v1
-- `source_url` is the canonical web URL for the page, resolved to an absolute URL if the source response provides a relative path
+- `source_url` is required in v1 and must be the canonical absolute web URL for the page
+- when the selected Confluence response shape provides enough data to construct `source_url`, the client should construct it as an absolute URL
+- if the response does not provide enough data to construct the required `source_url`, the client must treat that response as invalid for v1
 
 ### Body/content choice
 
@@ -251,6 +253,7 @@ Cases:
 
 - missing page ID, title, body field, or link data needed for `source_url`
 - non-string body/title values where strings are required
+- missing or insufficient URL/link data to construct the required absolute `source_url`
 - response page ID does not match the requested canonical page ID
 
 Behavior:
