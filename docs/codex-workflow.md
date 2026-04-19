@@ -174,6 +174,9 @@ The canonical validation steps for this repo are defined in `AGENTS.md`.
 
 A Codex task is not considered complete until validation succeeds.
 
+Run validation through the Makefile targets for this repository.
+Do not invoke `pytest`, `mypy`, or `ruff` directly; use `make check` and other documented `make` targets instead.
+
 At the time of writing, validation is:
 
 ```bash
