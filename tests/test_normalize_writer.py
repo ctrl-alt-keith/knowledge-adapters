@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 from pytest import CaptureFixture
 
 from knowledge_adapters.cli import main
@@ -90,3 +91,31 @@ def test_confluence_cli_dry_run_reports_output_without_writing(
     captured = capsys.readouterr()
     assert f"Dry run: would write {output_path}" in captured.out
     assert "# stub-page-12345" in captured.out
+
+
+def test_confluence_cli_invalid_target_reports_expected_shapes(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    output_dir = tmp_path / "out"
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            [
+                "confluence",
+                "--base-url",
+                "https://example.com/wiki",
+                "--target",
+                "not-a-page",
+                "--output-dir",
+                str(output_dir),
+            ]
+        )
+
+    assert exc_info.value.code == 2
+
+    captured = capsys.readouterr()
+    assert (
+        "knowledge-adapters confluence: error: Could not resolve target "
+        "'not-a-page'. Expected a Confluence page ID or full Confluence page URL.\n"
+    ) in captured.err

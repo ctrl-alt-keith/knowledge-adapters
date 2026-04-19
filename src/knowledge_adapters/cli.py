@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from collections.abc import Sequence
 
 
@@ -79,6 +80,12 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def exit_with_cli_error(message: str) -> None:
+    """Exit the CLI with a stable user-facing error message."""
+    print(f"knowledge-adapters confluence: error: {message}", file=sys.stderr)
+    raise SystemExit(2)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI."""
     parser = build_parser()
@@ -102,6 +109,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
 
         target = resolve_target(confluence_config.target)
+        if target.page_id is None:
+            exit_with_cli_error(
+                f"Could not resolve target {target.raw_value!r}. "
+                "Expected a Confluence page ID or full Confluence page URL."
+            )
 
         print("Confluence adapter invoked")
         print(f"  base_url: {confluence_config.base_url}")
