@@ -48,11 +48,12 @@ def _run_recursive_cli(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
     *,
+    pages: dict[str, dict[str, object]] | None = None,
     target: str = "100",
     max_depth: int = 1,
     dry_run: bool = False,
 ) -> tuple[int, Path]:
-    pages = _synthetic_pages()
+    pages = pages or _synthetic_pages()
 
     def stub_fetch_page(target: ResolvedTarget) -> dict[str, object]:
         return dict(pages[str(target.page_id)])
@@ -90,14 +91,18 @@ def _write_previous_manifest(
     output_dir: Path,
     files: list[dict[str, str]],
     *,
+    generated_at: str = "2026-04-19T00:00:00Z",
     root_page_id: str | None = None,
+    max_depth: int | None = None,
 ) -> str:
     payload: dict[str, object] = {
-        "generated_at": "2026-04-19T00:00:00Z",
+        "generated_at": generated_at,
         "files": files,
     }
     if root_page_id is not None:
         payload["root_page_id"] = root_page_id
+    if max_depth is not None:
+        payload["max_depth"] = max_depth
 
     output_dir.mkdir(parents=True, exist_ok=True)
     manifest_text = json.dumps(payload, indent=2) + "\n"
@@ -247,6 +252,7 @@ def test_incremental_dry_run_reports_both_would_write_and_would_skip_without_wri
     captured = capsys.readouterr()
     assert f"would skip {existing_page}" in captured.out
     assert f"would write {_page_path(output_dir, '200')}" in captured.out
+    assert "Summary: would write 1, would skip 1" in captured.out
     assert existing_page.read_text(encoding="utf-8") == "already written\n"
     assert not _page_path(output_dir, "200").exists()
     assert _manifest_path(output_dir).read_text(encoding="utf-8") == original_manifest
@@ -370,3 +376,311 @@ def test_incremental_run_fails_fast_for_duplicate_manifest_entries(
         )
 
     assert not _page_path(output_dir, "100").exists()
+
+
+def test_incremental_normal_run_handles_larger_mixed_write_and_skip_set(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    pages: dict[str, dict[str, object]] = {
+        "100": {
+            "canonical_id": "100",
+            "title": "Root",
+            "source_url": "https://example.com/wiki/pages/100",
+            "content": "Root content.",
+            "children": ["200", "300", "400"],
+        },
+        "200": {
+            "canonical_id": "200",
+            "title": "Write Child A",
+            "source_url": "https://example.com/wiki/pages/200",
+            "content": "Child A content.",
+            "children": [],
+        },
+        "300": {
+            "canonical_id": "300",
+            "title": "Skip Child",
+            "source_url": "https://example.com/wiki/pages/300",
+            "content": "Child B content.",
+            "children": [],
+        },
+        "400": {
+            "canonical_id": "400",
+            "title": "Write Child B",
+            "source_url": "https://example.com/wiki/pages/400",
+            "content": "Child C content.",
+            "children": [],
+        },
+    }
+    output_dir = tmp_path / "out"
+    _write_previous_manifest(
+        output_dir,
+        [
+            {
+                "canonical_id": "100",
+                "source_url": "https://example.com/wiki/pages/100?old=1",
+                "output_path": "pages/100.md",
+                "title": "Old Root",
+            },
+            {
+                "canonical_id": "300",
+                "source_url": "https://example.com/wiki/pages/300?old=1",
+                "output_path": "pages/300.md",
+                "title": "Old Child",
+            },
+            {
+                "canonical_id": "999",
+                "source_url": "https://example.com/wiki/pages/999",
+                "output_path": "pages/999.md",
+                "title": "Unrelated",
+            },
+        ],
+        root_page_id="old-root",
+        max_depth=9,
+    )
+    existing_pages = [
+        ("100", "existing root\n"),
+        ("300", "existing child\n"),
+        ("999", "existing unrelated\n"),
+    ]
+    for page_id, contents in existing_pages:
+        path = _page_path(output_dir, page_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(contents, encoding="utf-8")
+
+    exit_code, _ = _run_recursive_cli(
+        tmp_path,
+        monkeypatch,
+        pages=pages,
+        max_depth=1,
+    )
+
+    assert exit_code == 0
+    assert _page_path(output_dir, "100").read_text(encoding="utf-8") == "existing root\n"
+    assert _page_path(output_dir, "300").read_text(encoding="utf-8") == "existing child\n"
+    assert _page_path(output_dir, "200").exists()
+    assert _page_path(output_dir, "400").exists()
+
+    payload = _load_manifest(output_dir)
+    assert payload["root_page_id"] == "100"
+    assert payload["max_depth"] == 1
+    assert [entry["canonical_id"] for entry in _manifest_files(payload)] == [
+        "100",
+        "200",
+        "300",
+        "400",
+    ]
+
+    captured = capsys.readouterr()
+    assert f"Skipped: {_page_path(output_dir, '100')}" in captured.out
+    assert f"Skipped: {_page_path(output_dir, '300')}" in captured.out
+    assert f"Wrote: {_page_path(output_dir, '200')}" in captured.out
+    assert f"Wrote: {_page_path(output_dir, '400')}" in captured.out
+    assert "Summary: wrote 2, skipped 2" in captured.out
+
+
+def test_incremental_dry_run_ignores_non_identity_manifest_fields_for_skip(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    output_dir = tmp_path / "out"
+    _write_previous_manifest(
+        output_dir,
+        [
+            {
+                "canonical_id": "100",
+                "source_url": "https://example.com/wiki/pages/100?stale=1",
+                "output_path": "pages/100.md",
+                "title": "Stale Root Title",
+            }
+        ],
+        generated_at="1999-12-31T23:59:59Z",
+        root_page_id="different-root",
+        max_depth=99,
+    )
+    existing_page = _page_path(output_dir, "100")
+    existing_page.parent.mkdir(parents=True, exist_ok=True)
+    existing_page.write_text("already written\n", encoding="utf-8")
+
+    exit_code, _ = _run_recursive_cli(
+        tmp_path,
+        monkeypatch,
+        dry_run=True,
+    )
+
+    assert exit_code == 0
+
+    captured = capsys.readouterr()
+    assert f"would skip {existing_page}" in captured.out
+    assert "Summary: would write 1, would skip 1" in captured.out
+
+
+def test_incremental_run_fails_fast_for_duplicate_output_paths_in_prior_manifest(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    output_dir = tmp_path / "out"
+    _write_previous_manifest(
+        output_dir,
+        [
+            {
+                "canonical_id": "100",
+                "source_url": "https://example.com/wiki/pages/100",
+                "output_path": "pages/shared.md",
+            },
+            {
+                "canonical_id": "200",
+                "source_url": "https://example.com/wiki/pages/200",
+                "output_path": "pages/shared.md",
+            },
+            {
+                "canonical_id": "300",
+                "source_url": "https://example.com/wiki/pages/300",
+                "output_path": "pages/300.md",
+            },
+        ],
+        root_page_id="100",
+    )
+
+    with pytest.raises((RuntimeError, ValueError, SystemExit)):
+        _run_recursive_cli(
+            tmp_path,
+            monkeypatch,
+            dry_run=True,
+        )
+
+    assert not _page_path(output_dir, "100").exists()
+    assert not _page_path(output_dir, "200").exists()
+
+
+def test_incremental_output_directory_reuse_handles_overlapping_and_new_pages(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    output_dir = tmp_path / "out"
+    _write_previous_manifest(
+        output_dir,
+        [
+            {
+                "canonical_id": "200",
+                "source_url": "https://example.com/wiki/pages/200?old=1",
+                "output_path": "pages/200.md",
+            },
+            {
+                "canonical_id": "777",
+                "source_url": "https://example.com/wiki/pages/777",
+                "output_path": "pages/777.md",
+            },
+        ],
+        root_page_id="100",
+        max_depth=3,
+    )
+    overlapping_page = _page_path(output_dir, "200")
+    unrelated_page = _page_path(output_dir, "777")
+    for path, contents in [
+        (overlapping_page, "artifact from another target\n"),
+        (unrelated_page, "unrelated artifact\n"),
+    ]:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(contents, encoding="utf-8")
+
+    exit_code, _ = _run_recursive_cli(
+        tmp_path,
+        monkeypatch,
+        target="900",
+        dry_run=False,
+    )
+
+    assert exit_code == 0
+    assert overlapping_page.read_text(encoding="utf-8") == "artifact from another target\n"
+    assert _page_path(output_dir, "900").exists()
+    assert _page_path(output_dir, "950").exists()
+    assert unrelated_page.read_text(encoding="utf-8") == "unrelated artifact\n"
+
+    payload = _load_manifest(output_dir)
+    assert payload["root_page_id"] == "900"
+    assert payload["max_depth"] == 1
+    assert [entry["canonical_id"] for entry in _manifest_files(payload)] == [
+        "900",
+        "200",
+        "950",
+    ]
+
+    captured = capsys.readouterr()
+    assert "Summary: wrote 2, skipped 1" in captured.out
+
+
+def test_incremental_dry_run_summary_reports_mixed_write_and_skip_counts(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    pages: dict[str, dict[str, object]] = {
+        "100": {
+            "canonical_id": "100",
+            "title": "Root",
+            "source_url": "https://example.com/wiki/pages/100",
+            "content": "Root content.",
+            "children": ["200", "300", "400"],
+        },
+        "200": {
+            "canonical_id": "200",
+            "title": "Skip Child",
+            "source_url": "https://example.com/wiki/pages/200",
+            "content": "Skip child content.",
+            "children": [],
+        },
+        "300": {
+            "canonical_id": "300",
+            "title": "Write Child A",
+            "source_url": "https://example.com/wiki/pages/300",
+            "content": "Write child A content.",
+            "children": [],
+        },
+        "400": {
+            "canonical_id": "400",
+            "title": "Write Child B",
+            "source_url": "https://example.com/wiki/pages/400",
+            "content": "Write child B content.",
+            "children": [],
+        },
+    }
+    output_dir = tmp_path / "out"
+    _write_previous_manifest(
+        output_dir,
+        [
+            {
+                "canonical_id": "100",
+                "source_url": "https://example.com/wiki/pages/100",
+                "output_path": "pages/100.md",
+            },
+            {
+                "canonical_id": "200",
+                "source_url": "https://example.com/wiki/pages/200",
+                "output_path": "pages/200.md",
+            },
+        ],
+        root_page_id="100",
+    )
+    for page_id in ["100", "200"]:
+        path = _page_path(output_dir, page_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"existing {page_id}\n", encoding="utf-8")
+
+    exit_code, _ = _run_recursive_cli(
+        tmp_path,
+        monkeypatch,
+        pages=pages,
+        dry_run=True,
+    )
+
+    assert exit_code == 0
+    assert not _page_path(output_dir, "300").exists()
+    assert not _page_path(output_dir, "400").exists()
+
+    captured = capsys.readouterr()
+    assert "Summary: would write 2, would skip 2" in captured.out
+    assert "4 unique pages" in captured.out
