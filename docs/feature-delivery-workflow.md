@@ -81,6 +81,9 @@ matching version tag.
 - Contract-first development: define expected behavior before or alongside code.
 - Minimal scope per PR: one branch and one pull request should represent one
   bounded step.
+- New branch and PR per lifecycle phase after merge: once a phase PR is merged,
+  the next phase of the same feature starts from current `main` on a new branch
+  and opens a new PR.
 - Deterministic behavior: ordering, output, and failure modes should be stable
   enough to test.
 - Fail-fast over partial state: stop on unrecoverable errors instead of producing
@@ -108,6 +111,10 @@ Avoid tasks that are:
 
 If a task feels too large, split it by lifecycle phase rather than asking for the
 entire feature at once.
+
+When a lifecycle phase already landed through a merged PR, do not keep using that
+branch or PR for the next phase. Reuse an existing branch or PR only when the
+task explicitly says to continue that still-open PR.
 
 ## Prompt Pattern
 
