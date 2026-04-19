@@ -10,6 +10,7 @@ Generic adapters for acquiring knowledge from external sources and normalizing i
 git clone <repo>
 cd <repo>
 
+make check-env
 make dev
 make check
 ```
@@ -17,6 +18,7 @@ make check
 Common commands:
 
 ```bash
+make check-env
 make test
 make lint
 make fix
