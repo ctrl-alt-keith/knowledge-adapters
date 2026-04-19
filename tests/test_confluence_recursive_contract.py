@@ -265,4 +265,4 @@ def test_recursive_dry_run_reports_unique_planned_outputs_without_writing(
 
     for page_id in ["100", "200", "300", "205", "210"]:
         assert output.count(f"{output_dir / 'pages' / f'{page_id}.md'}") == 1
-    assert "5" in output
+    assert output.count("5 unique pages") == 1
