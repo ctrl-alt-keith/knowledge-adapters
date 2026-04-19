@@ -2,25 +2,41 @@
 
 ## Purpose
 
-The Confluence adapter fetches content from a target Confluence page or page tree and normalizes it into local markdown artifacts with metadata.
+The Confluence adapter is the repository's first adapter scaffold. This document is
+the authoritative status page for what the default Confluence CLI currently does.
 
 This adapter is the first implementation of the generic adapter contract for `knowledge-adapters`.
 
-## Initial Scope
+## Current Behavior
 
-The first version should support:
+Out of the box, the default Confluence CLI:
 
-- page URL or page ID as input
-- runtime-provided auth
-- single page fetch
-- optional tree mode after single-page flow works
-- markdown plus metadata output
-- manifest generation
-- dry-run mode
+- accepts a page URL or page ID as input
+- accepts `--base-url`, `--auth-method`, `--output-dir`, `--dry-run`, `--tree`,
+  and `--max-depth`
+- resolves the target into a canonical page ID
+- fetches stub page data for that resolved page
+- normalizes the stub page into markdown plus metadata
+- writes a deterministic page artifact and `manifest.json` on normal runs
+- supports dry-run output and manifest-based skip logic for the resolved page
+- includes tree-mode plumbing, but the default client returns no children, so
+  out-of-the-box tree runs still produce only the root page
 
-## Runtime-Specific Inputs
+## Known Limitations
 
-These values must be provided at runtime and must not be committed:
+- the default client does not make live Confluence network requests
+- `--base-url` and `--auth-method` are accepted by the CLI but are not yet used to
+  authenticate or fetch from Confluence
+- the default client returns synthetic stub content rather than live page content
+- recursive traversal semantics are defined and tested, but multi-page tree runs
+  require a real or monkeypatched client that returns child pages
+- incremental sync semantics are defined and tested, but with the default client
+  they only affect the resolved root-page artifact
+
+## Runtime Inputs
+
+These values are still part of the intended adapter surface and must be provided at
+runtime rather than committed:
 
 - Confluence base URL
 - auth method and credential reference
@@ -28,17 +44,21 @@ These values must be provided at runtime and must not be committed:
 - output directory
 - optional fetch mode and limits
 
-## Responsibilities
+## Design and Contract Docs
 
-The adapter should:
+The following docs define intended behavior beyond the current default client:
 
-1. resolve page input into a canonical page ID
-2. fetch source content and metadata
-3. normalize source content into markdown
-4. write stable local artifacts
-5. update a manifest with fetch results
+- [`docs/adapter-spec.md`](../../docs/adapter-spec.md): generic adapter contract
+- [`docs/confluence-recursive-fetch.md`](../../docs/confluence-recursive-fetch.md):
+  recursive traversal semantics for `--tree` and `--max-depth`
+- [`docs/confluence-incremental-sync.md`](../../docs/confluence-incremental-sync.md):
+  incremental sync rules and manifest-based skip semantics
 
-## Non-Goals for Initial Version
+Those docs describe the intended contract for a real or monkeypatched Confluence
+client. They should not be read as evidence that the default client already
+performs live recursive fetches.
+
+## Non-Goals for the Current Default Client
 
 - browser automation
 - attachments
@@ -46,13 +66,3 @@ The adapter should:
 - complete macro fidelity
 - every auth flow
 - publishing to external systems
-
-## Suggested Next Steps
-
-1. define CLI inputs
-2. define config model
-3. implement target resolution
-4. implement fixture-based fetch path
-5. normalize to markdown
-6. write output files and manifest
-7. add tests

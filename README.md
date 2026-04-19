@@ -71,22 +71,19 @@ The initial implementation focuses on **Confluence** and **local file** adapters
 ### Implemented
 - repository structure
 - initial documentation
-- Confluence adapter scaffold
+- Confluence adapter scaffold with a default stub client
 - local files adapter scaffold
 - CLI entrypoint
 - basic end-to-end pipeline (resolve → fetch stub → normalize → write)
+- Confluence single-page CLI flow for resolve, dry-run, write, and manifest generation
 - CI (ruff, mypy, pytest)
 - initial unit tests
 
 ### Planned MVP
 - Confluence adapter
-  - accept a page URL or page ID
-  - accept runtime-provided auth
-  - fetch a target page or page tree
-  - normalize output to markdown plus metadata
-  - write local artifacts to a specified output directory
-  - track state with a manifest
-  - support dry-run behavior
+  - use runtime-provided auth and base URL for live Confluence fetches
+  - fetch real page content for a target page or page tree
+  - back recursive traversal and incremental sync with a non-stub client
 - local files adapter
   - accept a runtime-provided file path
   - normalize file contents into markdown plus metadata
@@ -155,6 +152,35 @@ knowledge-adapters/
 └── .gitignore
 ```
 
+## Confluence Status
+
+The Confluence adapter is currently a scaffolded CLI flow with a default stub
+client.
+
+### Implemented in the default CLI
+
+- resolves a numeric page ID or full Confluence page URL into a canonical page ID
+- accepts `--base-url`, `--auth-method`, `--output-dir`, `--dry-run`, `--tree`,
+  and `--max-depth`
+- generates stub page content for the resolved page without contacting a live
+  Confluence instance
+- normalizes that stub content into markdown and writes `pages/<canonical_id>.md`
+- writes `manifest.json` for normal runs
+- supports dry-run output and manifest-based skip logic for the resolved page
+
+### Design-level or contract-tested behavior
+
+- live Confluence fetches that actually use `--base-url` and `--auth-method`
+- child-page discovery that produces multi-page recursive tree runs
+- recursive dry-run summaries over real discovered descendants
+- production-oriented incremental sync against live-fetched Confluence content
+
+The recursive traversal and incremental sync docs still matter: they define the
+intended contract for a real or monkeypatched client. See
+[`docs/confluence-recursive-fetch.md`](docs/confluence-recursive-fetch.md) and
+[`docs/confluence-incremental-sync.md`](docs/confluence-incremental-sync.md) for
+that design surface.
+
 ## Example
 
 Normalize a local text file into the standard markdown artifact:
@@ -174,59 +200,59 @@ knowledge-adapters local_files \
   --dry-run
 ```
 
-Fetch a Confluence page tree with the root page at depth `0` and direct children at
-depth `1`:
+Run the default Confluence adapter for a single resolved page:
 
 ```bash
 knowledge-adapters confluence \
   --base-url https://example.com/wiki \
   --target 12345 \
-  --output-dir ./artifacts \
-  --tree \
-  --max-depth 1
+  --output-dir ./artifacts
 ```
 
-`--tree` enables recursive traversal from the resolved root page. `--max-depth`
-limits descendant traversal depth relative to that root, so `0` fetches only the
-root page, `1` includes direct children, and `2` includes grandchildren.
+Out of the box, this resolves page `12345`, generates stub content for that page,
+writes `pages/12345.md`, and writes `manifest.json`. The default Confluence client
+does not contact a live Confluence instance yet.
 
-Preview a recursive Confluence run without writing files:
+Preview the default Confluence run without writing files:
 
 ```bash
 knowledge-adapters confluence \
   --base-url https://example.com/wiki \
   --target 12345 \
   --output-dir ./artifacts \
-  --tree \
-  --max-depth 2 \
   --dry-run
 ```
 
-Recursive dry runs stay human-readable: they show the resolved root page, whether
-tree mode is enabled, the effective `max_depth`, one planned output path per unique
-page, a summary line such as `Summary: would write 2, would skip 3`, and a final
-line such as `5 unique pages`.
+The dry run prints the planned output path and the normalized stub markdown. If an
+existing `manifest.json` entry and on-disk artifact already match the resolved page,
+the default CLI reports `would skip` instead of `would write`.
 
-Confluence incremental sync uses the existing `manifest.json` plus on-disk file
-existence to decide whether a page is already written. A page counts as already
-written only when:
+The Confluence CLI also includes scaffolded tree-mode and incremental-sync plumbing.
+Those paths are covered by design docs and contract tests, but the default stub
+client does not discover child pages, so `--tree` still yields only the resolved
+root page out of the box.
+
+Confluence incremental skip eligibility uses the existing `manifest.json` plus
+on-disk file existence. A page counts as already written only when:
 
 - `canonical_id` matches a prior manifest entry
 - `output_path` matches the current deterministic path such as `pages/12345.md`
 - that file still exists on disk
 
 If any of those checks fail, the page is treated as a write. Skipped pages still
-appear in dry-run output, and successful normal runs write a replacement manifest
-that includes both written and skipped pages from the current run.
+appear in dry-run output. With the default client, this behavior applies to the
+resolved root-page artifact only.
 
 Incremental sync is artifact-based within the chosen output directory, not
 target-based. Reusing an output directory for a different target is allowed, but
 overlapping canonical page IDs may still be skipped when the manifest and on-disk
 artifact match.
 
-During a normal write run, the tool also writes exactly one `manifest.json` file in the output directory. The manifest is intentionally minimal for v1 and describes only the files generated by that run.
+During a normal write run, the tool also writes exactly one `manifest.json` file in
+the output directory. With the default single-page client, the manifest describes
+the resolved page artifact written by that run.
 
-Example shape:
+Example shape from the default single-page Confluence client:
 
 ```json
 {
@@ -234,16 +260,16 @@ Example shape:
   "files": [
     {
       "canonical_id": "12345",
-      "source_url": "https://example.com/wiki/spaces/ENG/pages/12345",
+      "source_url": "",
       "output_path": "pages/12345.md",
-      "title": "Team Notes"
+      "title": "stub-page-12345"
     }
   ]
 }
 ```
 
-For recursive Confluence tree runs, the manifest keeps the same per-file entries and
-adds only minimal root-run context:
+For scaffolded tree-mode runs, the manifest keeps the same per-file entries and adds
+only minimal root-run context:
 
 ```json
 {
@@ -253,14 +279,16 @@ adds only minimal root-run context:
   "files": [
     {
       "canonical_id": "12345",
-      "source_url": "https://example.com/wiki/spaces/ENG/pages/12345",
+      "source_url": "",
       "output_path": "pages/12345.md",
-      "title": "Team Notes"
+      "title": "stub-page-12345"
     }
   ]
 }
 ```
 
+With the default stub client, tree mode still produces only the resolved root page
+unless you replace or monkeypatch the client in tests or other integration code.
 `title` is included only when it is already available as part of the current run. In
-`--dry-run` mode, the tool does not create or update `manifest.json`, and it does not
-create directories for the manifest.
+`--dry-run` mode, the tool does not create or update `manifest.json`, and it does
+not create directories for the manifest.
