@@ -135,12 +135,28 @@ For release preparation:
 2. bump the version in all relevant places
 3. run validation
 4. commit and open a release PR with Summary and Testing sections
-5. merge the release PR to the mainline branch
-6. create a version tag that matches the released version
+5. merge the release PR to the mainline branch through an allowed repository
+   merge policy path
+6. create a version tag that matches the released version from the merged `main`
+   commit, not the branch tip
 7. push the tag to origin
 
 Keep release changes focused on release metadata and documentation. Do not mix new
 feature implementation into the release PR.
+
+The release is not complete until the release PR is actually merged into `main`.
+Auto-merge may not be available in every repository, and an admin merge may be
+required when allowed by repository policy.
+
+Tag format must follow the repository's established convention. In this
+repository, release tags use plain version numbers such as `0.3.0`, not prefixed
+forms such as `v0.3.0`.
+
+Release completion requires all of the following:
+
+- the release PR is merged to `main` through an allowed policy path
+- the correct version tag is created from the merged commit
+- the tag is pushed to `origin`
 
 ## Post-Release Capture
 
@@ -162,6 +178,8 @@ created and pushed. It must happen before starting the next feature.
 
 - summarize the lifecycle from design through release
 - note where scope drift, ambiguity, or unnecessary rework appeared
+- capture workflow friction such as merge policy handling, permissions, or tagging
+  issues and feed it back into workflow docs when a clear improvement is available
 - update workflow docs, prompt patterns, or task templates if a clear improvement
   is available
 
