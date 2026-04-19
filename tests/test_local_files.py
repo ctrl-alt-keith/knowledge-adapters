@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from pytest import CaptureFixture
@@ -78,6 +79,17 @@ Line two.
 """
     )
 
+    payload = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert payload["files"] == [
+        {
+            "canonical_id": str(source_file.resolve()),
+            "source_url": source_file.resolve().as_uri(),
+            "output_path": "pages/meeting-notes.md",
+            "title": "meeting-notes.txt",
+        }
+    ]
+    assert isinstance(payload["generated_at"], str)
+
 
 def test_local_files_cli_dry_run_reports_output_without_writing(
     tmp_path: Path,
@@ -102,6 +114,7 @@ def test_local_files_cli_dry_run_reports_output_without_writing(
 
     output_path = output_dir / "pages" / "meeting-notes.md"
     assert not output_path.exists()
+    assert not (output_dir / "manifest.json").exists()
 
     captured = capsys.readouterr()
     assert f"Dry run: would write {output_path}" in captured.out
