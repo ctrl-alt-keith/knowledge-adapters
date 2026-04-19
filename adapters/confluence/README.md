@@ -12,10 +12,12 @@ This adapter is the first implementation of the generic adapter contract for `kn
 Out of the box, the default Confluence CLI:
 
 - accepts a page URL or page ID as input
-- accepts `--base-url`, `--auth-method`, `--output-dir`, `--dry-run`, `--tree`,
-  and `--max-depth`
+- accepts `--base-url`, `--client-mode`, `--auth-method`, `--output-dir`,
+  `--dry-run`, `--tree`, and `--max-depth`
 - resolves the target into a canonical page ID
 - fetches stub page data for that resolved page
+- supports an opt-in real client path with `--client-mode real` for a single live
+  page fetch using `bearer-env` auth
 - normalizes the stub page into markdown plus metadata
 - writes a deterministic page artifact and `manifest.json` on normal runs
 - supports dry-run output and manifest-based skip logic for the resolved page
@@ -25,9 +27,9 @@ Out of the box, the default Confluence CLI:
 ## Known Limitations
 
 - the default client does not make live Confluence network requests
-- `--base-url` and `--auth-method` are accepted by the CLI but are not yet used to
-  authenticate or fetch from Confluence
-- the default client returns synthetic stub content rather than live page content
+- `--client-mode real` currently supports only single-page fetches
+- `--client-mode real` supports only `bearer-env` auth via
+  `CONFLUENCE_BEARER_TOKEN`
 - recursive traversal semantics are defined and tested, but multi-page tree runs
   require a real or monkeypatched client that returns child pages
 - incremental sync semantics are defined and tested, but with the default client

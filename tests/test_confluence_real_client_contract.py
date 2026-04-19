@@ -143,8 +143,6 @@ Stub content for page 12345.
         }
     ]
 
-
-@pytest.mark.xfail(strict=True, reason="real client CLI mode is not implemented yet")
 def test_explicit_real_client_mode_selects_real_fetch_path(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -178,8 +176,6 @@ def test_explicit_real_client_mode_selects_real_fetch_path(
     assert "<p>Hello from Confluence.</p>" in rendered
     assert "Stub content for page 12345." not in rendered
 
-
-@pytest.mark.xfail(strict=True, reason="real client tree guardrails are not implemented yet")
 @pytest.mark.parametrize(
     ("extra_args", "expected_fragment"),
     [
@@ -204,8 +200,6 @@ def test_real_client_mode_rejects_tree_or_depth_usage_in_v1(
     assert "real" in captured.err
     assert expected_fragment in captured.err
 
-
-@pytest.mark.xfail(strict=True, reason="bearer-env token validation is not implemented yet")
 @pytest.mark.parametrize(
     "token_value",
     [
@@ -236,8 +230,6 @@ def test_real_fetch_requires_nonempty_bearer_token_before_request(
 
     assert request_count == 0
 
-
-@pytest.mark.xfail(strict=True, reason="real response mapping is not implemented yet")
 def test_real_fetch_maps_valid_confluence_response_into_adapter_payload(
     monkeypatch: MonkeyPatch,
 ) -> None:
@@ -257,8 +249,6 @@ def test_real_fetch_maps_valid_confluence_response_into_adapter_payload(
     }
     assert str(page["source_url"]).startswith("https://")
 
-
-@pytest.mark.xfail(strict=True, reason="real HTTP error mapping is not implemented yet")
 @pytest.mark.parametrize(
     ("status_code", "expected_fragment"),
     [
@@ -281,8 +271,6 @@ def test_real_fetch_maps_http_status_failures(
     with pytest.raises(RuntimeError, match=expected_fragment):
         _fetch_real_page(_real_target())
 
-
-@pytest.mark.xfail(strict=True, reason="real response validation is not implemented yet")
 @pytest.mark.parametrize(
     ("payload", "expected_fragment"),
     [

@@ -167,17 +167,18 @@ client.
 ### Implemented in the default CLI
 
 - resolves a numeric page ID or full Confluence page URL into a canonical page ID
-- accepts `--base-url`, `--auth-method`, `--output-dir`, `--dry-run`, `--tree`,
-  and `--max-depth`
+- accepts `--base-url`, `--client-mode`, `--auth-method`, `--output-dir`,
+  `--dry-run`, `--tree`, and `--max-depth`
 - generates stub page content for the resolved page without contacting a live
   Confluence instance
+- supports an opt-in real client path with `--client-mode real` for a single live
+  page fetch using `bearer-env` auth
 - normalizes that stub content into markdown and writes `pages/<canonical_id>.md`
 - writes `manifest.json` for normal runs
 - supports dry-run output and manifest-based skip logic for the resolved page
 
 ### Design-level or contract-tested behavior
 
-- live Confluence fetches that actually use `--base-url` and `--auth-method`
 - child-page discovery that produces multi-page recursive tree runs
 - recursive dry-run summaries over real discovered descendants
 - production-oriented incremental sync against live-fetched Confluence content
@@ -219,6 +220,19 @@ Run the default Confluence adapter for a single resolved page:
 Out of the box, this resolves page `12345`, generates stub content for that page,
 writes `pages/12345.md`, and writes `manifest.json`. The default Confluence client
 does not contact a live Confluence instance yet.
+
+Run the opt-in real Confluence client for a single resolved page:
+
+```bash
+CONFLUENCE_BEARER_TOKEN=... .venv/bin/knowledge-adapters confluence \
+  --client-mode real \
+  --base-url https://example.com/wiki \
+  --target 12345 \
+  --output-dir ./artifacts
+```
+
+In v1, `--client-mode real` supports only single-page fetches with `bearer-env`
+auth. It rejects `--tree` and `--max-depth > 0`.
 
 Preview the default Confluence run without writing files:
 
