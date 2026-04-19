@@ -5,6 +5,10 @@ design docs, and contract coverage in this repository. The default Confluence
 client in `src/knowledge_adapters/confluence/client.py` is still a stub and does
 not yet perform live network fetches against Confluence.
 
+Formal changelog coverage begins at `0.2.0`, when this repository started using
+`CHANGELOG.md` as part of the release flow. Earlier tagged releases `v0.1.0` and
+`v0.1.1` predate that practice and are not backfilled here.
+
 ## 0.3.0
 
 - Added manifest-based incremental sync rules to the Confluence CLI flow so

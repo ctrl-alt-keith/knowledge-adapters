@@ -148,7 +148,8 @@ remaining blocker.
 For release preparation:
 
 1. create or update the changelog entry
-2. bump the version in all relevant places
+2. bump the version in all relevant places so the version number, changelog
+   entry, and release tag all match
 3. run validation
 4. commit and open a release PR with Summary and Testing sections
 5. merge the release PR to the mainline branch through an allowed repository
@@ -164,9 +165,10 @@ The release is not complete until the release PR is actually merged into `main`.
 Auto-merge may not be available in every repository, and an admin merge may be
 required when allowed by repository policy.
 
-Tag format must follow the repository's established convention. In this
-repository, release tags use plain version numbers such as `0.3.0`, not prefixed
-forms such as `v0.3.0`.
+Tag format must follow the repository's established convention going forward. In
+this repository, new release tags use plain version numbers such as `0.3.0`, not
+prefixed forms such as `v0.3.0`. Older tags before that convention changed may
+still use the `v` prefix.
 
 Release completion requires all of the following:
 
