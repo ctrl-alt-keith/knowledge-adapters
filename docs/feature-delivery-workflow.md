@@ -136,6 +136,13 @@ Use a draft PR only when:
 - the work is intentionally incomplete
 - feedback is needed before the task is considered complete
 
+For PR-based tasks, local validation passing is necessary but not sufficient.
+After opening the PR, check the initial CI result for that branch or PR.
+
+If that initial CI signal fails because of task-related changes, the task is not
+complete yet. Continue until the failure is fixed or clearly reported as the
+remaining blocker.
+
 ## Release Process
 
 For release preparation:
