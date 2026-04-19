@@ -181,8 +181,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(f"  max_depth: {confluence_config.max_depth}")
                 for _page, output_path, action in page_records:
                     print(f"  would {action} {output_path}")
-                print(f"  would write: {write_count}")
-                print(f"  would skip: {skip_count}")
+                print(f"  Summary: would write {write_count}, would skip {skip_count}")
                 print(f"  {len(page_records)} unique pages")
                 return 0
 
