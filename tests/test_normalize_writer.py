@@ -1,5 +1,8 @@
 from pathlib import Path
 
+from pytest import CaptureFixture
+
+from knowledge_adapters.cli import main
 from knowledge_adapters.confluence.normalize import normalize_to_markdown
 from knowledge_adapters.confluence.writer import write_markdown
 
@@ -49,3 +52,41 @@ def test_write_markdown_writes_to_pages_subdirectory(tmp_path: Path) -> None:
 
     assert output_path == tmp_path / "pages" / "page-42.md"
     assert output_path.read_text(encoding="utf-8") == markdown
+
+
+def test_write_markdown_dry_run_returns_path_without_writing(tmp_path: Path) -> None:
+    markdown = "# Title\n"
+
+    output_path = write_markdown(str(tmp_path), "page-42", markdown, dry_run=True)
+
+    assert output_path == tmp_path / "pages" / "page-42.md"
+    assert not output_path.exists()
+
+
+def test_confluence_cli_dry_run_reports_output_without_writing(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    output_dir = tmp_path / "out"
+
+    exit_code = main(
+        [
+            "confluence",
+            "--base-url",
+            "https://example.com/wiki",
+            "--target",
+            "12345",
+            "--output-dir",
+            str(output_dir),
+            "--dry-run",
+        ]
+    )
+
+    assert exit_code == 0
+
+    output_path = output_dir / "pages" / "12345.md"
+    assert not output_path.exists()
+
+    captured = capsys.readouterr()
+    assert f"Dry run: would write {output_path}" in captured.out
+    assert "# stub-page-12345" in captured.out

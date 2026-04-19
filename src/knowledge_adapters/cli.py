@@ -115,13 +115,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         page = fetch_page(target)
         markdown = normalize_to_markdown(page)
 
+        page_id = str(page["canonical_id"])
+        output_path = write_markdown(
+            confluence_config.output_dir,
+            page_id,
+            markdown,
+            dry_run=confluence_config.dry_run,
+        )
         if confluence_config.dry_run:
-            print("\n--- DRY RUN OUTPUT ---\n")
+            print(f"\nDry run: would write {output_path}\n")
             print(markdown)
             return 0
 
-        page_id = str(page["canonical_id"])
-        output_path = write_markdown(confluence_config.output_dir, page_id, markdown)
         print(f"\nWrote: {output_path}")
         return 0
 
@@ -147,14 +152,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         page = fetch_file(local_files_config.file_path)
         markdown = normalize_to_markdown(page)
 
+        input_path = Path(local_files_config.file_path)
+        output_name = input_path.stem or input_path.name
+        output_path = write_markdown(
+            local_files_config.output_dir,
+            output_name,
+            markdown,
+            dry_run=local_files_config.dry_run,
+        )
         if local_files_config.dry_run:
-            print("\n--- DRY RUN OUTPUT ---\n")
+            print(f"\nDry run: would write {output_path}\n")
             print(markdown)
             return 0
 
-        input_path = Path(local_files_config.file_path)
-        output_name = input_path.stem or input_path.name
-        output_path = write_markdown(local_files_config.output_dir, output_name, markdown)
         print(f"\nWrote: {output_path}")
         return 0
 

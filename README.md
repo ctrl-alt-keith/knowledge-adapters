@@ -164,3 +164,12 @@ knowledge-adapters local_files \
   --file-path ./notes/today.txt \
   --output-dir ./artifacts
 ```
+
+Preview the normalized markdown without writing files:
+
+```bash
+knowledge-adapters local_files \
+  --file-path ./notes/today.txt \
+  --output-dir ./artifacts \
+  --dry-run
+```
