@@ -15,11 +15,18 @@ make dev
 make check
 ```
 
+After `make dev`, the installed CLI entrypoint for this repo is:
+
+```bash
+.venv/bin/knowledge-adapters
+```
+
 Common commands:
 
 ```bash
 make check-env
 make test
+make smoke
 make lint
 make fix
 make format
@@ -186,7 +193,7 @@ that design surface.
 Normalize a local text file into the standard markdown artifact:
 
 ```bash
-knowledge-adapters local_files \
+.venv/bin/knowledge-adapters local_files \
   --file-path ./notes/today.txt \
   --output-dir ./artifacts
 ```
@@ -194,7 +201,7 @@ knowledge-adapters local_files \
 Preview the normalized markdown without writing files:
 
 ```bash
-knowledge-adapters local_files \
+.venv/bin/knowledge-adapters local_files \
   --file-path ./notes/today.txt \
   --output-dir ./artifacts \
   --dry-run
@@ -203,7 +210,7 @@ knowledge-adapters local_files \
 Run the default Confluence adapter for a single resolved page:
 
 ```bash
-knowledge-adapters confluence \
+.venv/bin/knowledge-adapters confluence \
   --base-url https://example.com/wiki \
   --target 12345 \
   --output-dir ./artifacts
@@ -216,7 +223,7 @@ does not contact a live Confluence instance yet.
 Preview the default Confluence run without writing files:
 
 ```bash
-knowledge-adapters confluence \
+.venv/bin/knowledge-adapters confluence \
   --base-url https://example.com/wiki \
   --target 12345 \
   --output-dir ./artifacts \
