@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -9,16 +10,17 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-def _cli_path() -> Path:
-    return _repo_root() / ".venv" / "bin" / "knowledge-adapters"
+def _cli_command() -> list[str]:
+    repo_local_cli = _repo_root() / ".venv" / "bin" / "knowledge-adapters"
+    if repo_local_cli.exists():
+        return [str(repo_local_cli)]
+
+    return [sys.executable, "-m", "knowledge_adapters.cli"]
 
 
 def _run_cli(tmp_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    cli_path = _cli_path()
-    assert cli_path.exists()
-
     return subprocess.run(
-        [str(cli_path), *args],
+        [*_cli_command(), *args],
         cwd=tmp_path,
         capture_output=True,
         check=False,
