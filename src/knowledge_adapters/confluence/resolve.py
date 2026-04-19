@@ -18,6 +18,7 @@ def resolve_target(target: str) -> ResolvedTarget:
     - URLs containing a page ID
     """
     cleaned = target.strip()
+    is_url = "://" in cleaned
 
     if _PAGE_ID_RE.fullmatch(cleaned):
         return ResolvedTarget(
@@ -26,7 +27,7 @@ def resolve_target(target: str) -> ResolvedTarget:
             page_url=None,
         )
 
-    url_match = _PAGE_ID_IN_URL_RE.search(cleaned)
+    url_match = _PAGE_ID_IN_URL_RE.search(cleaned) if is_url else None
     if url_match:
         return ResolvedTarget(
             raw_value=cleaned,
@@ -37,5 +38,5 @@ def resolve_target(target: str) -> ResolvedTarget:
     return ResolvedTarget(
         raw_value=cleaned,
         page_id=None,
-        page_url=cleaned if "://" in cleaned else None,
+        page_url=cleaned if is_url else None,
     )
