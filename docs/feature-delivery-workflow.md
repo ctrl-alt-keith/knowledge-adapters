@@ -150,6 +150,28 @@ If that initial CI signal fails because of task-related changes, the task is not
 complete yet. Continue until the failure is fixed or clearly reported as the
 remaining blocker.
 
+## Optional Pre-Merge Sanity Check
+
+For higher-risk PRs, an optional pre-merge sanity check can add one last
+behavior-focused review pass before merge.
+
+Use it selectively for changes such as:
+
+- auth handling
+- CLI behavior
+- error handling
+- release flow
+
+This check is:
+
+- review-only
+- not required for all PRs
+- focused on behavior, consistency, and scope discipline
+
+It should not expand scope or turn into another implementation phase. The goal is
+to confirm that the PR is ready to merge, not to reopen design or add new work by
+default.
+
 ## Release Process
 
 For release preparation:
@@ -169,8 +191,9 @@ Keep release changes focused on release metadata and documentation. Do not mix n
 feature implementation into the release PR.
 
 The release is not complete until the release PR is actually merged into `main`.
-Auto-merge may not be available in every repository, and an admin merge may be
-required when allowed by repository policy.
+Direct merge may be blocked by repository policy. Auto-merge may not be available
+in every repository, and an admin merge may be required when allowed by
+repository policy.
 
 Tag format must follow the repository's established convention going forward. In
 this repository, new release tags use plain version numbers such as `0.3.0`, not
