@@ -10,8 +10,6 @@ from pytest import CaptureFixture, MonkeyPatch
 from knowledge_adapters.cli import main
 from knowledge_adapters.confluence.models import ResolvedTarget
 
-_PENDING_REASON = "Incremental sync contract is documented but not implemented yet."
-
 
 def _synthetic_pages() -> dict[str, dict[str, object]]:
     return {
@@ -132,7 +130,8 @@ def test_incremental_dry_run_without_manifest_marks_all_pages_as_write(
     captured = capsys.readouterr()
     assert f"would write {_page_path(output_dir, '100')}" in captured.out
     assert f"would write {_page_path(output_dir, '200')}" in captured.out
-    assert "would skip" not in captured.out.lower()
+    assert f"would skip {_page_path(output_dir, '100')}" not in captured.out
+    assert f"would skip {_page_path(output_dir, '200')}" not in captured.out
     assert not _page_path(output_dir, "100").exists()
     assert not _page_path(output_dir, "200").exists()
     assert not _manifest_path(output_dir).exists()
@@ -141,7 +140,7 @@ def test_incremental_dry_run_without_manifest_marks_all_pages_as_write(
 @pytest.mark.parametrize(
     ("manifest_entry", "materialize_file", "expected_phrase"),
     [
-        pytest.param(
+        (
             {
                 "canonical_id": "100",
                 "source_url": "https://example.com/wiki/pages/100",
@@ -149,7 +148,6 @@ def test_incremental_dry_run_without_manifest_marks_all_pages_as_write(
             },
             True,
             "would skip",
-            marks=pytest.mark.xfail(reason=_PENDING_REASON, strict=True),
         ),
         (
             {
@@ -217,7 +215,6 @@ def test_incremental_dry_run_uses_manifest_identity_and_file_existence_for_skip(
     assert _manifest_path(output_dir).read_text(encoding="utf-8") == original_manifest
 
 
-@pytest.mark.xfail(reason=_PENDING_REASON, strict=True)
 def test_incremental_dry_run_reports_both_would_write_and_would_skip_without_writing(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -255,7 +252,6 @@ def test_incremental_dry_run_reports_both_would_write_and_would_skip_without_wri
     assert _manifest_path(output_dir).read_text(encoding="utf-8") == original_manifest
 
 
-@pytest.mark.xfail(reason=_PENDING_REASON, strict=True)
 def test_incremental_normal_run_manifest_includes_written_and_skipped_pages(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -290,7 +286,6 @@ def test_incremental_normal_run_manifest_includes_written_and_skipped_pages(
     assert [entry["canonical_id"] for entry in _manifest_files(payload)] == ["100", "200"]
 
 
-@pytest.mark.xfail(reason=_PENDING_REASON, strict=True)
 def test_incremental_output_directory_reuse_skips_overlapping_pages_without_target_validation(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -325,7 +320,6 @@ def test_incremental_output_directory_reuse_skips_overlapping_pages_without_targ
     assert [entry["canonical_id"] for entry in _manifest_files(payload)] == ["900", "200", "950"]
 
 
-@pytest.mark.xfail(reason=_PENDING_REASON, strict=True)
 def test_incremental_run_fails_fast_for_malformed_manifest(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -346,7 +340,6 @@ def test_incremental_run_fails_fast_for_malformed_manifest(
     assert manifest_path.read_text(encoding="utf-8") == "{not-json}\n"
 
 
-@pytest.mark.xfail(reason=_PENDING_REASON, strict=True)
 def test_incremental_run_fails_fast_for_duplicate_manifest_entries(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,

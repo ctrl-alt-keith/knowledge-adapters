@@ -92,10 +92,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "confluence":
-        from pathlib import Path
-
         from knowledge_adapters.confluence.client import fetch_page
         from knowledge_adapters.confluence.config import ConfluenceConfig
+        from knowledge_adapters.confluence.incremental import (
+            is_already_written,
+            load_previous_manifest_index,
+        )
         from knowledge_adapters.confluence.manifest import (
             build_manifest_entry,
             write_manifest,
@@ -104,7 +106,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         from knowledge_adapters.confluence.normalize import normalize_to_markdown
         from knowledge_adapters.confluence.resolve import resolve_target
         from knowledge_adapters.confluence.traversal import walk_pages
-        from knowledge_adapters.confluence.writer import write_markdown
+        from knowledge_adapters.confluence.writer import markdown_path, write_markdown
 
         confluence_config = ConfluenceConfig(
             base_url=args.base_url,
@@ -134,83 +136,118 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"  tree: {confluence_config.tree}")
         print(f"  max_depth: {confluence_config.max_depth}")
 
+        def _build_manifest_entry_for_page(
+            page: dict[str, object],
+            output_path: Path,
+        ) -> dict[str, str]:
+            return build_manifest_entry(
+                canonical_id=str(page.get("canonical_id") or ""),
+                source_url=str(page.get("source_url", "")),
+                output_path=output_path,
+                output_dir=confluence_config.output_dir,
+                title=str(page["title"]) if page.get("title") else None,
+            )
+
         if confluence_config.tree:
             root_page_id, pages = walk_pages(
                 target,
                 max_depth=confluence_config.max_depth,
                 fetch_page=fetch_page,
             )
-            page_records: list[tuple[dict[str, object], Path]] = []
+            previous_manifest_index = load_previous_manifest_index(
+                confluence_config.output_dir
+            )
+            page_records: list[tuple[dict[str, object], Path, str]] = []
             for page in pages:
-                markdown = normalize_to_markdown(page)
                 canonical_id = str(page.get("canonical_id") or "")
-                output_path = write_markdown(
+                output_path = markdown_path(confluence_config.output_dir, canonical_id)
+                action = "skip" if is_already_written(
                     confluence_config.output_dir,
-                    canonical_id,
-                    markdown,
-                    dry_run=confluence_config.dry_run,
-                )
-                page_records.append((page, output_path))
+                    previous_manifest_index,
+                    canonical_id=canonical_id,
+                    output_path=output_path,
+                ) else "write"
+                page_records.append((page, output_path, action))
+
+            write_count = sum(
+                1 for _page, _output_path, action in page_records if action == "write"
+            )
+            skip_count = len(page_records) - write_count
 
             if confluence_config.dry_run:
                 print("\nDry run: recursive fetch plan")
                 print(f"  resolved_root_page_id: {root_page_id}")
                 print(f"  tree: {confluence_config.tree}")
                 print(f"  max_depth: {confluence_config.max_depth}")
-                for _page, output_path in page_records:
-                    print(f"  would write {output_path}")
+                for _page, output_path, action in page_records:
+                    print(f"  would {action} {output_path}")
+                print(f"  would write: {write_count}")
+                print(f"  would skip: {skip_count}")
                 print(f"  {len(page_records)} unique pages")
                 return 0
 
             files = [
-                build_manifest_entry(
-                    canonical_id=str(page.get("canonical_id") or ""),
-                    source_url=str(page.get("source_url", "")),
-                    output_path=output_path,
-                    output_dir=confluence_config.output_dir,
-                    title=str(page["title"]) if page.get("title") else None,
-                )
-                for page, output_path in page_records
+                _build_manifest_entry_for_page(page, output_path)
+                for page, output_path, _action in page_records
             ]
+
+            for page, output_path, action in page_records:
+                if action == "skip":
+                    print(f"\nSkipped: {output_path}")
+                    continue
+
+                markdown = normalize_to_markdown(page)
+                write_markdown(
+                    confluence_config.output_dir,
+                    str(page.get("canonical_id") or ""),
+                    markdown,
+                )
+                print(f"\nWrote: {output_path}")
+
             manifest = write_manifest_with_context(
                 confluence_config.output_dir,
                 files,
                 root_page_id=root_page_id,
                 max_depth=confluence_config.max_depth,
             )
-            for _page, output_path in page_records:
-                print(f"\nWrote: {output_path}")
+            print(f"\nSummary: wrote {write_count}, skipped {skip_count}")
             print(f"\nManifest: {manifest}")
             return 0
 
         page = fetch_page(target)
-        markdown = normalize_to_markdown(page)
-
         page_id = str(page["canonical_id"])
-        output_path = write_markdown(
+        output_path = markdown_path(confluence_config.output_dir, page_id)
+        previous_manifest_index = load_previous_manifest_index(confluence_config.output_dir)
+        action = "skip" if is_already_written(
             confluence_config.output_dir,
-            page_id,
-            markdown,
-            dry_run=confluence_config.dry_run,
-        )
+            previous_manifest_index,
+            canonical_id=page_id,
+            output_path=output_path,
+        ) else "write"
+
         if confluence_config.dry_run:
-            print(f"\nDry run: would write {output_path}\n")
-            print(markdown)
+            print(f"\nDry run: would {action} {output_path}\n")
+            if action == "write":
+                print(normalize_to_markdown(page))
             return 0
+
+        if action == "write":
+            markdown = normalize_to_markdown(page)
+            write_markdown(
+                confluence_config.output_dir,
+                page_id,
+                markdown,
+            )
+            print(f"\nWrote: {output_path}")
+        else:
+            print(f"\nSkipped: {output_path}")
 
         write_manifest(
             confluence_config.output_dir,
             [
-                build_manifest_entry(
-                    canonical_id=page_id,
-                    source_url=str(page.get("source_url", "")),
-                    output_path=output_path,
-                    output_dir=confluence_config.output_dir,
-                    title=str(page["title"]) if page.get("title") else None,
-                )
+                _build_manifest_entry_for_page(page, output_path),
             ],
         )
-        print(f"\nWrote: {output_path}")
         return 0
 
     if args.command == "local_files":
