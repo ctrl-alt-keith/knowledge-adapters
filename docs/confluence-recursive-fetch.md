@@ -121,14 +121,16 @@ This prevents duplicate discovery from causing duplicate writes.
 
 ### Ordering
 
-v1 should produce deterministic output ordering for the manifest and any dry-run plan output.
+v1 must produce deterministic output ordering for the manifest and any dry-run plan output.
 
-Minimum requirement:
+Required ordering:
 
-- the root page appears first
-- remaining pages are ordered consistently for the same traversal result
+- pages are ordered breadth-first by depth from the root
+- the root page is always first because it is depth `0`
+- all depth `1` pages appear before any depth `2` page, and so on
+- within the same depth, pages are ordered by canonical page ID in ascending lexical order
 
-Breadth-first ordering by depth is preferred for v1 because it aligns cleanly with the published depth semantics.
+This ordering rule is part of the v1 contract so tests can assert exact manifest and dry-run output order for the same discovered page set.
 
 ## Manifest Behavior
 
@@ -142,11 +144,15 @@ The manifest remains a per-run artifact, not an append-only history log.
 
 ### Manifest shape
 
-The existing top-level shape remains unchanged:
+For recursive runs, the manifest adds only two top-level root-run context fields: `root_page_id` and `max_depth`.
+
+Example recursive shape:
 
 ```json
 {
   "generated_at": "2026-04-18T12:34:56Z",
+  "root_page_id": "12345",
+  "max_depth": 2,
   "files": [
     {
       "canonical_id": "12345",
@@ -160,11 +166,13 @@ The existing top-level shape remains unchanged:
 
 For multi-page runs:
 
+- `root_page_id` records the resolved canonical page ID for the traversal root
+- `max_depth` records the effective maximum depth used for the run
 - `files` contains one entry per fetched page in the current run
 - entries use the same minimal schema as single-page runs
 - `title` is still optional and included only when already available during the run
 
-v1 does not add recursion-specific manifest fields such as:
+Other than `root_page_id` and `max_depth`, v1 does not add recursion-specific manifest fields such as:
 
 - traversal depth
 - parent/child relationships
@@ -223,7 +231,15 @@ v1 should stay minimal:
 - this document does not define partial-success manifest entries
 - this document does not define best-effort continuation after fetch failures
 
-Implementation may fail the run on the first unrecoverable traversal or fetch error. If that happens, tests should focus on making the failure mode explicit and deterministic rather than adding recovery logic in v1.
+v1 may fail the run on the first unrecoverable traversal or page-fetch error, and that fail-fast behavior is acceptable.
+
+For v1, expected failure behavior is:
+
+- stop processing additional pages after the first unrecoverable traversal or page-fetch error
+- return a failure outcome for the run rather than attempting recovery
+- do not write or update a partial-success `manifest.json`
+
+Tests should assert explicit fail-fast behavior and manifest absence on failure rather than expecting retry, resume, checkpointing, or continuation semantics.
 
 ## Testable Acceptance Criteria
 
@@ -236,10 +252,12 @@ The implementation should support tests that verify at least the following:
 5. The same canonical page ID discovered multiple times is fetched once, written once, and appears once in the manifest.
 6. Deduplication is based on canonical page ID even when titles or URLs differ.
 7. Recursive non-dry runs write exactly one `manifest.json` in the output directory.
-8. Recursive manifests contain one file entry per unique fetched page from the current run only.
-9. Recursive dry runs do not write markdown files, do not write `manifest.json`, and do not create directories solely for those outputs.
-10. Recursive dry-run output lists each unique planned output path once and reports the unique page count.
-11. Manifest and dry-run ordering are deterministic for the same discovered page set.
+8. Recursive manifests include `root_page_id` and `max_depth` at the top level.
+9. Recursive manifests contain one file entry per unique fetched page from the current run only.
+10. Recursive dry runs do not write markdown files, do not write `manifest.json`, and do not create directories solely for those outputs.
+11. Recursive dry-run output lists each unique planned output path once and reports the unique page count.
+12. Manifest and dry-run ordering follow breadth-first depth order, with canonical page ID lexical ordering within the same depth.
+13. Recursive failures are fail-fast and do not write or update a partial-success manifest.
 
 ## Out of Scope for v1
 
@@ -249,7 +267,7 @@ The following are explicitly out of scope:
 - traversal across spaces or across multiple root targets in one command
 - incremental sync or `since` filtering
 - deletion of previously generated files that are not part of the current run
-- manifest fields for depth, lineage, skipped pages, or failures
+- manifest fields beyond `root_page_id`, `max_depth`, and per-file entries, including lineage, skipped pages, or failures
 - machine-readable dry-run output
 - configurable output naming beyond `pages/<canonical_id>.md`
 - cycle reporting beyond canonical-ID deduplication
