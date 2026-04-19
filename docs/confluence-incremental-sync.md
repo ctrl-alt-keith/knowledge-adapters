@@ -212,6 +212,8 @@ Reusing the same output directory for a different target is allowed.
 
 In v1, incremental sync is based only on canonical page ID and output path. The system does not track, persist, or validate root target identity.
 
+Incremental sync operates within the scope of the output directory and is intentionally artifact-based rather than target-based, so it does not track or enforce isolation between different targets.
+
 As a result, reusing an output directory may cause pages to be skipped when the new run includes canonical page IDs that overlap with artifacts already recorded in the existing manifest and still present on disk.
 
 This is expected behavior in v1, not an error condition.
