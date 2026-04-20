@@ -3,10 +3,11 @@ from __future__ import annotations
 import io
 import json
 import re
+import ssl
 from email.message import Message
 from pathlib import Path
 from typing import Any, Literal, cast
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 import pytest
 from pytest import CaptureFixture, MonkeyPatch
@@ -140,6 +141,10 @@ def _http_error(status_code: int) -> HTTPError:
         hdrs=headers,
         fp=io.BytesIO(b"{}"),
     )
+
+
+def _url_error(reason: str | BaseException) -> URLError:
+    return URLError(reason)
 
 
 def test_default_cli_behavior_without_client_mode_still_uses_stub_client(
@@ -550,34 +555,92 @@ def test_real_fetch_ignores_extra_irrelevant_fields_in_valid_response(
 
 
 @pytest.mark.parametrize(
-    ("status_code", "expected_message"),
+    ("status_code", "auth_method", "expected_message"),
     [
         (
             401,
-            "Confluence auth failed. Check --auth-method and the required "
-            "CONFLUENCE_* environment variables.",
+            "bearer-env",
+            "Confluence auth failed. Check CONFLUENCE_BEARER_TOKEN.",
         ),
         (
             403,
-            "Confluence auth failed. Check --auth-method and the required "
-            "CONFLUENCE_* environment variables.",
+            "bearer-env",
+            "Confluence auth failed. Check CONFLUENCE_BEARER_TOKEN.",
         ),
-        (404, "Confluence page not found."),
+        (
+            403,
+            "client-cert-env",
+            "Confluence auth failed. Check CONFLUENCE_CLIENT_CERT_FILE / "
+            "CONFLUENCE_CLIENT_KEY_FILE.",
+        ),
+        (404, "bearer-env", "Confluence page not found. Verify --target."),
     ],
 )
 def test_real_fetch_maps_http_status_failures(
     monkeypatch: MonkeyPatch,
     status_code: int,
+    auth_method: str,
     expected_message: str,
 ) -> None:
     def raise_http_error(*args: object, **kwargs: object) -> object:
         raise _http_error(status_code)
 
     monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    if auth_method == "client-cert-env":
+        monkeypatch.setattr(
+            "knowledge_adapters.confluence.auth.ssl.create_default_context",
+            lambda: _FakeSSLContext(),
+        )
+        monkeypatch.setenv("CONFLUENCE_CLIENT_CERT_FILE", "/tmp/confluence-client.crt")
+        monkeypatch.setenv("CONFLUENCE_CLIENT_KEY_FILE", "/tmp/confluence-client.key")
     monkeypatch.setattr("urllib.request.urlopen", raise_http_error)
 
     with pytest.raises(RuntimeError, match=f"^{re.escape(expected_message)}$"):
-        _fetch_real_page(_real_target())
+        _fetch_real_page(_real_target(), auth_method=auth_method)
+
+
+@pytest.mark.parametrize(
+    ("raised_error", "auth_method", "expected_message"),
+    [
+        (
+            _url_error(ssl.SSLError("tlsv13 alert certificate required")),
+            "client-cert-env",
+            "Confluence TLS/client certificate failed. Check "
+            "CONFLUENCE_CLIENT_CERT_FILE / CONFLUENCE_CLIENT_KEY_FILE.",
+        ),
+        (
+            _url_error(TimeoutError("timed out")),
+            "bearer-env",
+            "Confluence network request failed. Verify --base-url and network access.",
+        ),
+        (
+            _url_error(ValueError("synthetic transport failure")),
+            "bearer-env",
+            "Confluence request failed. Verify --base-url and try again.",
+        ),
+    ],
+)
+def test_real_fetch_maps_url_failures_to_clear_categories(
+    monkeypatch: MonkeyPatch,
+    raised_error: URLError,
+    auth_method: str,
+    expected_message: str,
+) -> None:
+    def raise_url_error(*args: object, **kwargs: object) -> object:
+        raise raised_error
+
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    if auth_method == "client-cert-env":
+        monkeypatch.setattr(
+            "knowledge_adapters.confluence.auth.ssl.create_default_context",
+            lambda: _FakeSSLContext(),
+        )
+        monkeypatch.setenv("CONFLUENCE_CLIENT_CERT_FILE", "/tmp/confluence-client.crt")
+        monkeypatch.setenv("CONFLUENCE_CLIENT_KEY_FILE", "/tmp/confluence-client.key")
+    monkeypatch.setattr("urllib.request.urlopen", raise_url_error)
+
+    with pytest.raises(RuntimeError, match=f"^{re.escape(expected_message)}$"):
+        _fetch_real_page(_real_target(), auth_method=auth_method)
 
 
 def test_real_fetch_requires_client_cert_file_for_client_cert_auth_before_request(
@@ -876,14 +939,21 @@ def test_real_child_list_fails_fast_on_invalid_response_shapes(
     ("raised_error", "expected_message"),
     [
         (
-            RuntimeError(
-                "Confluence auth failed. Check --auth-method and the required "
-                "CONFLUENCE_* environment variables."
-            ),
-            "Confluence auth failed. Check --auth-method and the required "
-            "CONFLUENCE_* environment variables.",
+            RuntimeError("Confluence auth failed. Check CONFLUENCE_BEARER_TOKEN."),
+            "Confluence auth failed. Check CONFLUENCE_BEARER_TOKEN.",
         ),
-        (RuntimeError("Confluence page not found."), "Confluence page not found."),
+        (
+            RuntimeError(
+                "Confluence TLS/client certificate failed. Check "
+                "CONFLUENCE_CLIENT_CERT_FILE / CONFLUENCE_CLIENT_KEY_FILE."
+            ),
+            "Confluence TLS/client certificate failed. Check "
+            "CONFLUENCE_CLIENT_CERT_FILE / CONFLUENCE_CLIENT_KEY_FILE.",
+        ),
+        (
+            RuntimeError("Confluence page not found. Verify --target."),
+            "Confluence page not found. Verify --target.",
+        ),
         (ValueError("Response error: missing source_url."), "Response error: missing source_url."),
     ],
 )
