@@ -161,6 +161,8 @@ Behavior:
   may point to a combined PEM file
 - if required auth material is missing or empty, the run fails before any request
   is made
+- invalid certificate material fails before any request with a small config error;
+  v1 does not attempt advanced key handling or live certificate validation
 
 The existing `auth_method` field continues to name the selected auth strategy for
 real mode.
@@ -319,6 +321,8 @@ Optional manual validation may exist outside normal repository validation, for e
   `CONFLUENCE_CLIENT_KEY_FILE`
 
 That live check is opt-in only and is not part of `make check`.
+Repository validation covers mocked contract behavior only; it does not prove a
+real certificate handshake against a live Confluence deployment.
 
 ## Out of Scope
 

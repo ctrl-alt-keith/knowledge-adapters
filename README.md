@@ -238,6 +238,8 @@ optional client certificates or `client-cert-env` auth.
 For certificate-based auth, set `CONFLUENCE_CLIENT_CERT_FILE` to a combined PEM
 file, or set `CONFLUENCE_CLIENT_CERT_FILE` plus `CONFLUENCE_CLIENT_KEY_FILE` for
 split cert/key files.
+This v1 path is intentionally minimal: passphrase-protected keys, broader auth
+combinations, and live certificate validation are out of scope for `make check`.
 
 Preview the default Confluence run without writing files:
 

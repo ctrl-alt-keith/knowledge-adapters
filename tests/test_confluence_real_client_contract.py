@@ -315,6 +315,38 @@ def test_real_fetch_uses_combined_client_cert_pem_when_configured(
     assert observed_request_headers == [{}]
 
 
+def test_real_fetch_uses_split_client_cert_and_key_for_client_cert_auth(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    ssl_context = _FakeSSLContext()
+    observed_contexts: list[object | None] = []
+    observed_request_headers: list[dict[str, str]] = []
+
+    def fake_urlopen(*args: object, **kwargs: object) -> _FakeHTTPResponse:
+        request_obj = cast(Any, args[0])
+        observed_request_headers.append(dict(request_obj.headers))
+        observed_contexts.append(kwargs.get("context"))
+        return _FakeHTTPResponse(_valid_confluence_payload())
+
+    monkeypatch.setattr(
+        "knowledge_adapters.confluence.auth.ssl.create_default_context",
+        lambda: ssl_context,
+    )
+    monkeypatch.setenv("CONFLUENCE_CLIENT_CERT_FILE", "/tmp/confluence-client.crt")
+    monkeypatch.setenv("CONFLUENCE_CLIENT_KEY_FILE", "/tmp/confluence-client.key")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    page = _fetch_real_page(_real_target(), auth_method="client-cert-env")
+
+    assert page["canonical_id"] == "12345"
+    assert ssl_context.loaded_cert_chain == (
+        "/tmp/confluence-client.crt",
+        "/tmp/confluence-client.key",
+    )
+    assert observed_contexts == [ssl_context]
+    assert observed_request_headers == [{}]
+
+
 def test_real_fetch_uses_split_client_cert_and_key_with_bearer_auth(
     monkeypatch: MonkeyPatch,
 ) -> None:
@@ -346,6 +378,53 @@ def test_real_fetch_uses_split_client_cert_and_key_with_bearer_auth(
     )
     assert observed_contexts == [ssl_context]
     assert observed_request_headers == [{"Authorization": "Bearer test-token"}]
+
+
+def test_real_fetch_treats_empty_client_key_env_as_omitted_for_combined_pem(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    ssl_context = _FakeSSLContext()
+    observed_contexts: list[object | None] = []
+
+    def fake_urlopen(*args: object, **kwargs: object) -> _FakeHTTPResponse:
+        del args
+        observed_contexts.append(kwargs.get("context"))
+        return _FakeHTTPResponse(_valid_confluence_payload())
+
+    monkeypatch.setattr(
+        "knowledge_adapters.confluence.auth.ssl.create_default_context",
+        lambda: ssl_context,
+    )
+    monkeypatch.setenv("CONFLUENCE_CLIENT_CERT_FILE", " /tmp/confluence-client.pem ")
+    monkeypatch.setenv("CONFLUENCE_CLIENT_KEY_FILE", "   ")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    page = _fetch_real_page(_real_target(), auth_method="client-cert-env")
+
+    assert page["canonical_id"] == "12345"
+    assert ssl_context.loaded_cert_chain == ("/tmp/confluence-client.pem", None)
+    assert observed_contexts == [ssl_context]
+
+
+def test_real_fetch_ignores_empty_optional_client_cert_env_for_bearer_auth(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    observed_contexts: list[object | None] = []
+
+    def fake_urlopen(*args: object, **kwargs: object) -> _FakeHTTPResponse:
+        del args
+        observed_contexts.append(kwargs.get("context"))
+        return _FakeHTTPResponse(_valid_confluence_payload())
+
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setenv("CONFLUENCE_CLIENT_CERT_FILE", "   ")
+    monkeypatch.setenv("CONFLUENCE_CLIENT_KEY_FILE", "   ")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    page = _fetch_real_page(_real_target())
+
+    assert page["canonical_id"] == "12345"
+    assert observed_contexts == [None]
 
 
 def test_real_child_list_maps_valid_confluence_response_into_child_page_ids(
@@ -527,6 +606,64 @@ def test_real_fetch_rejects_client_key_without_cert_before_request(
 
     with pytest.raises(ValueError, match="CONFLUENCE_CLIENT_CERT_FILE"):
         _fetch_real_page(_real_target())
+
+    assert request_count == 0
+
+
+def test_real_fetch_treats_empty_client_cert_env_as_missing_for_client_cert_auth(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    request_count = 0
+
+    def fail_if_requested(*args: object, **kwargs: object) -> object:
+        nonlocal request_count
+        del args, kwargs
+        request_count += 1
+        raise AssertionError("network request should not be attempted without client cert")
+
+    monkeypatch.setenv("CONFLUENCE_CLIENT_CERT_FILE", "   ")
+    monkeypatch.setenv("CONFLUENCE_CLIENT_KEY_FILE", "   ")
+    monkeypatch.setattr("urllib.request.urlopen", fail_if_requested)
+
+    with pytest.raises(ValueError, match="CONFLUENCE_CLIENT_CERT_FILE"):
+        _fetch_real_page(_real_target(), auth_method="client-cert-env")
+
+    assert request_count == 0
+
+
+def test_real_fetch_surfaces_clear_invalid_client_cert_configuration(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    request_count = 0
+
+    class _BrokenSSLContext:
+        def load_cert_chain(self, *, certfile: str, keyfile: str | None = None) -> None:
+            del certfile, keyfile
+            raise OSError("synthetic cert load failure")
+
+    def fail_if_requested(*args: object, **kwargs: object) -> object:
+        nonlocal request_count
+        del args, kwargs
+        request_count += 1
+        raise AssertionError("network request should not be attempted with invalid certs")
+
+    monkeypatch.setattr(
+        "knowledge_adapters.confluence.auth.ssl.create_default_context",
+        lambda: _BrokenSSLContext(),
+    )
+    monkeypatch.setenv("CONFLUENCE_CLIENT_CERT_FILE", "/tmp/confluence-client.crt")
+    monkeypatch.setenv("CONFLUENCE_CLIENT_KEY_FILE", "/tmp/confluence-client.key")
+    monkeypatch.setattr("urllib.request.urlopen", fail_if_requested)
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "Confluence client certificate configuration is invalid\\. "
+            "Check CONFLUENCE_CLIENT_CERT_FILE and optional "
+            "CONFLUENCE_CLIENT_KEY_FILE\\."
+        ),
+    ):
+        _fetch_real_page(_real_target(), auth_method="client-cert-env")
 
     assert request_count == 0
 
