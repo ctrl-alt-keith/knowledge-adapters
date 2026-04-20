@@ -168,6 +168,11 @@ This check is:
 - not required for all PRs
 - focused on behavior, consistency, and scope discipline
 
+In practice, it has been especially valuable for multi-interaction behavior where
+correctness is not trivially obvious, such as CLI error handling consistency
+across modes or traversal behavior that combines ordering, deduplication, and
+fail-fast logic.
+
 It should not expand scope or turn into another implementation phase. The goal is
 to confirm that the PR is ready to merge, not to reopen design or add new work by
 default.
