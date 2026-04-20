@@ -61,6 +61,10 @@ def _client_cert_ssl_context(auth_method: str) -> ssl.SSLContext | None:
             keyfile=key_file or None,
         )
     except (OSError, ssl.SSLError, ValueError) as exc:
-        raise ValueError("Confluence client certificate configuration is invalid.") from exc
+        raise ValueError(
+            "Confluence client certificate configuration is invalid. "
+            "Check CONFLUENCE_CLIENT_CERT_FILE and optional "
+            "CONFLUENCE_CLIENT_KEY_FILE."
+        ) from exc
 
     return ssl_context
