@@ -145,17 +145,25 @@ Tree semantics are defined separately in
 
 ### v1 auth mode
 
-v1 supports exactly one real auth mode:
+v1 supports these real auth modes:
 
 - `bearer-env`
+- `client-cert-env`
 
 Behavior:
 
-- the real client reads a bearer token from `CONFLUENCE_BEARER_TOKEN`
-- the auth helper builds the `Authorization: Bearer ...` header for the request
-- if the token is missing or empty, the run fails before any request is made
+- `bearer-env` reads a bearer token from `CONFLUENCE_BEARER_TOKEN`
+- `bearer-env` builds the `Authorization: Bearer ...` header for the request
+- `client-cert-env` reads a client certificate from `CONFLUENCE_CLIENT_CERT_FILE`
+- `client-cert-env` optionally reads a separate private key from
+  `CONFLUENCE_CLIENT_KEY_FILE`
+- when `CONFLUENCE_CLIENT_KEY_FILE` is omitted, `CONFLUENCE_CLIENT_CERT_FILE`
+  may point to a combined PEM file
+- if required auth material is missing or empty, the run fails before any request
+  is made
 
-The existing `auth_method` field can continue to name the selected auth strategy, but only `bearer-env` is supported for real mode in v1.
+The existing `auth_method` field continues to name the selected auth strategy for
+real mode.
 
 ### Auth boundary
 
@@ -283,7 +291,7 @@ If a future implementation starts populating `children`, any failure to retrieve
 v1 test coverage should rely on mocked or fixture-based tests for:
 
 - CLI mode selection: default stub vs explicit real mode
-- auth config validation for `bearer-env`
+- auth config validation for `bearer-env` and `client-cert-env`
 - request construction for the real client
 - response-to-payload mapping
 - error mapping for `401/403`, `404`, and malformed response bodies
@@ -305,6 +313,8 @@ Optional manual validation may exist outside normal repository validation, for e
 - developer-run command with `--client-mode real`
 - real `--base-url`
 - real bearer token in `CONFLUENCE_BEARER_TOKEN`
+- real client certificate material in `CONFLUENCE_CLIENT_CERT_FILE` and optional
+  `CONFLUENCE_CLIENT_KEY_FILE`
 
 That live check is opt-in only and is not part of `make check`.
 
@@ -313,9 +323,8 @@ That live check is opt-in only and is not part of `make check`.
 The following are explicitly out of scope for v1:
 
 - making the real client the default
-- live enterprise auth beyond `bearer-env`
-- certificate-based auth
-- mTLS
+- live enterprise auth beyond `bearer-env` and `client-cert-env`
+- broader auth abstractions or multi-provider auth systems
 - attachments
 - comments
 - pagination or rate-limit sophistication

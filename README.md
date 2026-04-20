@@ -172,7 +172,7 @@ client.
 - generates stub page content for the resolved page without contacting a live
   Confluence instance
 - supports an opt-in real client path with `--client-mode real` for a single live
-  page fetch using `bearer-env` auth
+  page fetch using `bearer-env` or `client-cert-env` auth
 - normalizes that stub content into markdown and writes `pages/<canonical_id>.md`
 - writes `manifest.json` for normal runs
 - supports dry-run output and manifest-based skip logic for the resolved page
@@ -232,7 +232,12 @@ CONFLUENCE_BEARER_TOKEN=... .venv/bin/knowledge-adapters confluence \
 ```
 
 In v1, `--client-mode real` supports both single-page fetches and real breadth-first
-tree traversal with `--tree` and `--max-depth`, using `bearer-env` auth.
+tree traversal with `--tree` and `--max-depth`, using `bearer-env` auth and
+optional client certificates or `client-cert-env` auth.
+
+For certificate-based auth, set `CONFLUENCE_CLIENT_CERT_FILE` to a combined PEM
+file, or set `CONFLUENCE_CLIENT_CERT_FILE` plus `CONFLUENCE_CLIENT_KEY_FILE` for
+split cert/key files.
 
 Preview the default Confluence run without writing files:
 
