@@ -3,11 +3,29 @@
 from __future__ import annotations
 
 import json
+import os
 from urllib import parse, request
 from urllib.error import HTTPError, URLError
 
 from knowledge_adapters.confluence.auth import build_request_auth
 from knowledge_adapters.confluence.models import ResolvedTarget
+
+
+class ConfluenceRequestError(RuntimeError):
+    """Stable request failure with Confluence-specific debug context."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        request_url: str,
+        auth_method: str,
+        underlying_error: str,
+    ) -> None:
+        super().__init__(message)
+        self.request_url = request_url
+        self.auth_method = auth_method
+        self.underlying_error = underlying_error
 
 
 def fetch_page(target: ResolvedTarget) -> dict[str, object]:
@@ -117,6 +135,23 @@ def _map_child_page_ids(payload: dict[str, object]) -> list[str]:
     return child_page_ids
 
 
+def _sanitize_debug_value(value: str) -> str:
+    bearer_token = os.getenv("CONFLUENCE_BEARER_TOKEN", "").strip()
+    sanitized = value
+    if bearer_token:
+        sanitized = sanitized.replace(bearer_token, "[redacted]")
+    if "-----BEGIN " in sanitized or "-----END " in sanitized:
+        return "[redacted secret material]"
+    return sanitized
+
+
+def _underlying_request_error_message(exc: HTTPError | URLError) -> str:
+    if isinstance(exc, HTTPError):
+        return _sanitize_debug_value(str(exc))
+
+    return _sanitize_debug_value(str(exc.reason))
+
+
 def _request_json(api_url: str, *, auth_method: str) -> dict[str, object]:
     request_auth = build_request_auth(auth_method)
     api_request = request.Request(
@@ -129,15 +164,27 @@ def _request_json(api_url: str, *, auth_method: str) -> dict[str, object]:
             raw_payload = json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         if exc.code in {401, 403}:
-            raise RuntimeError(
+            message = (
                 "Confluence auth failed. Check --auth-method and the required "
                 "CONFLUENCE_* environment variables."
-            ) from exc
-        if exc.code == 404:
-            raise RuntimeError("Confluence page not found.") from exc
-        raise RuntimeError(f"Confluence request failed with status {exc.code}.") from exc
+            )
+        elif exc.code == 404:
+            message = "Confluence page not found."
+        else:
+            message = f"Confluence request failed with status {exc.code}."
+        raise ConfluenceRequestError(
+            message,
+            request_url=api_url,
+            auth_method=auth_method,
+            underlying_error=_underlying_request_error_message(exc),
+        ) from exc
     except URLError as exc:
-        raise RuntimeError("Confluence request failed.") from exc
+        raise ConfluenceRequestError(
+            "Confluence request failed.",
+            request_url=api_url,
+            auth_method=auth_method,
+            underlying_error=_underlying_request_error_message(exc),
+        ) from exc
     except json.JSONDecodeError as exc:
         raise ValueError("Response error: invalid JSON payload.") from exc
 
