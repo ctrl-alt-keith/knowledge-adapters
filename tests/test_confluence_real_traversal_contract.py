@@ -278,6 +278,126 @@ def test_real_tree_orders_pages_breadth_first_then_lexical_without_parent_adjace
     assert child_list_calls == ["100", "200", "300"]
 
 
+def test_real_tree_depth_one_does_not_query_descendant_child_lists(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    children_by_parent: dict[str, ChildDiscoveryResult] = {
+        "100": ["300", "200"],
+        "200": RuntimeError("child list for 200 should not be queried at depth 1"),
+        "300": RuntimeError("child list for 300 should not be queried at depth 1"),
+    }
+
+    exit_code, output_dir, page_fetch_counts, child_list_calls = _run_real_recursive_cli(
+        tmp_path,
+        monkeypatch,
+        max_depth=1,
+        children_by_parent=children_by_parent,
+    )
+
+    assert exit_code == 0
+
+    payload = _load_manifest(output_dir)
+    assert [entry["canonical_id"] for entry in _manifest_files(payload)] == [
+        "100",
+        "200",
+        "300",
+    ]
+    assert page_fetch_counts == {"100": 1, "200": 1, "300": 1}
+    assert child_list_calls == ["100"]
+
+
+def test_real_tree_unsorted_duplicate_heavy_inputs_still_produce_deterministic_output(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    pages: dict[str, dict[str, object]] = {
+        **_real_pages(),
+        "220": {
+            "canonical_id": "220",
+            "title": "220",
+            "source_url": "https://example.com/wiki/pages/220",
+            "content": "220 content.",
+        },
+        "330": {
+            "canonical_id": "330",
+            "title": "330",
+            "source_url": "https://example.com/wiki/pages/330",
+            "content": "330 content.",
+        },
+        "410": {
+            "canonical_id": "410",
+            "title": "410",
+            "source_url": "https://example.com/wiki/pages/410",
+            "content": "410 content.",
+        },
+        "450": {
+            "canonical_id": "450",
+            "title": "450",
+            "source_url": "https://example.com/wiki/pages/450",
+            "content": "450 content.",
+        },
+        "600": {
+            "canonical_id": "600",
+            "title": "600",
+            "source_url": "https://example.com/wiki/pages/600",
+            "content": "600 content.",
+        },
+        "700": {
+            "canonical_id": "700",
+            "title": "700",
+            "source_url": "https://example.com/wiki/pages/700",
+            "content": "700 content.",
+        },
+    }
+    children_by_parent: dict[str, ChildDiscoveryResult] = {
+        "100": ["450", "220", "410", "205", "330", "220", "410"],
+        "205": ["600", "500", "500", "700"],
+        "220": ["700", "600", "500", "700"],
+        "330": ["500", "700", "600", "500"],
+        "410": [],
+        "450": [],
+        "500": [],
+        "600": [],
+        "700": [],
+    }
+
+    exit_code, output_dir, page_fetch_counts, child_list_calls = _run_real_recursive_cli(
+        tmp_path,
+        monkeypatch,
+        pages=pages,
+        max_depth=2,
+        children_by_parent=children_by_parent,
+    )
+
+    assert exit_code == 0
+
+    payload = _load_manifest(output_dir)
+    assert [entry["canonical_id"] for entry in _manifest_files(payload)] == [
+        "100",
+        "205",
+        "220",
+        "330",
+        "410",
+        "450",
+        "500",
+        "600",
+        "700",
+    ]
+    assert page_fetch_counts == {
+        "100": 1,
+        "205": 1,
+        "220": 1,
+        "330": 1,
+        "410": 1,
+        "450": 1,
+        "500": 1,
+        "600": 1,
+        "700": 1,
+    }
+    assert child_list_calls == ["100", "205", "220", "330", "410", "450"]
+
+
 def test_real_tree_deduplicates_repeated_child_ids_across_levels_without_refetching(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -369,6 +489,66 @@ def test_real_tree_stops_immediately_on_malformed_child_list_response(
     _assert_no_artifacts_written(output_dir)
 
 
+def test_real_tree_stops_without_writes_when_later_child_list_fails_after_partial_discovery(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    from knowledge_adapters.confluence import client as client_module
+
+    page_fetch_counts: dict[str, int] = {}
+    child_list_calls: list[str] = []
+
+    pages = _real_pages()
+    children_by_parent: dict[str, ChildDiscoveryResult] = {
+        "100": ["300", "200"],
+        "200": [],
+        "300": RuntimeError("synthetic child-list failure for 300"),
+    }
+
+    def stub_real_fetch(
+        target: ResolvedTarget,
+        *,
+        base_url: str = "https://example.com/wiki",
+        auth_method: str = "bearer-env",
+    ) -> dict[str, object]:
+        del base_url, auth_method
+
+        page_id = str(target.page_id)
+        page_fetch_counts[page_id] = page_fetch_counts.get(page_id, 0) + 1
+        return dict(pages[page_id])
+
+    def stub_child_id_discovery(*args: object, **kwargs: object) -> list[str]:
+        parent_id = _called_page_id(args, kwargs)
+        child_list_calls.append(parent_id)
+
+        result = children_by_parent[parent_id]
+        if isinstance(result, Exception):
+            raise result
+        return [str(child_id) for child_id in result]
+
+    monkeypatch.setattr(client_module, "fetch_real_page", stub_real_fetch, raising=False)
+    monkeypatch.setattr(
+        client_module,
+        "list_real_child_page_ids",
+        stub_child_id_discovery,
+        raising=False,
+    )
+
+    output_dir = tmp_path / "out"
+    with pytest.raises(SystemExit) as exc_info:
+        main(_real_tree_argv(output_dir, max_depth=2))
+
+    assert exc_info.value.code == 2
+    assert page_fetch_counts == {"100": 1, "200": 1, "300": 1}
+    assert child_list_calls == ["100", "200", "300"]
+    _assert_concise_cli_error(
+        capsys,
+        expected_message="synthetic child-list failure for 300",
+    )
+    _assert_no_artifacts_written(output_dir)
+
+
 def test_real_tree_stops_immediately_on_missing_or_invalid_child_ids(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -391,6 +571,61 @@ def test_real_tree_stops_immediately_on_missing_or_invalid_child_ids(
     _assert_concise_cli_error(
         capsys,
         expected_message="Response error: invalid child page ID.",
+    )
+    _assert_no_artifacts_written(output_dir)
+
+
+def test_real_tree_stops_without_writes_when_later_page_fetch_fails_after_partial_success(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    from knowledge_adapters.confluence import client as client_module
+
+    page_fetch_counts: dict[str, int] = {}
+    child_list_calls: list[str] = []
+
+    pages = _real_pages()
+
+    def stub_real_fetch(
+        target: ResolvedTarget,
+        *,
+        base_url: str = "https://example.com/wiki",
+        auth_method: str = "bearer-env",
+    ) -> dict[str, object]:
+        del base_url, auth_method
+
+        page_id = str(target.page_id)
+        page_fetch_counts[page_id] = page_fetch_counts.get(page_id, 0) + 1
+        if page_id == "300":
+            raise RuntimeError("synthetic page fetch failure for 300")
+        return dict(pages[page_id])
+
+    def stub_child_id_discovery(*args: object, **kwargs: object) -> list[str]:
+        parent_id = _called_page_id(args, kwargs)
+        child_list_calls.append(parent_id)
+        if parent_id == "100":
+            return ["300", "200"]
+        return []
+
+    monkeypatch.setattr(client_module, "fetch_real_page", stub_real_fetch, raising=False)
+    monkeypatch.setattr(
+        client_module,
+        "list_real_child_page_ids",
+        stub_child_id_discovery,
+        raising=False,
+    )
+
+    output_dir = tmp_path / "out"
+    with pytest.raises(SystemExit) as exc_info:
+        main(_real_tree_argv(output_dir, max_depth=1))
+
+    assert exc_info.value.code == 2
+    assert page_fetch_counts == {"100": 1, "200": 1, "300": 1}
+    assert child_list_calls == ["100"]
+    _assert_concise_cli_error(
+        capsys,
+        expected_message="synthetic page fetch failure for 300",
     )
     _assert_no_artifacts_written(output_dir)
 
