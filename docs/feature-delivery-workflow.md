@@ -137,6 +137,8 @@ In practice, that means prompts should explicitly state:
 
 Open PRs as ready for review by default.
 
+In this repository, `main` enforces a minimal PR gate: pull requests are required, admins are included in branch protection, the required status check is `test`, and approving reviews are not required. That enforced baseline is intentionally lighter than the full workflow guidance in this document.
+
 Use a draft PR only when:
 
 - the task explicitly asks for a draft PR

@@ -20,7 +20,7 @@ Preferred pattern:
 4. Review the diff
 5. Run validation
 6. Commit, push, and open a PR
-7. Merge only after review and CI pass
+7. Merge only after any intended review and CI pass
 
 Do not use Codex as the source of truth for architecture. Use it to implement and refine within an already-defined repo structure.
 
@@ -176,6 +176,14 @@ A Codex task is not considered complete until validation succeeds.
 
 Run validation through the Makefile targets for this repository.
 Do not invoke `pytest`, `mypy`, or `ruff` directly; use `make check` and other documented `make` targets instead.
+
+The enforced branch-protection baseline on `main` is intentionally minimal:
+- pull requests are required
+- admin enforcement is enabled
+- the required GitHub status check is `test`
+- approving reviews are not required
+
+Those enforcement settings are lighter than the workflow expectations in this document. GitHub Actions should mirror the canonical local validation path through the `test` job.
 
 At the time of writing, validation is:
 

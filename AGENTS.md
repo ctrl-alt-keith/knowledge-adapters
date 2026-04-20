@@ -102,6 +102,15 @@ Pull requests must:
 - include a clear summary of changes
 - include a testing/verification section
 
+GitHub enforcement on `main` is intentionally minimal:
+
+- pull requests are required
+- admins are subject to the same branch protection
+- the required status check is `test`
+- approving reviews are not required
+
+The rest of this document describes the expected Codex workflow, which is stricter than the enforced minimum.
+
 Preferred PR structure:
 
 Summary
