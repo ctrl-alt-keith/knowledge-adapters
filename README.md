@@ -4,6 +4,19 @@ Generic adapters for acquiring knowledge from external sources and normalizing i
 
 ---
 
+## Install (without cloning)
+
+If you only want the CLI, install it directly from GitHub with `pipx`:
+
+```bash
+pipx install git+https://github.com/ctrl-alt-keith/knowledge-adapters.git
+knowledge-adapters --help
+```
+
+When installed this way, use `knowledge-adapters` in place of `.venv/bin/knowledge-adapters` in the examples below.
+
+---
+
 ## Quickstart
 
 ```bash
