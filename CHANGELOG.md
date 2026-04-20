@@ -9,6 +9,23 @@ Formal changelog coverage begins at `0.2.0`, when this repository started using
 `CHANGELOG.md` as part of the release flow. Earlier tagged releases `v0.1.0` and
 `v0.1.1` predate that practice and are not backfilled here.
 
+## 0.5.0
+
+- Added opt-in real Confluence tree traversal via `--client-mode real --tree`
+  with depth-limited traversal using the existing `--max-depth` flag.
+- Shipped deterministic breadth-first traversal for the real client path, with
+  lexical canonical page ID ordering within each depth level.
+- Added canonical page ID deduplication across real traversal runs so repeated
+  child discovery fetches, writes, and lists each page at most once.
+- Added fail-fast real traversal behavior so child-list failures, malformed
+  child-list payloads, invalid child IDs, and descendant page-fetch failures
+  stop the run without partial markdown or manifest writes.
+- Added hardened contract coverage for real traversal edge cases, including
+  duplicate-heavy child lists, unsorted child discovery input, shallow-depth
+  no-extra-fetch cases, and mixed success/failure runs.
+- This release does not add pagination, retries/backoff, auth expansion, or
+  richer child metadata beyond canonical child page IDs.
+
 ## 0.4.0
 
 - Added opt-in real Confluence client support through `--client-mode real` while
