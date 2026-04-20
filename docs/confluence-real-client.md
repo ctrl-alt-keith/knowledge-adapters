@@ -184,11 +184,13 @@ This keeps future auth growth localized to config/auth modules instead of spilli
 
 ### Deferred future auth modes
 
-The following are explicitly deferred:
+The following auth work beyond minimal environment-driven `bearer-env` and
+`client-cert-env` support is explicitly deferred:
 
-- certificate-based auth
-- mTLS
-- enterprise certificate or client-cert flows
+- broader auth abstractions or multi-provider auth systems
+- advanced certificate handling such as passphrase-protected keys
+- enterprise-specific auth combinations beyond `bearer-env` and
+  `client-cert-env`
 - OAuth variants
 - cookie/session-based auth
 - other runtime-specific enterprise auth mechanisms
