@@ -34,6 +34,12 @@ def _content_api_url(base_url: str, page_id: str) -> str:
     )
 
 
+def _child_page_api_url(base_url: str, page_id: str) -> str:
+    normalized_base = base_url.rstrip("/")
+    encoded_page_id = parse.quote(page_id, safe="")
+    return f"{normalized_base}/rest/api/content/{encoded_page_id}/child/page"
+
+
 def _require_string(payload: dict[str, object], key: str) -> str:
     value = payload.get(key)
     if not isinstance(value, str) or not value:
@@ -97,20 +103,27 @@ def _map_real_page(payload: dict[str, object], requested_page_id: str) -> dict[s
     }
 
 
-def fetch_real_page(
-    target: ResolvedTarget,
-    *,
-    base_url: str,
-    auth_method: str,
-) -> dict[str, object]:
-    """Fetch one Confluence page through the opt-in real client path."""
-    page_id = target.page_id
-    if not page_id:
-        raise ValueError("Response error: canonical_id mismatch.")
+def _map_child_page_ids(payload: dict[str, object]) -> list[str]:
+    results = payload.get("results")
+    if not isinstance(results, list):
+        raise ValueError("Response error: invalid child-list payload.")
 
+    child_page_ids: list[str] = []
+    for result in results:
+        if not isinstance(result, dict):
+            raise ValueError("Response error: invalid child-list payload.")
+        child_page_id = result.get("id")
+        if not isinstance(child_page_id, str) or not child_page_id:
+            raise ValueError("Response error: invalid child page ID.")
+        child_page_ids.append(child_page_id)
+
+    return child_page_ids
+
+
+def _request_json(api_url: str, *, auth_method: str) -> dict[str, object]:
     headers = dict(build_auth_headers(auth_method))
     api_request = request.Request(
-        _content_api_url(base_url, page_id),
+        api_url,
         headers=headers,
     )
 
@@ -131,4 +144,40 @@ def fetch_real_page(
     if not isinstance(raw_payload, dict):
         raise ValueError("Response error: invalid payload shape.")
 
+    return raw_payload
+
+
+def fetch_real_page(
+    target: ResolvedTarget,
+    *,
+    base_url: str,
+    auth_method: str,
+) -> dict[str, object]:
+    """Fetch one Confluence page through the opt-in real client path."""
+    page_id = target.page_id
+    if not page_id:
+        raise ValueError("Response error: canonical_id mismatch.")
+
+    raw_payload = _request_json(
+        _content_api_url(base_url, page_id),
+        auth_method=auth_method,
+    )
     return _map_real_page(raw_payload, page_id)
+
+
+def list_real_child_page_ids(
+    target: ResolvedTarget,
+    *,
+    base_url: str,
+    auth_method: str,
+) -> list[str]:
+    """List direct child page IDs for one Confluence page in real mode."""
+    page_id = target.page_id
+    if not page_id:
+        raise ValueError("Response error: invalid child page ID.")
+
+    raw_payload = _request_json(
+        _child_page_api_url(base_url, page_id),
+        auth_method=auth_method,
+    )
+    return _map_child_page_ids(raw_payload)

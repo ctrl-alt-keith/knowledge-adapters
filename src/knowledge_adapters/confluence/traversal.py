@@ -8,6 +8,7 @@ from knowledge_adapters.confluence.models import ResolvedTarget
 
 PagePayload = Mapping[str, object]
 FetchPage = Callable[[ResolvedTarget], dict[str, object]]
+ListChildPageIds = Callable[[ResolvedTarget], list[str]]
 
 
 def _canonical_id(page: PagePayload, fallback_page_id: str) -> str:
@@ -23,11 +24,25 @@ def _child_page_ids(page: PagePayload) -> list[str]:
     return [str(child) for child in children]
 
 
+def _target_for_page(page: PagePayload) -> ResolvedTarget:
+    """Build a resolved target from an already-fetched page payload."""
+    canonical_id = _canonical_id(page, "")
+    if not canonical_id:
+        raise ValueError("Response error: invalid canonical_id.")
+
+    return ResolvedTarget(
+        raw_value=canonical_id,
+        page_id=canonical_id,
+        page_url=None,
+    )
+
+
 def walk_pages(
     root_target: ResolvedTarget,
     *,
     max_depth: int,
     fetch_page: FetchPage,
+    list_child_page_ids: ListChildPageIds | None = None,
 ) -> tuple[str, list[dict[str, object]]]:
     """Fetch pages breadth-first up to the requested depth."""
     root_page = fetch_page(root_target)
@@ -38,12 +53,18 @@ def walk_pages(
     current_level = [root_page]
 
     for _depth in range(max_depth):
-        child_ids = {
-            child_id
-            for page in current_level
-            for child_id in _child_page_ids(page)
-            if child_id not in fetched_pages
-        }
+        child_ids: set[str] = set()
+        for page in current_level:
+            page_child_ids = (
+                list_child_page_ids(_target_for_page(page))
+                if list_child_page_ids is not None
+                else _child_page_ids(page)
+            )
+            child_ids.update(
+                child_id
+                for child_id in page_child_ids
+                if child_id not in fetched_pages
+            )
 
         next_level: list[dict[str, object]] = []
         for child_id in sorted(child_ids):

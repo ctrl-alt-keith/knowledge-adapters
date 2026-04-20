@@ -231,8 +231,8 @@ CONFLUENCE_BEARER_TOKEN=... .venv/bin/knowledge-adapters confluence \
   --output-dir ./artifacts
 ```
 
-In v1, `--client-mode real` supports only single-page fetches with `bearer-env`
-auth. It rejects `--tree` and `--max-depth > 0`.
+In v1, `--client-mode real` supports both single-page fetches and real breadth-first
+tree traversal with `--tree` and `--max-depth`, using `bearer-env` auth.
 
 Preview the default Confluence run without writing files:
 
@@ -248,10 +248,10 @@ The dry run prints the planned output path and the normalized stub markdown. If 
 existing `manifest.json` entry and on-disk artifact already match the resolved page,
 the default CLI reports `would skip` instead of `would write`.
 
-The Confluence CLI also includes scaffolded tree-mode and incremental-sync plumbing.
-Those paths are covered by design docs and contract tests, but the default stub
-client does not discover child pages, so `--tree` still yields only the resolved
-root page out of the box.
+The Confluence CLI also includes tree-mode and incremental-sync plumbing. The
+default stub client still does not discover child pages, so out-of-the-box stub
+tree runs yield only the resolved root page. In `--client-mode real`, the CLI
+can traverse real child pages breadth-first up to `--max-depth`.
 
 Confluence incremental skip eligibility uses the existing `manifest.json` plus
 on-disk file existence. A page counts as already written only when:

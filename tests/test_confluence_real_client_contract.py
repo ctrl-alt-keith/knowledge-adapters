@@ -57,6 +57,23 @@ def _fetch_real_page(
     return cast(dict[str, object], page)
 
 
+def _list_real_child_page_ids(
+    target: ResolvedTarget,
+    *,
+    base_url: str = "https://example.com/wiki",
+    auth_method: str = "bearer-env",
+) -> list[str]:
+    from knowledge_adapters.confluence import client as client_module
+
+    client_module_any = cast(Any, client_module)
+    child_page_ids = client_module_any.list_real_child_page_ids(
+        target,
+        base_url=base_url,
+        auth_method=auth_method,
+    )
+    return cast(list[str], child_page_ids)
+
+
 class _FakeHTTPResponse:
     def __init__(self, payload: dict[str, object], *, status: int = 200) -> None:
         self.status = status
@@ -91,6 +108,17 @@ def _valid_confluence_payload(
             "base": "https://example.com/wiki",
             "webui": f"/spaces/ENG/pages/{page_id}",
         },
+    }
+
+
+def _valid_child_list_payload(*, child_page_ids: list[str]) -> dict[str, object]:
+    return {
+        "results": [
+            {
+                "id": child_page_id,
+            }
+            for child_page_id in child_page_ids
+        ]
     }
 
 
@@ -179,31 +207,6 @@ def test_explicit_real_client_mode_selects_real_fetch_path(
 
 
 @pytest.mark.parametrize(
-    ("extra_args", "expected_fragment"),
-    [
-        (["--client-mode", "real", "--tree"], "--tree"),
-        (["--client-mode", "real", "--max-depth", "1"], "--max-depth"),
-    ],
-)
-def test_real_client_mode_rejects_tree_or_depth_usage_in_v1(
-    tmp_path: Path,
-    capsys: CaptureFixture[str],
-    extra_args: list[str],
-    expected_fragment: str,
-) -> None:
-    output_dir = tmp_path / "out"
-
-    with pytest.raises(SystemExit) as exc_info:
-        main(_confluence_argv(output_dir, *extra_args))
-
-    assert exc_info.value.code == 2
-
-    captured = capsys.readouterr()
-    assert "real" in captured.err
-    assert expected_fragment in captured.err
-
-
-@pytest.mark.parametrize(
     "token_value",
     [
         None,
@@ -252,6 +255,22 @@ def test_real_fetch_maps_valid_confluence_response_into_adapter_payload(
         "source_url": "https://example.com/wiki/spaces/ENG/pages/12345",
     }
     assert str(page["source_url"]).startswith("https://")
+
+
+def test_real_child_list_maps_valid_confluence_response_into_child_page_ids(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda *args, **kwargs: _FakeHTTPResponse(
+            _valid_child_list_payload(child_page_ids=["200", "300", "300"])
+        ),
+    )
+
+    child_page_ids = _list_real_child_page_ids(_real_target())
+
+    assert child_page_ids == ["200", "300", "300"]
 
 
 @pytest.mark.parametrize(
@@ -491,6 +510,30 @@ def test_real_fetch_fails_fast_on_invalid_response_shapes(
 
     with pytest.raises(ValueError, match=expected_fragment):
         _fetch_real_page(_real_target())
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected_fragment"),
+    [
+        ({}, "child-list payload"),
+        ({"results": [123]}, "child-list payload"),
+        ({"results": [{"id": ""}]}, "child page ID"),
+        ({"results": [{"id": None}]}, "child page ID"),
+    ],
+)
+def test_real_child_list_fails_fast_on_invalid_response_shapes(
+    monkeypatch: MonkeyPatch,
+    payload: dict[str, object],
+    expected_fragment: str,
+) -> None:
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda *args, **kwargs: _FakeHTTPResponse(payload),
+    )
+
+    with pytest.raises(ValueError, match=expected_fragment):
+        _list_real_child_page_ids(_real_target())
 
 
 @pytest.mark.parametrize(

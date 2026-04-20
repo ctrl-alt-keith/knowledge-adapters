@@ -5,18 +5,10 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-from pytest import MonkeyPatch
+from pytest import CaptureFixture, MonkeyPatch
 
 from knowledge_adapters.cli import main
 from knowledge_adapters.confluence.models import ResolvedTarget
-
-pytestmark = pytest.mark.xfail(
-    reason=(
-        "Real Confluence tree traversal is documented but not implemented yet; "
-        "the CLI still rejects --client-mode real with --tree."
-    ),
-    strict=True,
-)
 
 ChildDiscoveryResult = list[str] | Exception
 
@@ -138,6 +130,18 @@ def _assert_no_artifacts_written(output_dir: Path) -> None:
     pages_dir = output_dir / "pages"
     markdown_outputs = list(pages_dir.glob("*.md")) if pages_dir.exists() else []
     assert markdown_outputs == []
+
+
+def _assert_concise_cli_error(
+    capsys: CaptureFixture[str],
+    *,
+    expected_message: str,
+) -> None:
+    captured = capsys.readouterr()
+    assert (
+        captured.err
+        == f"knowledge-adapters confluence: error: {expected_message}\n"
+    )
 
 
 def _run_real_recursive_cli(
@@ -316,13 +320,14 @@ def test_real_tree_deduplicates_repeated_child_ids_across_levels_without_refetch
 def test_real_tree_stops_immediately_when_child_list_fetch_fails(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
 ) -> None:
     output_dir = tmp_path / "out"
     children_by_parent: dict[str, ChildDiscoveryResult] = {
         "100": RuntimeError("synthetic child-list failure for 100"),
     }
 
-    with pytest.raises(RuntimeError, match="synthetic child-list failure for 100"):
+    with pytest.raises(SystemExit) as exc_info:
         _run_real_recursive_cli(
             tmp_path,
             monkeypatch,
@@ -330,19 +335,25 @@ def test_real_tree_stops_immediately_when_child_list_fetch_fails(
             children_by_parent=children_by_parent,
         )
 
+    assert exc_info.value.code == 2
+    _assert_concise_cli_error(
+        capsys,
+        expected_message="synthetic child-list failure for 100",
+    )
     _assert_no_artifacts_written(output_dir)
 
 
 def test_real_tree_stops_immediately_on_malformed_child_list_response(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
 ) -> None:
     output_dir = tmp_path / "out"
     children_by_parent: dict[str, ChildDiscoveryResult] = {
         "100": ValueError("Response error: invalid child-list payload."),
     }
 
-    with pytest.raises(ValueError, match="invalid child-list payload"):
+    with pytest.raises(SystemExit) as exc_info:
         _run_real_recursive_cli(
             tmp_path,
             monkeypatch,
@@ -350,19 +361,25 @@ def test_real_tree_stops_immediately_on_malformed_child_list_response(
             children_by_parent=children_by_parent,
         )
 
+    assert exc_info.value.code == 2
+    _assert_concise_cli_error(
+        capsys,
+        expected_message="Response error: invalid child-list payload.",
+    )
     _assert_no_artifacts_written(output_dir)
 
 
 def test_real_tree_stops_immediately_on_missing_or_invalid_child_ids(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
 ) -> None:
     output_dir = tmp_path / "out"
     children_by_parent: dict[str, ChildDiscoveryResult] = {
         "100": ValueError("Response error: invalid child page ID."),
     }
 
-    with pytest.raises(ValueError, match="invalid child page ID"):
+    with pytest.raises(SystemExit) as exc_info:
         _run_real_recursive_cli(
             tmp_path,
             monkeypatch,
@@ -370,16 +387,22 @@ def test_real_tree_stops_immediately_on_missing_or_invalid_child_ids(
             children_by_parent=children_by_parent,
         )
 
+    assert exc_info.value.code == 2
+    _assert_concise_cli_error(
+        capsys,
+        expected_message="Response error: invalid child page ID.",
+    )
     _assert_no_artifacts_written(output_dir)
 
 
 def test_real_tree_stops_immediately_on_descendant_page_fetch_failure(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
 ) -> None:
     output_dir = tmp_path / "out"
 
-    with pytest.raises(RuntimeError, match="synthetic page fetch failure for 200"):
+    with pytest.raises(SystemExit) as exc_info:
         _run_real_recursive_cli(
             tmp_path,
             monkeypatch,
@@ -387,4 +410,9 @@ def test_real_tree_stops_immediately_on_descendant_page_fetch_failure(
             fail_on_page_ids={"200"},
         )
 
+    assert exc_info.value.code == 2
+    _assert_concise_cli_error(
+        capsys,
+        expected_message="synthetic page fetch failure for 200",
+    )
     _assert_no_artifacts_written(output_dir)

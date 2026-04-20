@@ -4,8 +4,6 @@
 
 This document defines a minimal v1 design for enabling real child-page traversal when `knowledge-adapters confluence` runs with `--client-mode real`.
 
-Today, the shipped implementation still rejects `--client-mode real` together with real tree traversal. This document defines the next minimal phase for lifting that restriction.
-
 The goal is to turn the existing scaffolded tree mode into real behavior for the opt-in real client path without expanding scope beyond what is required for:
 
 - child-page discovery

@@ -98,7 +98,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "confluence":
-        from knowledge_adapters.confluence.client import fetch_page, fetch_real_page
+        from knowledge_adapters.confluence.client import (
+            fetch_page,
+            fetch_real_page,
+            list_real_child_page_ids,
+        )
         from knowledge_adapters.confluence.config import ConfluenceConfig
         from knowledge_adapters.confluence.incremental import (
             is_already_written,
@@ -145,20 +149,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"  tree: {confluence_config.tree}")
         print(f"  max_depth: {confluence_config.max_depth}")
 
-        if confluence_config.client_mode == "real":
-            if confluence_config.tree:
-                exit_with_cli_error(
-                    "--client-mode real does not support --tree in v1."
-                )
-            if confluence_config.max_depth > 0:
-                exit_with_cli_error(
-                    "--client-mode real does not support --max-depth greater than 0 in v1."
-                )
-
         selected_fetch_page: Callable[[ResolvedTarget], dict[str, object]]
+        selected_list_child_page_ids: Callable[[ResolvedTarget], list[str]] | None = None
         if confluence_config.client_mode == "real":
             def selected_fetch_page(resolved_target: ResolvedTarget) -> dict[str, object]:
                 return fetch_real_page(
+                    resolved_target,
+                    base_url=confluence_config.base_url,
+                    auth_method=confluence_config.auth_method,
+                )
+
+            def selected_list_child_page_ids(
+                resolved_target: ResolvedTarget,
+            ) -> list[str]:
+                return list_real_child_page_ids(
                     resolved_target,
                     base_url=confluence_config.base_url,
                     auth_method=confluence_config.auth_method,
@@ -179,11 +183,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
 
         if confluence_config.tree:
-            root_page_id, pages = walk_pages(
-                target,
-                max_depth=confluence_config.max_depth,
-                fetch_page=selected_fetch_page,
-            )
+            if confluence_config.client_mode == "real":
+                try:
+                    root_page_id, pages = walk_pages(
+                        target,
+                        max_depth=confluence_config.max_depth,
+                        fetch_page=selected_fetch_page,
+                        list_child_page_ids=selected_list_child_page_ids,
+                    )
+                except (RuntimeError, ValueError) as exc:
+                    exit_with_cli_error(str(exc))
+            else:
+                root_page_id, pages = walk_pages(
+                    target,
+                    max_depth=confluence_config.max_depth,
+                    fetch_page=selected_fetch_page,
+                    list_child_page_ids=selected_list_child_page_ids,
+                )
             previous_manifest_index = load_previous_manifest_index(
                 confluence_config.output_dir
             )
