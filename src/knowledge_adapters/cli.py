@@ -183,12 +183,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
 
         if confluence_config.tree:
-            root_page_id, pages = walk_pages(
-                target,
-                max_depth=confluence_config.max_depth,
-                fetch_page=selected_fetch_page,
-                list_child_page_ids=selected_list_child_page_ids,
-            )
+            if confluence_config.client_mode == "real":
+                try:
+                    root_page_id, pages = walk_pages(
+                        target,
+                        max_depth=confluence_config.max_depth,
+                        fetch_page=selected_fetch_page,
+                        list_child_page_ids=selected_list_child_page_ids,
+                    )
+                except (RuntimeError, ValueError) as exc:
+                    exit_with_cli_error(str(exc))
+            else:
+                root_page_id, pages = walk_pages(
+                    target,
+                    max_depth=confluence_config.max_depth,
+                    fetch_page=selected_fetch_page,
+                    list_child_page_ids=selected_list_child_page_ids,
+                )
             previous_manifest_index = load_previous_manifest_index(
                 confluence_config.output_dir
             )
