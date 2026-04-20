@@ -273,6 +273,35 @@ def test_real_child_list_maps_valid_confluence_response_into_child_page_ids(
     assert child_page_ids == ["200", "300", "300"]
 
 
+def test_real_child_list_ignores_extra_irrelevant_fields_in_valid_response(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    payload: dict[str, object] = {
+        "results": [
+            {
+                "id": "200",
+                "title": "Child A",
+                "status": "current",
+            },
+            {
+                "id": "300",
+                "_links": {"webui": "/spaces/ENG/pages/300"},
+                "ignored": ["extra", "fields"],
+            },
+        ]
+    }
+
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda *args, **kwargs: _FakeHTTPResponse(payload),
+    )
+
+    child_page_ids = _list_real_child_page_ids(_real_target())
+
+    assert child_page_ids == ["200", "300"]
+
+
 @pytest.mark.parametrize(
     ("base_url", "webui", "expected_source_url"),
     [
@@ -517,6 +546,8 @@ def test_real_fetch_fails_fast_on_invalid_response_shapes(
     [
         ({}, "child-list payload"),
         ({"results": [123]}, "child-list payload"),
+        ({"results": [{"id": "200"}, {}]}, "child page ID"),
+        ({"results": [{"id": "200"}, {"id": 300}]}, "child page ID"),
         ({"results": [{"id": ""}]}, "child page ID"),
         ({"results": [{"id": None}]}, "child page ID"),
     ],
