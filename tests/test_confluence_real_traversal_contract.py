@@ -10,14 +10,6 @@ from pytest import MonkeyPatch
 from knowledge_adapters.cli import main
 from knowledge_adapters.confluence.models import ResolvedTarget
 
-pytestmark = pytest.mark.xfail(
-    reason=(
-        "Real Confluence tree traversal is documented but not implemented yet; "
-        "the CLI still rejects --client-mode real with --tree."
-    ),
-    strict=True,
-)
-
 ChildDiscoveryResult = list[str] | Exception
 
 

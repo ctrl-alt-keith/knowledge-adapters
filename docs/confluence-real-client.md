@@ -119,26 +119,27 @@ Why this is the right v1 choice:
 
 ### Child-page discovery surface
 
-Tree support is intentionally not part of the real client v1.
-
-To preserve a clean future path without broadening implementation now, reserve an optional payload field:
-
-- `children`: optional list of canonical child page IDs
+Real tree traversal uses a separate client function for child discovery rather than
+overloading the page payload.
 
 v1 rules:
 
-- the real client is not required to populate `children`
-- traversal behavior outside the client is unchanged
-- future tree support may populate `children` without changing manifest, writer, or normalization contracts
+- `fetch_real_page(...)` continues to return one page payload
+- `list_real_child_page_ids(...)` returns only direct canonical child page IDs
+- traversal behavior, deduplication, ordering, and depth handling remain outside
+  the client
 
 ### Interaction with tree mode
 
-Because the real client v1 is single-page only, `--client-mode real` should reject traversal-oriented usage before any network request:
+`--client-mode real` supports tree traversal through the existing traversal layer.
 
-- `--tree`
-- `--max-depth > 0`
+The real client remains responsible only for:
 
-This is preferable to silently pretending live traversal exists when it does not.
+- fetching one page by canonical page ID
+- listing one page's direct child page IDs
+
+Tree semantics are defined separately in
+[`docs/confluence-real-traversal.md`](./confluence-real-traversal.md).
 
 ## Auth Design
 
@@ -317,7 +318,6 @@ The following are explicitly out of scope for v1:
 - mTLS
 - attachments
 - comments
-- full tree traversal over live Confluence data
 - pagination or rate-limit sophistication
 - macro fidelity improvements
 - write-path refactors
@@ -332,6 +332,6 @@ The implementation guided by this design should support tests that verify at lea
 - default CLI behavior still uses the stub client when `--client-mode` is omitted
 - explicit `--client-mode real` uses the real client path
 - real mode fetches one page by canonical page ID and returns adapter payload fields required by the current pipeline
-- real mode rejects unsupported tree-oriented usage in v1
+- real mode keeps page fetch and child discovery as separate client responsibilities
 - auth failures, not found responses, and malformed responses fail fast without writing artifacts
 - future auth additions can be implemented inside the auth/config boundary without changing traversal, manifest, or writer contracts

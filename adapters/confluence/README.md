@@ -16,8 +16,8 @@ Out of the box, the default Confluence CLI:
   `--dry-run`, `--tree`, and `--max-depth`
 - resolves the target into a canonical page ID
 - fetches stub page data for that resolved page
-- supports an opt-in real client path with `--client-mode real` for a single live
-  page fetch using `bearer-env` auth
+- supports an opt-in real client path with `--client-mode real` for live page
+  fetches and breadth-first tree traversal using `bearer-env` auth
 - normalizes the stub page into markdown plus metadata
 - writes a deterministic page artifact and `manifest.json` on normal runs
 - supports dry-run output and manifest-based skip logic for the resolved page
@@ -27,11 +27,11 @@ Out of the box, the default Confluence CLI:
 ## Known Limitations
 
 - the default client does not make live Confluence network requests
-- `--client-mode real` currently supports only single-page fetches
 - `--client-mode real` supports only `bearer-env` auth via
   `CONFLUENCE_BEARER_TOKEN`
 - recursive traversal semantics are defined and tested, but multi-page tree runs
-  require a real or monkeypatched client that returns child pages
+  still require `--client-mode real` or a monkeypatched client that returns child
+  pages
 - incremental sync semantics are defined and tested, but with the default client
   they only affect the resolved root-page artifact
 
