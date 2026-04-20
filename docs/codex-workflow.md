@@ -2,191 +2,79 @@
 
 ## Purpose
 
-This document captures the preferred way to use Codex in this repository.
+This document captures how to use Codex effectively in `knowledge-adapters`.
 
-Codex is most effective here when used for small, bounded, reviewable tasks in an isolated branch or worktree. The goal is to accelerate implementation without losing control of scope, repo hygiene, or validation.
+For reusable prompt structures, thread habits, and broader AI workflow patterns,
+see `ai-workflow-playbook`. This file keeps only the local operating details
+that matter in this repository.
 
----
+## What Codex Is Best Used For Here
 
-## Core model
+Codex is most useful in this repo for small, reviewable changes such as:
 
-Use Codex as a focused contributor for PR-sized changes.
+- adapter contract and edge-case tests
+- CLI behavior and smoke-test updates
+- normalization, traversal, resolve, and manifest logic changes
+- focused documentation updates tied to current repo behavior
+- small refactors inside an existing adapter or shared CLI path
 
-Preferred pattern:
+Use extra care before asking Codex to drive:
 
-1. Start from a clean `main`
-2. Work in an isolated branch or worktree
-3. Give Codex one bounded task
-4. Review the diff
-5. Run validation
-6. Commit, push, and open a PR
-7. Merge only after any intended review and CI pass
+- broad architecture changes across multiple adapters
+- new abstractions before a shared pattern is proven
+- live private-system integration work without explicit task constraints
+- unrelated cleanup mixed into the same branch
 
-Do not use Codex as the source of truth for architecture. Use it to implement and refine within an already-defined repo structure.
+## Repo-Specific Working Agreement
 
-A task is not complete until a pull request has been created.
+`AGENTS.md` is the canonical source for task completion requirements in this
+repo. In practice, that means:
 
----
+1. start from `main` and work on a new branch
+2. keep the branch scoped to one PR-sized change
+3. run validation through the Makefile, not direct tool invocations
+4. do not consider the task complete until the change is committed, pushed, and
+   opened as a PR targeting `main`
 
-## Where Codex fits
+Branch names should follow the patterns in `AGENTS.md`, such as
+`feat/<short-name>` or `docs/<short-name>`.
 
-Use Codex for:
-- adding or improving tests
-- tightening edge-case handling
-- improving CLI behavior
-- refining normalization logic
-- making small, focused refactors
-- preparing commit and PR summaries
+PRs should be ready for review by default and should include:
 
-Do not use Codex first for:
-- broad architectural redesigns
-- large cross-cutting refactors
-- live private-system integrations
-- browser automation
-- adding multiple new adapters at once
+- a short `Summary` section
+- a short `Testing` section
 
----
+## Repository Guardrails
 
-## Thread strategy
+Keep changes aligned with the shape of this repository:
 
-Use one Codex project for this repository.
+- preserve the separation between adapter-specific code and shared CLI behavior
+- keep Confluence-specific behavior isolated to the Confluence adapter paths
+- avoid committing secrets, private URLs, tokens, or internal content
+- prefer contract and smoke coverage when changing adapter behavior
+- keep changes minimal and reversible when working on traversal, normalization,
+  or incremental-sync behavior
 
-Use one Codex thread per PR-sized task.
+## Validation And CI
 
-Stay in the same thread when:
-- continuing the same task
-- making follow-up fixes for the same PR
-- addressing review comments on the same change
-
-Start a new thread when:
-- starting a new branch/worktree
-- changing task scope
-- moving to a different PR-sized change
-- the previous thread has become confusing or overloaded
-
-Good rule:
-- one thread = one branch/worktree = one PR-sized task
-
----
-
-## Branch and PR strategy
-
-Preferred branch naming format:
-
-<type>/<area>-<short-description>
-
-Examples:
-- test/resolve-edge-cases
-- test/normalize-writer
-- feat/confluence-cli-smoke-test
-- fix/resolve-url-parsing
-
-Keep branch names:
-- lowercase
-- hyphen-separated
-- short but descriptive
-- scoped to one change
-
-PR titles should mirror branch intent, for example:
-- test: expand resolve_target edge cases
-- feat: add CLI dry-run smoke test
-
-PR descriptions should follow this structure:
-
-Summary
-- high-level description of the change
-- key implementation details
-
-Testing
-- how the change was validated (typically `make check`)
-
----
-
-## Task prompt pattern
-
-Use prompts that are explicit about:
-- isolation from `main`
-- task scope
-- constraints
-- validation
-- delivery format
-
-Example:
-
-Work in an isolated branch or worktree based on main. Never work directly on main.
-
-Task:
-Add edge-case tests for resolve_target().
-
-Focus on:
-- URLs without page IDs
-- malformed or unexpected inputs
-- whitespace handling
-- preserving current intended behavior unless a small, clearly justified fix is needed
-
-Constraints:
-- Follow AGENTS.md
-- Keep changes minimal, focused, and reversible
-- Do not introduce live Confluence access
-- Do not add new dependencies
-- Do not refactor unrelated code
-- Prefer tests first; only change production code if necessary to support correct behavior
-
-Validation:
-Run the full local validation before considering the task complete:
-- make check
-
-Do not consider the task complete until:
-- changes are committed
-- the branch is pushed
-- a pull request is created
-
-Delivery:
-When done:
-1. summarize files changed
-2. summarize behavior covered by the new tests
-3. list any assumptions
-4. commit using Conventional Commits format
-5. push the branch
-6. open a PR with a concise summary
-
-If anything blocks completion, stop and explain the blocker clearly instead of broadening scope.
-
----
-
-## Planning guidance
-
-For simple tasks, ask Codex to implement directly.
-
-For harder or less clearly scoped tasks, ask Codex to plan first before changing code.
-
-Use planning first when:
-- the task touches multiple modules
-- the task is ambiguous
-- the task might require production-code changes
-- there are several possible implementation paths
-
----
-
-## Validation
-
-The canonical validation steps for this repo are defined in `AGENTS.md`.
-
-A Codex task is not considered complete until validation succeeds.
-
-Run validation through the Makefile targets for this repository.
-Do not invoke `pytest`, `mypy`, or `ruff` directly; use `make check` and other documented `make` targets instead.
-
-The enforced branch-protection baseline on `main` is intentionally minimal:
-- pull requests are required
-- admin enforcement is enabled
-- the required GitHub status check is `test`
-- approving reviews are not required
-
-Those enforcement settings are lighter than the workflow expectations in this document. GitHub Actions should mirror the canonical local validation path through the `test` job.
-
-At the time of writing, validation is:
+The canonical local validation command is:
 
 ```bash
 make check
 ```
+
+Use the Makefile targets documented in this repo. Do not invoke `pytest`,
+`mypy`, or `ruff` directly when validating a task for completion.
+
+GitHub Actions mirrors that local path in `.github/workflows/ci.yml` through the
+`test` job, which runs `make check`.
+
+The enforced baseline on `main` is currently:
+
+- pull requests are required
+- admin enforcement is enabled
+- the required GitHub status check is `test`
+- required approving review count is `0`
+
+Do not rely on stronger GitHub enforcement than that baseline when writing or
+updating repo docs.
