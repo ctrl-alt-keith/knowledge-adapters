@@ -6,7 +6,7 @@ import json
 from urllib import parse, request
 from urllib.error import HTTPError, URLError
 
-from knowledge_adapters.confluence.auth import build_auth_headers
+from knowledge_adapters.confluence.auth import build_request_auth
 from knowledge_adapters.confluence.models import ResolvedTarget
 
 
@@ -121,14 +121,14 @@ def _map_child_page_ids(payload: dict[str, object]) -> list[str]:
 
 
 def _request_json(api_url: str, *, auth_method: str) -> dict[str, object]:
-    headers = dict(build_auth_headers(auth_method))
+    request_auth = build_request_auth(auth_method)
     api_request = request.Request(
         api_url,
-        headers=headers,
+        headers=dict(request_auth.headers),
     )
 
     try:
-        with request.urlopen(api_request) as response:
+        with request.urlopen(api_request, context=request_auth.ssl_context) as response:
             raw_payload = json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         if exc.code in {401, 403}:

@@ -17,7 +17,8 @@ Out of the box, the default Confluence CLI:
 - resolves the target into a canonical page ID
 - fetches stub page data for that resolved page
 - supports an opt-in real client path with `--client-mode real` for live page
-  fetches and breadth-first tree traversal using `bearer-env` auth
+  fetches and breadth-first tree traversal using `bearer-env` or
+  `client-cert-env` auth
 - normalizes the stub page into markdown plus metadata
 - writes a deterministic page artifact and `manifest.json` on normal runs
 - supports dry-run output and manifest-based skip logic for the resolved page
@@ -27,8 +28,9 @@ Out of the box, the default Confluence CLI:
 ## Known Limitations
 
 - the default client does not make live Confluence network requests
-- `--client-mode real` supports only `bearer-env` auth via
-  `CONFLUENCE_BEARER_TOKEN`
+- `--client-mode real` supports `bearer-env` via `CONFLUENCE_BEARER_TOKEN`
+  and `client-cert-env` via `CONFLUENCE_CLIENT_CERT_FILE` plus optional
+  `CONFLUENCE_CLIENT_KEY_FILE`
 - recursive traversal semantics are defined and tested, but multi-page tree runs
   still require `--client-mode real` or a monkeypatched client that returns child
   pages
