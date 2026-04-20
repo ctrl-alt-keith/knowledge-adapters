@@ -12,7 +12,7 @@ The goal is to turn the existing scaffolded tree mode into real behavior for the
 - depth-limited traversal via `--max-depth`
 - canonical page ID deduplication
 
-This design builds on the existing real client contract in [docs/confluence-real-client.md](/Users/keith/src/ctrl-alt-keith/knowledge-adapters/docs/confluence-real-client.md) and the existing traversal contract in [docs/confluence-recursive-fetch.md](/Users/keith/src/ctrl-alt-keith/knowledge-adapters/docs/confluence-recursive-fetch.md).
+This design builds on the existing real client contract in [docs/confluence-real-client.md](./confluence-real-client.md) and the existing traversal contract in [docs/confluence-recursive-fetch.md](./confluence-recursive-fetch.md).
 
 ## v1 Scope
 
