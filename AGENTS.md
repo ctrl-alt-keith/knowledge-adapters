@@ -1,6 +1,10 @@
 # AGENTS
 
-This file defines repository-specific expectations for Codex agents.
+This file defines repository-specific expectations for Codex agents working in
+`knowledge-adapters`.
+
+Reusable AI workflow patterns now belong in `ai-workflow-playbook`. Keep this
+file focused on how this repository operates.
 
 ---
 
@@ -107,9 +111,10 @@ GitHub enforcement on `main` is intentionally minimal:
 - pull requests are required
 - admins are subject to the same branch protection
 - the required status check is `test`
-- approving reviews are not required
+- required approving review count is `0`
 
-The rest of this document describes the expected Codex workflow, which is stricter than the enforced minimum.
+This file documents the repo-local working agreement on top of that enforced
+baseline.
 
 Preferred PR structure:
 
