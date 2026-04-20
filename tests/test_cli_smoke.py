@@ -125,3 +125,19 @@ Stub content for page 12345.
             "title": "stub-page-12345",
         }
     ]
+
+
+def test_confluence_help_lists_supported_auth_methods_and_examples(
+    tmp_path: Path,
+) -> None:
+    result = _run_cli(
+        tmp_path,
+        "confluence",
+        "--help",
+    )
+
+    assert result.returncode == 0
+    assert "CONFLUENCE_BEARER_TOKEN" in result.stdout
+    assert "CONFLUENCE_CLIENT_CERT_FILE" in result.stdout
+    assert "client-cert-env" in result.stdout
+    assert "CONFLUENCE_BEARER_TOKEN=... knowledge-adapters confluence" in result.stdout

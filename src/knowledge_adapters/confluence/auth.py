@@ -6,6 +6,8 @@ import os
 import ssl
 from dataclasses import dataclass
 
+SUPPORTED_AUTH_METHODS = ("bearer-env", "client-cert-env")
+
 
 @dataclass(frozen=True)
 class RequestAuth:
@@ -22,7 +24,10 @@ def build_request_auth(auth_method: str) -> RequestAuth:
     elif auth_method == "client-cert-env":
         headers = {}
     else:
-        raise ValueError(f"Unsupported auth method: {auth_method}")
+        supported_values = " or ".join(repr(method) for method in SUPPORTED_AUTH_METHODS)
+        raise ValueError(
+            f"Unsupported Confluence auth method {auth_method!r}. Use {supported_values}."
+        )
 
     return RequestAuth(
         headers=headers,
@@ -33,7 +38,10 @@ def build_request_auth(auth_method: str) -> RequestAuth:
 def _bearer_env_headers() -> dict[str, str]:
     token = os.getenv("CONFLUENCE_BEARER_TOKEN", "").strip()
     if not token:
-        raise ValueError("CONFLUENCE_BEARER_TOKEN must be set for --client-mode real.")
+        raise ValueError(
+            "Missing Confluence bearer token. Set CONFLUENCE_BEARER_TOKEN for "
+            "--client-mode real --auth-method bearer-env."
+        )
 
     return {"Authorization": f"Bearer {token}"}
 
@@ -44,12 +52,15 @@ def _client_cert_ssl_context(auth_method: str) -> ssl.SSLContext | None:
 
     if key_file and not cert_file:
         raise ValueError(
-            "CONFLUENCE_CLIENT_CERT_FILE must be set when CONFLUENCE_CLIENT_KEY_FILE is set."
+            "Incomplete Confluence client certificate config. Set "
+            "CONFLUENCE_CLIENT_CERT_FILE, and set CONFLUENCE_CLIENT_KEY_FILE only "
+            "when the key is in a separate file."
         )
     if auth_method == "client-cert-env" and not cert_file:
         raise ValueError(
-            "CONFLUENCE_CLIENT_CERT_FILE must be set for --client-mode real "
-            "when --auth-method client-cert-env."
+            "Missing Confluence client certificate. Set "
+            "CONFLUENCE_CLIENT_CERT_FILE for --client-mode real --auth-method "
+            "client-cert-env."
         )
     if not cert_file:
         return None
@@ -62,7 +73,7 @@ def _client_cert_ssl_context(auth_method: str) -> ssl.SSLContext | None:
         )
     except (OSError, ssl.SSLError, ValueError) as exc:
         raise ValueError(
-            "Confluence client certificate configuration is invalid. "
+            "Invalid Confluence client certificate configuration. "
             "Check CONFLUENCE_CLIENT_CERT_FILE and optional "
             "CONFLUENCE_CLIENT_KEY_FILE."
         ) from exc

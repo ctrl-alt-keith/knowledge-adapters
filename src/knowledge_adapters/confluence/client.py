@@ -28,10 +28,7 @@ def fetch_page(target: ResolvedTarget) -> dict[str, object]:
 def _content_api_url(base_url: str, page_id: str) -> str:
     normalized_base = base_url.rstrip("/")
     encoded_page_id = parse.quote(page_id, safe="")
-    return (
-        f"{normalized_base}/rest/api/content/{encoded_page_id}"
-        "?expand=body.storage,_links"
-    )
+    return f"{normalized_base}/rest/api/content/{encoded_page_id}?expand=body.storage,_links"
 
 
 def _child_page_api_url(base_url: str, page_id: str) -> str:
@@ -132,7 +129,10 @@ def _request_json(api_url: str, *, auth_method: str) -> dict[str, object]:
             raw_payload = json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         if exc.code in {401, 403}:
-            raise RuntimeError("Confluence auth failure.") from exc
+            raise RuntimeError(
+                "Confluence auth failed. Check --auth-method and the required "
+                "CONFLUENCE_* environment variables."
+            ) from exc
         if exc.code == 404:
             raise RuntimeError("Confluence page not found.") from exc
         raise RuntimeError(f"Confluence request failed with status {exc.code}.") from exc

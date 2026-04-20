@@ -17,7 +17,37 @@ When installed this way, use `knowledge-adapters` in place of `.venv/bin/knowled
 
 ---
 
-## Quickstart
+## First Run (installed CLI)
+
+Start with the built-in help:
+
+```bash
+knowledge-adapters --help
+knowledge-adapters confluence --help
+```
+
+Confluence auth quick reference:
+
+- `bearer-env` -> `CONFLUENCE_BEARER_TOKEN`
+- `client-cert-env` -> `CONFLUENCE_CLIENT_CERT_FILE` and optional `CONFLUENCE_CLIENT_KEY_FILE`
+
+Minimal live Confluence example with bearer auth:
+
+```bash
+CONFLUENCE_BEARER_TOKEN=... knowledge-adapters confluence \
+  --client-mode real \
+  --auth-method bearer-env \
+  --base-url https://example.com/wiki \
+  --target 12345 \
+  --output-dir ./artifacts
+```
+
+Use the default `stub` client mode when you want to preview the artifact shape
+without contacting a live Confluence instance.
+
+---
+
+## Developer Quickstart
 
 ```bash
 git clone <repo>

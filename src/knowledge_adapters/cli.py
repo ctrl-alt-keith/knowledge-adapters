@@ -6,6 +6,31 @@ import argparse
 import sys
 from collections.abc import Callable, Sequence
 
+from knowledge_adapters.confluence.auth import SUPPORTED_AUTH_METHODS
+
+CONFLUENCE_HELP_EXAMPLES = """Examples:
+  knowledge-adapters confluence \\
+    --base-url https://example.com/wiki \\
+    --target 12345 \\
+    --output-dir ./artifacts
+  CONFLUENCE_BEARER_TOKEN=... knowledge-adapters confluence \\
+    --client-mode real \\
+    --auth-method bearer-env \\
+    --base-url https://example.com/wiki \\
+    --target 12345 \\
+    --output-dir ./artifacts
+"""
+
+
+def _parse_confluence_auth_method(value: str) -> str:
+    """Parse and validate a supported Confluence auth method."""
+    normalized_value = value.strip()
+    if normalized_value in SUPPORTED_AUTH_METHODS:
+        return normalized_value
+
+    supported_values = " or ".join(repr(method) for method in SUPPORTED_AUTH_METHODS)
+    raise argparse.ArgumentTypeError(f"unsupported value {value!r}. Choose {supported_values}.")
+
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the top-level CLI parser."""
@@ -19,6 +44,13 @@ def build_parser() -> argparse.ArgumentParser:
     confluence_parser = subparsers.add_parser(
         "confluence",
         help="Run the Confluence adapter.",
+        description=(
+            "Normalize a Confluence page or page tree into local markdown artifacts. "
+            "The default stub mode writes scaffolded output without contacting "
+            "Confluence. Use --client-mode real for live Confluence fetches."
+        ),
+        epilog=CONFLUENCE_HELP_EXAMPLES,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     confluence_parser.add_argument(
         "--base-url",
@@ -39,12 +71,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--client-mode",
         choices=("stub", "real"),
         default="stub",
-        help="Client mode. Defaults to the stub client.",
+        help=(
+            "Client behavior: 'stub' writes scaffolded local output with no "
+            "network call; 'real' fetches from Confluence using --auth-method. "
+            "Defaults to 'stub'."
+        ),
     )
     confluence_parser.add_argument(
         "--auth-method",
+        type=_parse_confluence_auth_method,
         default="bearer-env",
-        help="Authentication method identifier.",
+        metavar="AUTH_METHOD",
+        help=(
+            "Auth for --client-mode real: 'bearer-env' reads "
+            "CONFLUENCE_BEARER_TOKEN; 'client-cert-env' reads "
+            "CONFLUENCE_CLIENT_CERT_FILE and optional "
+            "CONFLUENCE_CLIENT_KEY_FILE. Defaults to 'bearer-env'."
+        ),
     )
     confluence_parser.add_argument(
         "--dry-run",
@@ -139,19 +182,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "Expected a Confluence page ID or full Confluence page URL."
             )
 
-        print("Confluence adapter invoked")
-        print(f"  base_url: {confluence_config.base_url}")
-        print(f"  target: {target.raw_value}")
-        print(f"  output_dir: {confluence_config.output_dir}")
-        print(f"  client_mode: {confluence_config.client_mode}")
-        print(f"  auth_method: {confluence_config.auth_method}")
-        print(f"  dry_run: {confluence_config.dry_run}")
-        print(f"  tree: {confluence_config.tree}")
-        print(f"  max_depth: {confluence_config.max_depth}")
-
         selected_fetch_page: Callable[[ResolvedTarget], dict[str, object]]
         selected_list_child_page_ids: Callable[[ResolvedTarget], list[str]] | None = None
         if confluence_config.client_mode == "real":
+
             def selected_fetch_page(resolved_target: ResolvedTarget) -> dict[str, object]:
                 return fetch_real_page(
                     resolved_target,
@@ -169,6 +203,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
         else:
             selected_fetch_page = fetch_page
+
+        def _print_confluence_invocation() -> None:
+            print("Confluence adapter invoked")
+            print(f"  base_url: {confluence_config.base_url}")
+            print(f"  target: {target.raw_value}")
+            print(f"  output_dir: {confluence_config.output_dir}")
+            print(f"  client_mode: {confluence_config.client_mode}")
+            print(f"  auth_method: {confluence_config.auth_method}")
+            print(f"  dry_run: {confluence_config.dry_run}")
+            print(f"  tree: {confluence_config.tree}")
+            print(f"  max_depth: {confluence_config.max_depth}")
 
         def _build_manifest_entry_for_page(
             page: dict[str, object],
@@ -200,19 +245,22 @@ def main(argv: Sequence[str] | None = None) -> int:
                     fetch_page=selected_fetch_page,
                     list_child_page_ids=selected_list_child_page_ids,
                 )
-            previous_manifest_index = load_previous_manifest_index(
-                confluence_config.output_dir
-            )
+            _print_confluence_invocation()
+            previous_manifest_index = load_previous_manifest_index(confluence_config.output_dir)
             page_records: list[tuple[dict[str, object], Path, str]] = []
             for page in pages:
                 canonical_id = str(page.get("canonical_id") or "")
                 output_path = markdown_path(confluence_config.output_dir, canonical_id)
-                action = "skip" if is_already_written(
-                    confluence_config.output_dir,
-                    previous_manifest_index,
-                    canonical_id=canonical_id,
-                    output_path=output_path,
-                ) else "write"
+                action = (
+                    "skip"
+                    if is_already_written(
+                        confluence_config.output_dir,
+                        previous_manifest_index,
+                        canonical_id=canonical_id,
+                        output_path=output_path,
+                    )
+                    else "write"
+                )
                 page_records.append((page, output_path, action))
 
             write_count = sum(
@@ -263,15 +311,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             page = selected_fetch_page(target)
         except (RuntimeError, ValueError) as exc:
             exit_with_cli_error(str(exc))
+
+        _print_confluence_invocation()
         page_id = str(page["canonical_id"])
         output_path = markdown_path(confluence_config.output_dir, page_id)
         previous_manifest_index = load_previous_manifest_index(confluence_config.output_dir)
-        action = "skip" if is_already_written(
-            confluence_config.output_dir,
-            previous_manifest_index,
-            canonical_id=page_id,
-            output_path=output_path,
-        ) else "write"
+        action = (
+            "skip"
+            if is_already_written(
+                confluence_config.output_dir,
+                previous_manifest_index,
+                canonical_id=page_id,
+                output_path=output_path,
+            )
+            else "write"
+        )
 
         if confluence_config.dry_run:
             print(f"\nDry run: would {action} {output_path}\n")
