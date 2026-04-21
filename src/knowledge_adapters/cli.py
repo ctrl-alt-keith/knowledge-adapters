@@ -5,19 +5,32 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Callable, Sequence
+from pathlib import Path
 
 from knowledge_adapters.confluence.auth import SUPPORTED_AUTH_METHODS
+
+TOP_LEVEL_HELP_EXAMPLES = """First steps:
+  knowledge-adapters --help
+  knowledge-adapters local_files --help
+  knowledge-adapters confluence --help
+
+Typical flow:
+  1. Start with --dry-run to preview the source, artifact path, manifest path,
+     and action.
+  2. Re-run without --dry-run to write the same artifact layout under
+     ./artifacts.
+"""
 
 CONFLUENCE_HELP_EXAMPLES = """Examples:
   knowledge-adapters confluence \\
     --base-url https://example.com/wiki \\
     --target 12345 \\
-    --output-dir ./artifacts
-  knowledge-adapters confluence \\
-    --base-url https://example.com/wiki \\
-    --target https://example.com/wiki/spaces/ENG/pages/12345/Runbook \\
     --output-dir ./artifacts \\
     --dry-run
+  knowledge-adapters confluence \\
+    --base-url https://example.com/wiki \\
+    --target 12345 \\
+    --output-dir ./artifacts
   CONFLUENCE_BEARER_TOKEN=... knowledge-adapters confluence \\
     --client-mode real \\
     --auth-method bearer-env \\
@@ -29,11 +42,11 @@ CONFLUENCE_HELP_EXAMPLES = """Examples:
 LOCAL_FILES_HELP_EXAMPLES = """Examples:
   knowledge-adapters local_files \\
     --file-path ./notes/today.txt \\
-    --output-dir ./artifacts
-  knowledge-adapters local_files \\
-    --file-path ./notes/today.txt \\
     --output-dir ./artifacts \\
     --dry-run
+  knowledge-adapters local_files \\
+    --file-path ./notes/today.txt \\
+    --output-dir ./artifacts
 """
 
 
@@ -47,25 +60,65 @@ def _parse_confluence_auth_method(value: str) -> str:
     raise argparse.ArgumentTypeError(f"unsupported value {value!r}. Choose {supported_values}.")
 
 
+def exit_with_output_error(
+    output_dir: str | Path,
+    *,
+    command: str,
+    exc: OSError,
+) -> None:
+    """Exit with a consistent filesystem error for output writes."""
+    resolved_output_dir = Path(output_dir).expanduser()
+    if isinstance(exc, PermissionError):
+        exit_with_cli_error(
+            (
+                f"Output directory is not writable: {resolved_output_dir}. "
+                "Verify --output-dir and check the path permissions."
+            ),
+            command=command,
+        )
+    if isinstance(exc, NotADirectoryError):
+        exit_with_cli_error(
+            (
+                f"Output path is not a directory: {resolved_output_dir}. "
+                "Verify --output-dir and use a directory path."
+            ),
+            command=command,
+        )
+
+    exit_with_cli_error(
+        (
+            f"Could not write output under {resolved_output_dir}. "
+            "Verify --output-dir and try again."
+        ),
+        command=command,
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the top-level CLI parser."""
     parser = argparse.ArgumentParser(
         prog="knowledge-adapters",
-        description="Acquire and normalize knowledge sources into local artifacts.",
+        description=(
+            "Normalize knowledge sources into a shared local artifact layout. "
+            "Every run inspects a source, plans a markdown artifact under pages/ "
+            "plus manifest.json, and writes only when --dry-run is not set."
+        ),
+        epilog=TOP_LEVEL_HELP_EXAMPLES,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     confluence_parser = subparsers.add_parser(
         "confluence",
-        help="Run the Confluence adapter.",
+        help="Normalize Confluence content into shared artifacts.",
         description=(
-            "Normalize a Confluence page or page tree into local markdown artifacts. "
-            "Both stub and real modes follow the same resolve, plan, and write flow. "
-            "Use --dry-run to preview the same output paths and write/skip summary a "
-            "write run would use. The default stub mode uses scaffolded content "
-            "without contacting Confluence. Use --client-mode real for "
-            "contract-tested live Confluence fetches."
+            "Normalize a Confluence page or page tree into the shared artifact "
+            "layout. Stub and real modes keep the same resolve, plan, and write "
+            "flow. Use --dry-run to preview resolved page IDs, artifact paths, and "
+            "write/skip decisions before writing. The default stub mode uses "
+            "scaffolded content without contacting Confluence. Use --client-mode "
+            "real for contract-tested live fetches."
         ),
         epilog=CONFLUENCE_HELP_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -73,21 +126,24 @@ def build_parser() -> argparse.ArgumentParser:
     confluence_parser.add_argument(
         "--base-url",
         required=True,
-        help="Base Confluence URL, provided at runtime.",
+        help=(
+            "Base Confluence URL used to validate full page URLs and build "
+            "canonical source URLs."
+        ),
     )
     confluence_parser.add_argument(
         "--target",
         required=True,
         help=(
-            "Confluence page ID or full page URL under --base-url. Full URLs are "
-            "validated and normalized to canonical pageId form for output and "
-            "manifests."
+            "Confluence page ID or full page URL under --base-url. The CLI resolves "
+            "either input into one canonical page ID and source URL for artifact "
+            "and manifest reporting."
         ),
     )
     confluence_parser.add_argument(
         "--output-dir",
         required=True,
-        help="Directory to write normalized local artifacts.",
+        help="Directory where pages/ and manifest.json are written.",
     )
     confluence_parser.add_argument(
         "--client-mode",
@@ -96,7 +152,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Choose the content source: 'stub' uses scaffolded page content with no "
             "network call; 'real' fetches from Confluence using --auth-method. Both "
-            "modes keep the same resolve, plan, and write flow. Defaults to 'stub'."
+            "modes keep the same artifact layout and reporting. Defaults to 'stub'."
         ),
     )
     confluence_parser.add_argument(
@@ -120,8 +176,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help=(
-            "Preview the same output paths and write/skip summary a write run would "
-            "use, without writing files."
+            "Preview resolved page IDs, artifact paths, manifest path, and "
+            "write/skip decisions without writing files."
         ),
     )
     confluence_parser.add_argument(
@@ -138,11 +194,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     local_files_parser = subparsers.add_parser(
         "local_files",
-        help="Run the local files adapter.",
+        help="Normalize a local text file into shared artifacts.",
         description=(
-            "Normalize a single local UTF-8 text file into local markdown artifacts. "
-            "Use --dry-run to preview the same output paths and write summary a "
-            "write run would use."
+            "Normalize one local UTF-8 text file into the shared artifact layout. "
+            "Use --dry-run to preview the resolved file path, artifact path, "
+            "manifest path, and normalized markdown before writing. Unlike "
+            "Confluence, local_files always plans one write and does not use "
+            "manifest-based skip logic."
         ),
         epilog=LOCAL_FILES_HELP_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -151,20 +209,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--file-path",
         required=True,
         metavar="FILE",
-        help="Local UTF-8 text file to normalize.",
+        help="Local UTF-8 text file to normalize. Relative paths resolve from the cwd.",
     )
     local_files_parser.add_argument(
         "--output-dir",
         required=True,
         metavar="DIR",
-        help="Directory to write normalized local artifacts.",
+        help="Directory where pages/ and manifest.json are written.",
     )
     local_files_parser.add_argument(
         "--dry-run",
         action="store_true",
         help=(
-            "Preview the same output paths and write summary a write run would use, "
-            "without writing files."
+            "Preview the resolved file path, artifact path, manifest path, and "
+            "normalized markdown without writing files."
         ),
     )
 
@@ -225,6 +283,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             tree=args.tree,
             max_depth=args.max_depth,
         )
+        output_dir_input = Path(confluence_config.output_dir).expanduser()
+        output_dir = output_dir_input.resolve()
+        if output_dir_input.exists() and not output_dir_input.is_dir():
+            exit_with_cli_error(
+                (
+                    f"Output path is not a directory: {output_dir}. "
+                    "Verify --output-dir and use a directory path."
+                ),
+                command="confluence",
+            )
         if confluence_config.max_depth < 0:
             exit_with_cli_error(
                 "--max-depth must be greater than or equal to 0.",
@@ -310,24 +378,34 @@ def main(argv: Sequence[str] | None = None) -> int:
                 title=str(page["title"]) if page.get("title") else None,
             )
 
-        def _print_single_page_dry_run(
+        def _display_output_path(path: Path) -> Path:
+            """Return an absolute path for user-facing output."""
+            try:
+                relative_path = path.relative_to(output_dir_input)
+            except ValueError:
+                return path if path.is_absolute() else path.resolve()
+            return output_dir / relative_path
+
+        def _print_single_page_plan(
             *,
             page_id: str,
             source_url: str,
             output_path: Path,
             manifest_output_path: Path,
             action: str,
+            dry_run: bool,
             markdown: str | None = None,
         ) -> None:
-            write_count = 1 if action == "write" else 0
-            skip_count = 1 if action == "skip" else 0
             print("\nPlan: Confluence run")
             print(f"  resolved_page_id: {page_id}")
             print(f"  source_url: {source_url}")
-            print(f"  output_path: {output_path}")
-            print(f"  manifest_path: {manifest_output_path}")
-            print(f"  action: would {action}")
-            print(f"  Summary: would write {write_count}, would skip {skip_count}")
+            print(f"  artifact_path: {_display_output_path(output_path)}")
+            print(f"  manifest_path: {_display_output_path(manifest_output_path)}")
+            print(f"  action: {'would ' if dry_run else ''}{action}")
+            if dry_run:
+                write_count = 1 if action == "write" else 0
+                skip_count = 1 if action == "skip" else 0
+                print(f"  Summary: would write {write_count}, would skip {skip_count}")
             if markdown is not None:
                 print()
                 print(markdown)
@@ -376,17 +454,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                 1 for _page, _output_path, action in page_records if action == "write"
             )
             skip_count = len(page_records) - write_count
+            manifest_output_path = manifest_path(confluence_config.output_dir)
+
+            print("\nPlan: Confluence run")
+            print(f"  resolved_root_page_id: {root_page_id}")
+            print(f"  max_depth: {confluence_config.max_depth}")
+            print(f"  manifest_path: {_display_output_path(manifest_output_path)}")
+            print(f"  unique_pages: {len(page_records)}")
 
             if confluence_config.dry_run:
-                manifest_output_path = manifest_path(confluence_config.output_dir)
-                print("\nPlan: Confluence run")
-                print(f"  resolved_root_page_id: {root_page_id}")
-                print(f"  max_depth: {confluence_config.max_depth}")
-                print(f"  manifest_path: {manifest_output_path}")
                 for _page, output_path, action in page_records:
-                    print(f"  would {action} {output_path}")
+                    print(f"  would {action} {_display_output_path(output_path)}")
                 print(f"  Summary: would write {write_count}, would skip {skip_count}")
-                print(f"  {len(page_records)} unique pages")
                 return 0
 
             files = [
@@ -394,27 +473,34 @@ def main(argv: Sequence[str] | None = None) -> int:
                 for page, output_path, _action in page_records
             ]
 
-            for page, output_path, action in page_records:
-                if action == "skip":
-                    print(f"\nSkipped: {output_path}")
-                    continue
+            try:
+                for page, output_path, action in page_records:
+                    if action == "skip":
+                        print(f"\nSkipped: {_display_output_path(output_path)}")
+                        continue
 
-                markdown = normalize_to_markdown(page)
-                write_markdown(
+                    markdown = normalize_to_markdown(page)
+                    write_markdown(
+                        confluence_config.output_dir,
+                        str(page.get("canonical_id") or ""),
+                        markdown,
+                    )
+                    print(f"\nWrote: {_display_output_path(output_path)}")
+
+                manifest = write_manifest_with_context(
                     confluence_config.output_dir,
-                    str(page.get("canonical_id") or ""),
-                    markdown,
+                    files,
+                    root_page_id=root_page_id,
+                    max_depth=confluence_config.max_depth,
                 )
-                print(f"\nWrote: {output_path}")
-
-            manifest = write_manifest_with_context(
-                confluence_config.output_dir,
-                files,
-                root_page_id=root_page_id,
-                max_depth=confluence_config.max_depth,
-            )
+            except OSError as exc:
+                exit_with_output_error(
+                    confluence_config.output_dir,
+                    command="confluence",
+                    exc=exc,
+                )
             print(f"\nSummary: wrote {write_count}, skipped {skip_count}")
-            print(f"\nManifest: {manifest}")
+            print(f"\nManifest: {_display_output_path(manifest)}")
             return 0
 
         try:
@@ -444,45 +530,59 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         if confluence_config.dry_run:
             planned_markdown = normalize_to_markdown(page) if action == "write" else None
-            _print_single_page_dry_run(
+            _print_single_page_plan(
                 page_id=page_id,
                 source_url=str(page.get("source_url", "")),
                 output_path=output_path,
                 manifest_output_path=manifest_output_path,
                 action=action,
+                dry_run=True,
                 markdown=planned_markdown,
             )
             return 0
 
-        if action == "write":
-            markdown = normalize_to_markdown(page)
-            write_markdown(
-                confluence_config.output_dir,
-                page_id,
-                markdown,
-            )
-            print(f"\nWrote: {output_path}")
-        else:
-            print(f"\nSkipped: {output_path}")
-
-        manifest = write_manifest(
-            confluence_config.output_dir,
-            [
-                _build_manifest_entry_for_page(page, output_path),
-            ],
+        _print_single_page_plan(
+            page_id=page_id,
+            source_url=str(page.get("source_url", "")),
+            output_path=output_path,
+            manifest_output_path=manifest_output_path,
+            action=action,
+            dry_run=False,
         )
+
+        try:
+            if action == "write":
+                markdown = normalize_to_markdown(page)
+                write_markdown(
+                    confluence_config.output_dir,
+                    page_id,
+                    markdown,
+                )
+                print(f"\nWrote: {_display_output_path(output_path)}")
+            else:
+                print(f"\nSkipped: {_display_output_path(output_path)}")
+
+            manifest = write_manifest(
+                confluence_config.output_dir,
+                [
+                    _build_manifest_entry_for_page(page, output_path),
+                ],
+            )
+        except OSError as exc:
+            exit_with_output_error(
+                confluence_config.output_dir,
+                command="confluence",
+                exc=exc,
+            )
         write_count = 1 if action == "write" else 0
         skip_count = 1 if action == "skip" else 0
         print(f"\nSummary: wrote {write_count}, skipped {skip_count}")
-        print(f"Manifest: {manifest}")
+        print(f"Manifest: {_display_output_path(manifest)}")
         return 0
 
     if args.command == "local_files":
-        from pathlib import Path
-
         from knowledge_adapters.confluence.manifest import (
             build_manifest_entry,
-            manifest_path,
             write_manifest,
         )
         from knowledge_adapters.local_files.client import fetch_file
@@ -496,8 +596,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             dry_run=args.dry_run,
         )
 
-        output_dir = Path(local_files_config.output_dir).expanduser()
-        if output_dir.exists() and not output_dir.is_dir():
+        output_dir_input = Path(local_files_config.output_dir).expanduser()
+        output_dir = output_dir_input.resolve()
+        if output_dir_input.exists() and not output_dir_input.is_dir():
             exit_with_cli_error(
                 (
                     f"Output path is not a directory: {output_dir}. "
@@ -519,89 +620,50 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         input_path = Path(local_files_config.file_path)
         output_name = input_path.stem or input_path.name
-        manifest_output_path = manifest_path(local_files_config.output_dir)
-        try:
-            output_path = write_markdown(
-                local_files_config.output_dir,
-                output_name,
-                markdown,
-                dry_run=local_files_config.dry_run,
-            )
-        except PermissionError:
-            exit_with_cli_error(
-                (
-                    f"Output directory is not writable: {output_dir}. "
-                    "Verify --output-dir and check the path permissions."
-                ),
-                command="local_files",
-            )
-        except NotADirectoryError:
-            exit_with_cli_error(
-                (
-                    f"Output path is not a directory: {output_dir}. "
-                    "Verify --output-dir and use a directory path."
-                ),
-                command="local_files",
-            )
-        except OSError:
-            exit_with_cli_error(
-                (
-                    f"Could not write output under {output_dir}. "
-                    "Verify --output-dir and try again."
-                ),
-                command="local_files",
-            )
+        resolved_input_path = input_path.resolve()
+        manifest_output_path = output_dir / "manifest.json"
+        output_path = output_dir / "pages" / f"{output_name}.md"
+        manifest_entry_output_path = output_dir_input / "pages" / f"{output_name}.md"
+
+        print("\nPlan: Local files run")
+        print(f"  resolved_file_path: {resolved_input_path}")
+        print(f"  source_url: {page.get('source_url', '')}")
+        print(f"  artifact_path: {output_path}")
+        print(f"  manifest_path: {manifest_output_path}")
+        print(f"  action: {'would write' if local_files_config.dry_run else 'write'}")
         if local_files_config.dry_run:
-            print("\nPlan: Local files run")
-            print(f"  source_path: {input_path.resolve()}")
-            print(f"  output_path: {output_path}")
-            print(f"  manifest_path: {manifest_output_path}")
-            print("  action: would write")
             print("  Summary: would write 1, would skip 0")
             print()
             print(markdown)
             return 0
 
         try:
+            write_markdown(
+                local_files_config.output_dir,
+                output_name,
+                markdown,
+            )
             manifest = write_manifest(
                 local_files_config.output_dir,
                 [
                     build_manifest_entry(
                         canonical_id=str(page["canonical_id"]),
                         source_url=str(page.get("source_url", "")),
-                        output_path=output_path,
+                        output_path=manifest_entry_output_path,
                         output_dir=local_files_config.output_dir,
                         title=str(page["title"]) if page.get("title") else None,
                     )
                 ],
             )
-        except PermissionError:
-            exit_with_cli_error(
-                (
-                    f"Output directory is not writable: {output_dir}. "
-                    "Verify --output-dir and check the path permissions."
-                ),
+        except OSError as exc:
+            exit_with_output_error(
+                local_files_config.output_dir,
                 command="local_files",
-            )
-        except NotADirectoryError:
-            exit_with_cli_error(
-                (
-                    f"Output path is not a directory: {output_dir}. "
-                    "Verify --output-dir and use a directory path."
-                ),
-                command="local_files",
-            )
-        except OSError:
-            exit_with_cli_error(
-                (
-                    f"Could not write output under {output_dir}. "
-                    "Verify --output-dir and try again."
-                ),
-                command="local_files",
+                exc=exc,
             )
         print(f"\nWrote: {output_path}")
         print("\nSummary: wrote 1, skipped 0")
-        print(f"Manifest: {manifest}")
+        print(f"Manifest: {output_dir / manifest.relative_to(output_dir_input)}")
         return 0
 
     parser.error("Unknown command")

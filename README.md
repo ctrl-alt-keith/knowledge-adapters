@@ -1,6 +1,7 @@
 # knowledge-adapters
 
-Generic adapters for acquiring knowledge from external sources and normalizing it into local, LLM-ready artifacts.
+Generic adapters for acquiring knowledge from external sources and normalizing
+them into one predictable local artifact layout.
 
 ---
 
@@ -19,7 +20,8 @@ When installed this way, use `knowledge-adapters` in place of `.venv/bin/knowled
 
 ## First Run (installed CLI)
 
-Start with the built-in help:
+Start with the built-in help so the shared flow is visible before you pick an
+adapter:
 
 ```bash
 knowledge-adapters --help
@@ -27,23 +29,57 @@ knowledge-adapters local_files --help
 knowledge-adapters confluence --help
 ```
 
+Every adapter follows the same high-level shape:
+
+- inspect one source input
+- plan a markdown artifact under `pages/`
+- plan `manifest.json` in the selected output directory
+- write only when `--dry-run` is not set
+
+Recommended first run: start with `--dry-run`, confirm the planned source,
+artifact path, and manifest path, then rerun the same command without
+`--dry-run`.
+
+Minimal local file first run:
+
+```bash
+knowledge-adapters local_files \
+  --file-path ./notes/today.txt \
+  --output-dir ./artifacts \
+  --dry-run
+```
+
+This resolves the file path, previews `artifacts/pages/today.md`, previews
+`artifacts/manifest.json`, and prints the normalized markdown without writing
+files.
+
 Minimal Confluence first run (default `stub` mode):
 
 ```bash
 knowledge-adapters confluence \
   --base-url https://example.com/wiki \
   --target 12345 \
-  --output-dir ./artifacts
+  --output-dir ./artifacts \
+  --dry-run
 ```
 
-This resolves page `12345`, writes `artifacts/pages/12345.md`, and writes
-`artifacts/manifest.json` without contacting a live Confluence instance.
+This resolves page `12345`, previews `artifacts/pages/12345.md`, previews
+`artifacts/manifest.json`, and prints the normalized markdown without
+contacting a live Confluence instance.
 
 For Confluence runs, `--target` accepts either a numeric page ID or a full page
 URL under `--base-url`. Full page URLs are validated and normalized to canonical
-`pageId` form for output and manifests.
+`pageId` form for artifact and manifest reporting.
 
-Next step: opt into real mode with bearer auth:
+Confluence is also the adapter that currently uses manifest-based skip logic, so
+its dry runs and write runs may report `write` or `skip` for a page when an
+existing artifact already matches the planned output. `local_files` always plans
+one write.
+
+When the dry run looks right, rerun the same command without `--dry-run` to
+write the artifact and manifest.
+
+Next step for Confluence: opt into real mode with bearer auth:
 
 - `bearer-env` -> `CONFLUENCE_BEARER_TOKEN`
 - `client-cert-env` -> `CONFLUENCE_CLIENT_CERT_FILE` and optional `CONFLUENCE_CLIENT_KEY_FILE`
@@ -56,19 +92,6 @@ CONFLUENCE_BEARER_TOKEN=... knowledge-adapters confluence \
   --target 12345 \
   --output-dir ./artifacts
 ```
-
-Minimal local file first run:
-
-```bash
-knowledge-adapters local_files \
-  --file-path ./notes/today.txt \
-  --output-dir ./artifacts
-```
-
-This reads one UTF-8 text file, writes `artifacts/pages/today.md`, and writes
-`artifacts/manifest.json`. Add `--dry-run` to preview the same output paths and
-write summary a write run would use, plus the normalized markdown, without
-writing files.
 
 ---
 
@@ -257,17 +280,9 @@ intended contract for a real or monkeypatched client. See
 [`docs/confluence-incremental-sync.md`](docs/confluence-incremental-sync.md) for
 that design surface.
 
-## Example
+## Examples
 
-Normalize a local UTF-8 text file into the standard markdown artifact:
-
-```bash
-knowledge-adapters local_files \
-  --file-path ./notes/today.txt \
-  --output-dir ./artifacts
-```
-
-Preview the normalized markdown without writing files:
+Start with a dry run for the local files adapter:
 
 ```bash
 knowledge-adapters local_files \
@@ -276,7 +291,32 @@ knowledge-adapters local_files \
   --dry-run
 ```
 
-Run the default Confluence adapter for a single resolved page:
+Write the same local file artifact after reviewing the plan:
+
+```bash
+knowledge-adapters local_files \
+  --file-path ./notes/today.txt \
+  --output-dir ./artifacts
+```
+
+Start with a dry run for the default Confluence adapter:
+
+```bash
+.venv/bin/knowledge-adapters confluence \
+  --base-url https://example.com/wiki \
+  --target 12345 \
+  --output-dir ./artifacts \
+  --dry-run
+```
+
+Out of the box, this resolves page `12345`, generates stub content for that
+page, previews `pages/12345.md`, previews `manifest.json`, and does not contact
+a live Confluence instance.
+
+Full page URL targets are also accepted under `--base-url` and are normalized to
+canonical `pageId` form for artifact and manifest reporting.
+
+Write the same Confluence artifact after reviewing the plan:
 
 ```bash
 .venv/bin/knowledge-adapters confluence \
@@ -284,13 +324,6 @@ Run the default Confluence adapter for a single resolved page:
   --target 12345 \
   --output-dir ./artifacts
 ```
-
-Out of the box, this resolves page `12345`, generates stub content for that page,
-writes `pages/12345.md`, and writes `manifest.json`. The default Confluence client
-does not contact a live Confluence instance yet.
-
-Full page URL targets are also accepted under `--base-url` and are normalized to
-canonical `pageId` form for output and manifests.
 
 Run the opt-in real Confluence client for a single resolved page:
 
@@ -313,22 +346,11 @@ split cert/key files.
 This v1 path is intentionally minimal: passphrase-protected keys, broader auth
 combinations, and live certificate validation are out of scope for `make check`.
 
-Preview the default Confluence run without writing files:
-
-```bash
-.venv/bin/knowledge-adapters confluence \
-  --base-url https://example.com/wiki \
-  --target 12345 \
-  --output-dir ./artifacts \
-  --dry-run
-```
-
-The dry run prints the planned output path and the normalized stub markdown. If an
-existing `manifest.json` entry and on-disk artifact already match the resolved page,
-the default CLI reports `would skip` instead of `would write`.
-In both `stub` and `real` modes, the CLI keeps the same resolve, plan, and
-summary shape: it reports the resolved page ID, planned artifact paths, and the
-same write-versus-skip summary before any files are written.
+In both `stub` and `real` modes, the CLI keeps the same resolve, plan, action,
+and summary shape. The dry run prints the planned artifact path and normalized
+markdown. If an existing `manifest.json` entry and on-disk artifact already
+match the resolved page, the Confluence CLI reports `would skip` instead of
+`would write`.
 
 The Confluence CLI also includes tree-mode and incremental-sync plumbing. The
 default stub client still does not discover child pages, so out-of-the-box stub
