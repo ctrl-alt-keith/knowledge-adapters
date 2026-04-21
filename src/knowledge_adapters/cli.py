@@ -130,9 +130,9 @@ def build_parser() -> argparse.ArgumentParser:
             "you want descendants. Stub and real modes keep the same resolve, "
             "plan, and write flow. Use --dry-run to preview resolved page IDs, "
             "planned artifact paths, manifest path, and write/skip decisions "
-            "before writing. In tree mode, dry-run previews the root plus "
-            "discovered descendants included by --max-depth and the paths that "
-            "would be written, and write mode applies that same plan. Use "
+            "before writing. In tree mode, dry-run previews the root page plus "
+            "discovered descendants included by --max-depth and the artifact "
+            "paths that write mode would use. Use "
             "--max-depth to limit descendant levels. Ignored unless --tree is "
             "set. The default stub mode uses scaffolded content "
             "without contacting Confluence. Use --client-mode real for "
@@ -487,10 +487,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             manifest_output_path = manifest_path(confluence_config.output_dir)
 
             print("\nPlan: Confluence run")
-            print(f"  resolved_root_page_id: {root_page_id}")
+            print(f"  resolved_root_page_id: {root_page_id} (root page)")
             print(f"  max_depth: {confluence_config.max_depth}")
             print(f"  manifest_path: {_display_output_path(manifest_output_path)}")
-            print(f"  unique_pages: {len(page_records)}")
+            print(f"  unique_pages: {len(page_records)} (root + descendants)")
 
             if confluence_config.dry_run:
                 for _page, output_path, action in page_records:

@@ -208,8 +208,8 @@ def test_confluence_help_lists_supported_auth_methods_and_examples(
     assert "artifact layout and reporting" in result.stdout
     assert "page or, with --tree, a page tree" in result.stdout
     assert "planned artifact paths, manifest path, and write/skip decisions" in result.stdout
-    assert "In tree mode, dry-run previews the root plus discovered descendants" in result.stdout
-    assert "write mode applies that same plan" in result.stdout
+    assert "In tree mode, dry-run previews the root page plus" in result.stdout
+    assert "artifact paths that write mode would use" in result.stdout
     assert "same resolve, plan, and write flow" in result.stdout
     assert "'real' fetches from" in result.stdout
     assert "using --auth-method" in result.stdout
