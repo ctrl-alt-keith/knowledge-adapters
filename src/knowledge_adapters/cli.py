@@ -30,6 +30,13 @@ CONFLUENCE_HELP_EXAMPLES = """Examples:
   knowledge-adapters confluence \\
     --base-url https://example.com/wiki \\
     --target 12345 \\
+    --output-dir ./artifacts \\
+    --tree \\
+    --max-depth 1 \\
+    --dry-run
+  knowledge-adapters confluence \\
+    --base-url https://example.com/wiki \\
+    --target 12345 \\
     --output-dir ./artifacts
   CONFLUENCE_BEARER_TOKEN=... knowledge-adapters confluence \\
     --client-mode real \\
@@ -113,12 +120,15 @@ def build_parser() -> argparse.ArgumentParser:
         "confluence",
         help="Normalize Confluence content into shared artifacts.",
         description=(
-            "Normalize a Confluence page or page tree into the shared artifact "
-            "layout. Stub and real modes keep the same resolve, plan, and write "
-            "flow. Use --dry-run to preview resolved page IDs, artifact paths, and "
-            "write/skip decisions before writing. The default stub mode uses "
-            "scaffolded content without contacting Confluence. Use --client-mode "
-            "real for contract-tested live fetches."
+            "Normalize a Confluence page or, with --tree, a page tree into the "
+            "shared artifact layout. Stub and real modes keep the same resolve, "
+            "plan, and write flow. Use --dry-run to preview resolved page IDs, "
+            "planned artifact paths, manifest path, and write/skip decisions "
+            "before writing. In tree mode, dry-run previews the root plus "
+            "discovered descendants up to --max-depth, and write mode applies that "
+            "same plan. The default stub mode uses scaffolded content without "
+            "contacting Confluence. Use --client-mode real for contract-tested "
+            "live fetches."
         ),
         epilog=CONFLUENCE_HELP_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -183,13 +193,19 @@ def build_parser() -> argparse.ArgumentParser:
     confluence_parser.add_argument(
         "--tree",
         action="store_true",
-        help="Fetch a page tree instead of a single page.",
+        help=(
+            "Traverse the resolved root page plus discovered descendants instead "
+            "of only one page."
+        ),
     )
     confluence_parser.add_argument(
         "--max-depth",
         type=int,
         default=0,
-        help="Maximum recursion depth for tree mode. 0 means single page only.",
+        help=(
+            "Maximum descendant depth for --tree. 0 includes only the resolved "
+            "root page, 1 adds direct children. Ignored unless --tree is set."
+        ),
     )
 
     local_files_parser = subparsers.add_parser(

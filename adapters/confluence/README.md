@@ -20,6 +20,21 @@ The Confluence-specific difference is that dry runs and write runs may report
 `write` or `skip` for a page when an existing manifest entry and on-disk
 artifact already match the planned output.
 
+## Tree Mode First Run
+
+- `--tree` switches the run from one resolved page to the resolved root page
+  plus any discovered descendants.
+- `--max-depth` counts descendant depth from that root page: `0` includes only
+  the root page, `1` adds direct children, and `2` adds grandchildren.
+- In `--dry-run`, tree mode previews the resolved root page ID, planned
+  `manifest.json` path, unique page count, and one `would write` or `would skip`
+  line per planned page. It does not write files.
+- In write mode, tree mode performs the same planned writes and skips, then
+  writes `manifest.json`.
+- With the default `stub` client, tree mode still plans only the root page
+  because no child pages are discovered. Multi-page tree runs require
+  `--client-mode real` or a monkeypatched client that returns child page IDs.
+
 ## Current Behavior
 
 Out of the box, the default Confluence CLI:
