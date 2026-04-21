@@ -131,8 +131,10 @@ def build_parser() -> argparse.ArgumentParser:
             "plan, and write flow. Use --dry-run to preview resolved page IDs, "
             "planned artifact paths, manifest path, and write/skip decisions "
             "before writing. In tree mode, dry-run previews the root plus "
-            "discovered descendants up to --max-depth, and write mode applies "
-            "that same plan. The default stub mode uses scaffolded content "
+            "discovered descendants included by --max-depth and the paths that "
+            "would be written, and write mode applies that same plan. Use "
+            "--max-depth to limit descendant levels. Ignored unless --tree is "
+            "set. The default stub mode uses scaffolded content "
             "without contacting Confluence. Use --client-mode real for "
             "contract-tested live fetches."
         ),
@@ -200,8 +202,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--tree",
         action="store_true",
         help=(
-            "Traverse the resolved root page plus discovered descendants instead "
-            "of only one page."
+            "Traverse the resolved root page plus discovered descendants "
+            "instead of only one page. Use --max-depth to limit descendant "
+            "levels."
         ),
     )
     confluence_parser.add_argument(
@@ -209,8 +212,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=0,
         help=(
-            "Maximum descendant depth for --tree. 0 includes only the resolved "
-            "root page, 1 adds direct children. Ignored unless --tree is set."
+            "Maximum descendant depth for --tree. 0 keeps only the root page; "
+            "1 adds direct children.\n\nIgnored unless --tree is set."
         ),
     )
 
