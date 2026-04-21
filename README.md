@@ -7,14 +7,14 @@ them into one predictable local artifact layout.
 
 ## Install (without cloning)
 
-If you only want the CLI, install it directly from GitHub with `pipx`:
+For the CLI only, install directly from GitHub with `pipx`:
 
 ```bash
 pipx install git+https://github.com/ctrl-alt-keith/knowledge-adapters.git
 knowledge-adapters --help
 ```
 
-When installed this way, use `knowledge-adapters` in place of `.venv/bin/knowledge-adapters` in the examples below.
+With a `pipx` install, use `knowledge-adapters` instead of `.venv/bin/knowledge-adapters` in the examples below.
 
 ---
 
@@ -117,7 +117,7 @@ one write.
 
 ## Local Development Setup
 
-uv is recommended for faster environment setup, but standard pip workflows are also supported.
+Use `uv` for the fastest local setup. A standard `pip` workflow is also supported.
 
 ### Using uv (recommended)
 
