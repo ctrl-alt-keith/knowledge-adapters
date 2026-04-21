@@ -313,6 +313,9 @@ Preview the default Confluence run without writing files:
 The dry run prints the planned output path and the normalized stub markdown. If an
 existing `manifest.json` entry and on-disk artifact already match the resolved page,
 the default CLI reports `would skip` instead of `would write`.
+In both `stub` and `real` modes, the CLI keeps the same resolve, plan, and
+summary shape: it reports the resolved page ID, planned artifact paths, and the
+same write-versus-skip summary before any files are written.
 
 The Confluence CLI also includes tree-mode and incremental-sync plumbing. The
 default stub client still does not discover child pages, so out-of-the-box stub

@@ -218,6 +218,109 @@ def test_explicit_real_client_mode_selects_real_fetch_path(
     assert "Stub content for page 12345." not in rendered
 
 
+def test_stub_and_real_single_page_write_runs_share_the_same_cli_shape(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    from knowledge_adapters.confluence import client as client_module
+
+    stub_output_dir = tmp_path / "stub-out"
+    stub_exit_code = main(_confluence_argv(stub_output_dir))
+    assert stub_exit_code == 0
+
+    stub_output = capsys.readouterr().out
+    assert "Confluence adapter invoked" in stub_output
+    assert "client_mode: stub" in stub_output
+    assert "content_source: scaffolded page content" in stub_output
+    assert "fetch_scope: page" in stub_output
+    assert "run_mode: write" in stub_output
+    assert "auth_method:" not in stub_output
+    assert f"Manifest: {stub_output_dir / 'manifest.json'}" in stub_output
+    assert "Summary: wrote 1, skipped 0" in stub_output
+
+    def stub_real_fetch(*args: object, **kwargs: object) -> dict[str, object]:
+        return {
+            "canonical_id": "12345",
+            "title": "Real Page",
+            "content": "<p>Hello from Confluence.</p>",
+            "source_url": "https://example.com/wiki/spaces/ENG/pages/12345",
+        }
+
+    def fail_if_stub_used(target: ResolvedTarget) -> dict[str, object]:
+        raise AssertionError(f"stub client should not be used in real mode for {target.page_id}")
+
+    monkeypatch.setattr(client_module, "fetch_real_page", stub_real_fetch, raising=False)
+    monkeypatch.setattr(client_module, "fetch_page", fail_if_stub_used)
+
+    real_output_dir = tmp_path / "real-out"
+    real_exit_code = main(_confluence_argv(real_output_dir, "--client-mode", "real"))
+    assert real_exit_code == 0
+
+    real_output = capsys.readouterr().out
+    assert "Confluence adapter invoked" in real_output
+    assert "client_mode: real" in real_output
+    assert "content_source: live Confluence content" in real_output
+    assert "fetch_scope: page" in real_output
+    assert "run_mode: write" in real_output
+    assert "auth_method: bearer-env" in real_output
+    assert f"Manifest: {real_output_dir / 'manifest.json'}" in real_output
+    assert "Summary: wrote 1, skipped 0" in real_output
+
+
+def test_stub_and_real_single_page_dry_runs_share_the_same_plan_shape(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    from knowledge_adapters.confluence import client as client_module
+
+    stub_output_dir = tmp_path / "stub-out"
+    stub_exit_code = main(_confluence_argv(stub_output_dir, "--dry-run"))
+    assert stub_exit_code == 0
+
+    stub_output = capsys.readouterr().out
+    assert "client_mode: stub" in stub_output
+    assert "content_source: scaffolded page content" in stub_output
+    assert "fetch_scope: page" in stub_output
+    assert "run_mode: dry-run" in stub_output
+    assert "Plan: Confluence run" in stub_output
+    assert "resolved_page_id: 12345" in stub_output
+    assert f"manifest_path: {stub_output_dir / 'manifest.json'}" in stub_output
+    assert "action: would write" in stub_output
+    assert "Summary: would write 1, would skip 0" in stub_output
+
+    def stub_real_fetch(*args: object, **kwargs: object) -> dict[str, object]:
+        return {
+            "canonical_id": "12345",
+            "title": "Real Page",
+            "content": "<p>Hello from Confluence.</p>",
+            "source_url": "https://example.com/wiki/spaces/ENG/pages/12345",
+        }
+
+    def fail_if_stub_used(target: ResolvedTarget) -> dict[str, object]:
+        raise AssertionError(f"stub client should not be used in real mode for {target.page_id}")
+
+    monkeypatch.setattr(client_module, "fetch_real_page", stub_real_fetch, raising=False)
+    monkeypatch.setattr(client_module, "fetch_page", fail_if_stub_used)
+
+    real_output_dir = tmp_path / "real-out"
+    real_exit_code = main(_confluence_argv(real_output_dir, "--client-mode", "real", "--dry-run"))
+    assert real_exit_code == 0
+
+    real_output = capsys.readouterr().out
+    assert "client_mode: real" in real_output
+    assert "content_source: live Confluence content" in real_output
+    assert "fetch_scope: page" in real_output
+    assert "run_mode: dry-run" in real_output
+    assert "auth_method: bearer-env" in real_output
+    assert "Plan: Confluence run" in real_output
+    assert "resolved_page_id: 12345" in real_output
+    assert f"manifest_path: {real_output_dir / 'manifest.json'}" in real_output
+    assert "action: would write" in real_output
+    assert "Summary: would write 1, would skip 0" in real_output
+
+
 @pytest.mark.parametrize(
     "token_value",
     [
