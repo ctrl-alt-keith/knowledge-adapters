@@ -116,6 +116,28 @@ one write.
 
 ---
 
+## Local Development Setup
+
+uv is recommended for faster environment setup, but standard pip workflows are also supported.
+
+### Using uv (recommended)
+
+```bash
+uv venv
+source .venv/bin/activate
+uv pip install -e .[dev]
+```
+
+### Using pip (fallback)
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .[dev]
+```
+
+---
+
 ## Developer Quickstart
 
 ```bash
