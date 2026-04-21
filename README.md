@@ -66,8 +66,9 @@ knowledge-adapters local_files \
 ```
 
 This reads one UTF-8 text file, writes `artifacts/pages/today.md`, and writes
-`artifacts/manifest.json`. Add `--dry-run` to preview the normalized markdown
-and planned output path without writing files.
+`artifacts/manifest.json`. Add `--dry-run` to preview the same output paths and
+write summary a write run would use, plus the normalized markdown, without
+writing files.
 
 ---
 

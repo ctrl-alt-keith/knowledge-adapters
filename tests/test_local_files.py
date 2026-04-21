@@ -118,7 +118,14 @@ def test_local_files_cli_dry_run_reports_output_without_writing(
     assert not (output_dir / "manifest.json").exists()
 
     captured = capsys.readouterr()
-    assert f"Dry run: would write {output_path}" in captured.out
+    assert "Local files adapter invoked" in captured.out
+    assert "run_mode: dry-run" in captured.out
+    assert "Plan: Local files run" in captured.out
+    assert f"source_path: {source_file.resolve()}" in captured.out
+    assert f"output_path: {output_path}" in captured.out
+    assert f"manifest_path: {output_dir / 'manifest.json'}" in captured.out
+    assert "action: would write" in captured.out
+    assert "Summary: would write 1, would skip 0" in captured.out
     assert "Line one." in captured.out
 
 
@@ -163,7 +170,7 @@ def test_local_files_cli_reports_missing_file_with_actionable_error(
     assert "Local files adapter invoked" not in captured.out
     assert "knowledge-adapters local_files: error:" in captured.err
     assert f"File does not exist: {missing_file}." in captured.err
-    assert "Check --file-path and try again." in captured.err
+    assert "Verify --file-path and try again." in captured.err
 
 
 def test_local_files_cli_reports_non_file_input_path(
@@ -187,7 +194,7 @@ def test_local_files_cli_reports_non_file_input_path(
     assert exc_info.value.code == 2
     captured = capsys.readouterr()
     assert f"Path is not a regular file: {source_dir}." in captured.err
-    assert "Supply a single UTF-8 text file." in captured.err
+    assert "Use a UTF-8 text file." in captured.err
 
 
 def test_local_files_cli_reports_invalid_output_dir(
@@ -213,4 +220,4 @@ def test_local_files_cli_reports_invalid_output_dir(
     assert exc_info.value.code == 2
     captured = capsys.readouterr()
     assert f"Output path is not a directory: {output_path}." in captured.err
-    assert "Choose a directory path for --output-dir." in captured.err
+    assert "Verify --output-dir and use a directory path." in captured.err
