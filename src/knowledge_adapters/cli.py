@@ -70,7 +70,7 @@ def build_parser() -> argparse.ArgumentParser:
     confluence_parser.add_argument(
         "--target",
         required=True,
-        help="Confluence page URL or page ID.",
+        help="Confluence page ID or full page URL under --base-url.",
     )
     confluence_parser.add_argument(
         "--output-dir",
@@ -190,7 +190,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         from knowledge_adapters.confluence.models import ResolvedTarget
         from knowledge_adapters.confluence.normalize import normalize_to_markdown
-        from knowledge_adapters.confluence.resolve import resolve_target
+        from knowledge_adapters.confluence.resolve import resolve_target_for_base_url
         from knowledge_adapters.confluence.traversal import walk_pages
         from knowledge_adapters.confluence.writer import markdown_path, write_markdown
 
@@ -211,11 +211,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 command="confluence",
             )
 
-        target = resolve_target(confluence_config.target)
-        if target.page_id is None:
+        try:
+            target = resolve_target_for_base_url(
+                confluence_config.target,
+                base_url=confluence_config.base_url,
+            )
+        except ValueError as exc:
             exit_with_cli_error(
-                f"Could not resolve target {target.raw_value!r}. "
-                "Expected a Confluence page ID or full Confluence page URL.",
+                str(exc),
                 command="confluence",
             )
 

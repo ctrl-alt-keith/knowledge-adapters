@@ -44,6 +44,9 @@ Confluence auth quick reference:
 - `bearer-env` -> `CONFLUENCE_BEARER_TOKEN`
 - `client-cert-env` -> `CONFLUENCE_CLIENT_CERT_FILE` and optional `CONFLUENCE_CLIENT_KEY_FILE`
 
+For Confluence runs, `--target` accepts either a numeric page ID or a full page
+URL under `--base-url`.
+
 Minimal live Confluence example with bearer auth:
 
 ```bash
