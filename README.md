@@ -59,8 +59,8 @@ are not valid UTF-8 text fail fast with guidance to re-save the input as UTF-8.
 
 Recommended Confluence first run:
 
-1. Start with the default `stub` client plus `--dry-run` so you can confirm the
-   resolve and write plan without credentials or live Confluence access.
+1. Use the default `stub` client with `--dry-run` to confirm the resolve and
+   write plan without credentials or live Confluence access.
 
 ```bash
 knowledge-adapters confluence \
@@ -70,19 +70,19 @@ knowledge-adapters confluence \
   --dry-run
 ```
 
-This resolves page `12345`, previews `artifacts/pages/12345.md`, previews
-`artifacts/manifest.json`, and prints the normalized markdown without
-contacting a live Confluence instance.
+This resolves page `12345`, previews `artifacts/pages/12345.md` and
+`artifacts/manifest.json`, and prints normalized markdown without contacting a
+live Confluence instance.
 
 `--target` accepts either a numeric page ID or a full page URL under
-`--base-url`. Full page URLs are validated and normalized to canonical
-`pageId` form for artifact and manifest reporting.
+`--base-url`; URLs are validated and normalized to canonical `pageId` form for
+artifact and manifest reporting.
 
-2. If that dry run looks right, rerun the same command without `--dry-run` to
+2. If the dry run looks right, rerun the same command without `--dry-run` to
    write the stub artifact and `manifest.json`.
 
-3. When you want live Confluence content, keep the same command shape and opt
-   into `--client-mode real` plus auth:
+3. For live Confluence content, keep the same command shape and add
+   `--client-mode real` plus auth:
 
 - `bearer-env` -> `CONFLUENCE_BEARER_TOKEN`
 - `client-cert-env` -> `CONFLUENCE_CLIENT_CERT_FILE` and optional `CONFLUENCE_CLIENT_KEY_FILE`
