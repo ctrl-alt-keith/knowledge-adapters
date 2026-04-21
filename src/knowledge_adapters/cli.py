@@ -221,8 +221,8 @@ def build_parser() -> argparse.ArgumentParser:
             "Normalize one existing UTF-8 text file into the shared artifact layout. "
             "Use --dry-run to preview the resolved file path, artifact path, "
             "manifest path, and normalized markdown before writing. Empty UTF-8 "
-            "files are allowed and produce an empty content section. Files that "
-            "are not valid UTF-8 text are rejected. Directories are not "
+            "files are allowed; output includes an empty content section. Files "
+            "that are not valid UTF-8 text are rejected. Directories are not "
             "supported. Unlike Confluence, local_files always plans one write; "
             "it does not use manifest-based skip logic."
         ),
