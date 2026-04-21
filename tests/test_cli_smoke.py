@@ -113,13 +113,12 @@ def test_local_files_cli_help_includes_first_run_guidance(tmp_path: Path) -> Non
         in result.stdout
     )
     assert "Empty UTF-8 files are allowed" in result.stdout
-    assert "Files that are not valid UTF-8 text are rejected." in result.stdout
-    assert "Directories are not supported." in result.stdout
+    assert "Files that are not valid UTF-8 text are rejected" in result.stdout
+    assert "directories are not supported" in result.stdout
     assert "--file-path FILE" in result.stdout
-    assert "Path to one existing local UTF-8 text file." in result.stdout
-    assert "Empty files" in result.stdout
-    assert "are allowed; directories are not supported." in result.stdout
-    assert "directories are not supported." in result.stdout
+    assert "Path to the one existing local UTF-8 text file for this" in result.stdout
+    assert "run. Empty files are allowed; directories are not" in result.stdout
+    assert "supported. Relative paths resolve from the cwd." in result.stdout
     assert "Relative paths" in result.stdout
     assert "resolve from the cwd." in result.stdout
     assert "--output-dir DIR" in result.stdout
