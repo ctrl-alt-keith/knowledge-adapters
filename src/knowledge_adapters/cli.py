@@ -13,6 +13,11 @@ CONFLUENCE_HELP_EXAMPLES = """Examples:
     --base-url https://example.com/wiki \\
     --target 12345 \\
     --output-dir ./artifacts
+  knowledge-adapters confluence \\
+    --base-url https://example.com/wiki \\
+    --target https://example.com/wiki/spaces/ENG/pages/12345/Runbook \\
+    --output-dir ./artifacts \\
+    --dry-run
   CONFLUENCE_BEARER_TOKEN=... knowledge-adapters confluence \\
     --client-mode real \\
     --auth-method bearer-env \\
@@ -56,7 +61,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run the Confluence adapter.",
         description=(
             "Normalize a Confluence page or page tree into local markdown artifacts. "
-            "The default stub mode writes scaffolded output without contacting "
+            "Both stub and real modes follow the same target resolution and artifact "
+            "flow. The default stub mode writes scaffolded output without contacting "
             "Confluence. Use --client-mode real for live Confluence fetches."
         ),
         epilog=CONFLUENCE_HELP_EXAMPLES,
@@ -82,9 +88,10 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("stub", "real"),
         default="stub",
         help=(
-            "Client behavior: 'stub' writes scaffolded local output with no "
-            "network call; 'real' fetches from Confluence using --auth-method. "
-            "Defaults to 'stub'."
+            "Client behavior: 'stub' uses scaffolded page content with no network "
+            "call; 'real' fetches from Confluence using --auth-method. Both modes "
+            "resolve --target and write the same local artifact paths. Defaults to "
+            "'stub'."
         ),
     )
     confluence_parser.add_argument(
@@ -107,7 +114,7 @@ def build_parser() -> argparse.ArgumentParser:
     confluence_parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Plan actions without writing files.",
+        help="Plan the resolved page, output path, and manifest without writing files.",
     )
     confluence_parser.add_argument(
         "--tree",
@@ -185,6 +192,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         from knowledge_adapters.confluence.manifest import (
             build_manifest_entry,
+            manifest_path,
             write_manifest,
             write_manifest_with_context,
         )
@@ -285,14 +293,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             page_id: str,
             source_url: str,
             output_path: Path,
+            manifest_output_path: Path,
             action: str,
             markdown: str | None = None,
         ) -> None:
+            write_count = 1 if action == "write" else 0
+            skip_count = 1 if action == "skip" else 0
             print("\nDry run: Confluence page plan")
             print(f"  resolved_page_id: {page_id}")
             print(f"  source_url: {source_url}")
             print(f"  output_path: {output_path}")
+            print(f"  manifest_path: {manifest_output_path}")
             print(f"  action: would {action}")
+            print(f"  Summary: would write {write_count}, would skip {skip_count}")
             if markdown is not None:
                 print()
                 print(markdown)
@@ -343,10 +356,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             skip_count = len(page_records) - write_count
 
             if confluence_config.dry_run:
+                manifest_output_path = manifest_path(confluence_config.output_dir)
                 print("\nDry run: recursive fetch plan")
                 print(f"  resolved_root_page_id: {root_page_id}")
                 print(f"  tree: {confluence_config.tree}")
                 print(f"  max_depth: {confluence_config.max_depth}")
+                print(f"  manifest_path: {manifest_output_path}")
                 for _page, output_path, action in page_records:
                     print(f"  would {action} {output_path}")
                 print(f"  Summary: would write {write_count}, would skip {skip_count}")
@@ -393,6 +408,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print_confluence_invocation()
         page_id = str(page["canonical_id"])
         output_path = markdown_path(confluence_config.output_dir, page_id)
+        manifest_output_path = manifest_path(confluence_config.output_dir)
         previous_manifest_index = load_previous_manifest_index(confluence_config.output_dir)
         action = (
             "skip"
@@ -411,6 +427,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 page_id=page_id,
                 source_url=str(page.get("source_url", "")),
                 output_path=output_path,
+                manifest_output_path=manifest_output_path,
                 action=action,
                 markdown=planned_markdown,
             )
@@ -427,12 +444,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             print(f"\nSkipped: {output_path}")
 
-        write_manifest(
+        manifest = write_manifest(
             confluence_config.output_dir,
             [
                 _build_manifest_entry_for_page(page, output_path),
             ],
         )
+        write_count = 1 if action == "write" else 0
+        skip_count = 1 if action == "skip" else 0
+        print(f"\nSummary: wrote {write_count}, skipped {skip_count}")
+        print(f"Manifest: {manifest}")
         return 0
 
     if args.command == "local_files":

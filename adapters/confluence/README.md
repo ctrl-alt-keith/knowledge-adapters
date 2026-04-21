@@ -19,10 +19,14 @@ Out of the box, the default Confluence CLI:
 - resolves the target into a canonical page ID
 - normalizes page ID and full page URL targets into the same resolved source URL
   for stub-mode metadata and dry-run reporting
+- keeps dry-run and write output aligned around the same resolved page ID,
+  canonical source URL, page artifact path, and manifest path
 - fetches stub page data for that resolved page
 - supports an opt-in real client path with `--client-mode real` for live page
   fetches and breadth-first tree traversal using `bearer-env` or
   `client-cert-env` auth
+- keeps `stub` and `real` modes on the same CLI flow and artifact layout, with
+  only the content source changing between modes
 - normalizes the stub page into markdown plus metadata
 - writes a deterministic page artifact and `manifest.json` on normal runs
 - supports dry-run output and manifest-based skip logic for the resolved page

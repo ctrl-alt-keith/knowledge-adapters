@@ -142,7 +142,9 @@ def test_confluence_cli_dry_run_reports_output_without_writing(
     assert "resolved_page_id: 12345" in captured.out
     assert "source_url: https://example.com/wiki/pages/viewpage.action?pageId=12345" in captured.out
     assert f"output_path: {output_path}" in captured.out
+    assert f"manifest_path: {output_dir / 'manifest.json'}" in captured.out
     assert "action: would write" in captured.out
+    assert "Summary: would write 1, would skip 0" in captured.out
     assert "# stub-page-12345" in captured.out
 
 
@@ -206,6 +208,73 @@ def test_confluence_cli_writes_manifest_for_normal_run(tmp_path: Path) -> None:
     assert isinstance(payload["generated_at"], str)
 
 
+def test_confluence_cli_full_flow_keeps_dry_run_and_write_artifacts_in_sync(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    output_dir = tmp_path / "out"
+    target_url = "https://example.com/wiki/spaces/ENG/pages/12345/Runbook"
+    page_output_path = output_dir / "pages" / "12345.md"
+    manifest_output_path = output_dir / "manifest.json"
+    canonical_source_url = "https://example.com/wiki/pages/viewpage.action?pageId=12345"
+
+    dry_run_exit_code = main(
+        [
+            "confluence",
+            "--base-url",
+            "https://example.com/wiki",
+            "--target",
+            target_url,
+            "--output-dir",
+            str(output_dir),
+            "--dry-run",
+        ]
+    )
+
+    assert dry_run_exit_code == 0
+    assert not page_output_path.exists()
+    assert not manifest_output_path.exists()
+
+    dry_run_output = capsys.readouterr().out
+    assert "resolved_page_id: 12345" in dry_run_output
+    assert f"source_url: {canonical_source_url}" in dry_run_output
+    assert f"output_path: {page_output_path}" in dry_run_output
+    assert f"manifest_path: {manifest_output_path}" in dry_run_output
+    assert "action: would write" in dry_run_output
+    assert "Summary: would write 1, would skip 0" in dry_run_output
+
+    write_exit_code = main(
+        [
+            "confluence",
+            "--base-url",
+            "https://example.com/wiki",
+            "--target",
+            target_url,
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+
+    assert write_exit_code == 0
+    assert page_output_path.exists()
+    assert manifest_output_path.exists()
+
+    write_output = capsys.readouterr().out
+    assert f"Wrote: {page_output_path}" in write_output
+    assert "Summary: wrote 1, skipped 0" in write_output
+    assert f"Manifest: {manifest_output_path}" in write_output
+
+    payload = json.loads(manifest_output_path.read_text(encoding="utf-8"))
+    assert payload["files"] == [
+        {
+            "canonical_id": "12345",
+            "source_url": canonical_source_url,
+            "output_path": "pages/12345.md",
+            "title": "stub-page-12345",
+        }
+    ]
+
+
 def test_confluence_cli_tree_run_reports_manifest_path(
     tmp_path: Path,
     capsys: CaptureFixture[str],
@@ -231,6 +300,35 @@ def test_confluence_cli_tree_run_reports_manifest_path(
 
     captured = capsys.readouterr()
     assert f"Manifest: {output_dir / 'manifest.json'}" in captured.out
+
+
+def test_confluence_cli_tree_dry_run_reports_manifest_path(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    output_dir = tmp_path / "out"
+
+    exit_code = main(
+        [
+            "confluence",
+            "--base-url",
+            "https://example.com/wiki",
+            "--target",
+            "12345",
+            "--output-dir",
+            str(output_dir),
+            "--tree",
+            "--max-depth",
+            "0",
+            "--dry-run",
+        ]
+    )
+
+    assert exit_code == 0
+
+    captured = capsys.readouterr()
+    assert f"manifest_path: {output_dir / 'manifest.json'}" in captured.out
+    assert "Summary: would write 1, would skip 0" in captured.out
 
 
 def test_confluence_cli_invalid_target_reports_expected_shapes(

@@ -113,6 +113,8 @@ def test_confluence_cli_smoke_uses_installed_entrypoint_with_default_stub_client
     assert result.returncode == 0, result.stderr
     assert "Confluence adapter invoked" in result.stdout
     assert "Wrote:" in result.stdout
+    assert "Summary: wrote 1, skipped 0" in result.stdout
+    assert "Manifest:" in result.stdout
 
     output_path = tmp_path / "artifacts" / "pages" / "12345.md"
     assert output_path.read_text(encoding="utf-8") == (
@@ -160,4 +162,7 @@ def test_confluence_help_lists_supported_auth_methods_and_examples(
     assert "--debug" in result.stdout
     assert "request debug details" in result.stdout
     assert "real-client" in result.stdout
+    assert "same target resolution and artifact flow" in result.stdout
+    assert "same local artifact paths" in result.stdout
     assert "CONFLUENCE_BEARER_TOKEN=... knowledge-adapters confluence" in result.stdout
+    assert "--dry-run" in result.stdout
