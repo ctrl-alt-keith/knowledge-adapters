@@ -318,6 +318,8 @@ def test_confluence_cli_tree_run_reports_manifest_path(
     assert exit_code == 0
 
     captured = capsys.readouterr()
+    assert "fetch_scope: tree" in captured.out
+    assert "max_depth: 0" in captured.out
     assert f"Manifest: {output_dir / 'manifest.json'}" in captured.out
 
 
@@ -346,6 +348,8 @@ def test_confluence_cli_tree_dry_run_reports_manifest_path(
     assert exit_code == 0
 
     captured = capsys.readouterr()
+    assert "fetch_scope: tree" in captured.out
+    assert "max_depth: 0" in captured.out
     assert f"manifest_path: {output_dir / 'manifest.json'}" in captured.out
     assert "Plan: Confluence run" in captured.out
     assert "unique_pages: 1" in captured.out
