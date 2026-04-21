@@ -61,10 +61,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run the Confluence adapter.",
         description=(
             "Normalize a Confluence page or page tree into local markdown artifacts. "
-            "Both stub and real modes follow the same target resolution, plan, and "
-            "artifact flow. Use --dry-run to preview the same page and manifest plan "
-            "a write "
-            "run would use. The default stub mode writes scaffolded output without "
+            "Both stub and real modes follow the same resolve, plan, and artifact "
+            "flow. Use --dry-run to preview the same page and manifest plan a write "
+            "run would use. The default stub mode uses scaffolded content without "
             "contacting Confluence. Use --client-mode real for contract-tested live "
             "Confluence fetches."
         ),
@@ -95,10 +94,10 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("stub", "real"),
         default="stub",
         help=(
-            "Client behavior: 'stub' uses scaffolded page content with no network "
-            "call; 'real' fetches from Confluence using --auth-method. Both modes "
-            "resolve --target and write the same local artifact paths. Defaults to "
-            "'stub'."
+            "Choose the content source: 'stub' uses scaffolded page content with no "
+            "network call; 'real' fetches from Confluence using --auth-method. Both "
+            "modes keep the same resolve, dry-run, and write artifact flow. Defaults "
+            "to 'stub'."
         ),
     )
     confluence_parser.add_argument(
@@ -121,7 +120,10 @@ def build_parser() -> argparse.ArgumentParser:
     confluence_parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Plan the resolved page, output path, and manifest without writing files.",
+        help=(
+            "Preview the same page, output path, manifest path, and write/skip summary "
+            "a write run would use, without writing files."
+        ),
     )
     confluence_parser.add_argument(
         "--tree",
@@ -260,15 +262,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             selected_fetch_page = fetch_page
 
         def _print_confluence_invocation() -> None:
+            content_source = (
+                "scaffolded page content"
+                if confluence_config.client_mode == "stub"
+                else "live Confluence content"
+            )
+            fetch_scope = "tree" if confluence_config.tree else "page"
+            run_mode = "dry-run" if confluence_config.dry_run else "write"
             print("Confluence adapter invoked")
             print(f"  base_url: {confluence_config.base_url}")
             print(f"  target: {target.raw_value}")
             print(f"  output_dir: {confluence_config.output_dir}")
             print(f"  client_mode: {confluence_config.client_mode}")
-            print(f"  auth_method: {confluence_config.auth_method}")
-            print(f"  dry_run: {confluence_config.dry_run}")
-            print(f"  tree: {confluence_config.tree}")
-            print(f"  max_depth: {confluence_config.max_depth}")
+            print(f"  content_source: {content_source}")
+            print(f"  fetch_scope: {fetch_scope}")
+            print(f"  run_mode: {run_mode}")
+            if confluence_config.tree:
+                print(f"  max_depth: {confluence_config.max_depth}")
+            if confluence_config.client_mode == "real":
+                print(f"  auth_method: {confluence_config.auth_method}")
 
         def _confluence_debug_lines(
             exc: RuntimeError | ValueError,
@@ -306,7 +318,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         ) -> None:
             write_count = 1 if action == "write" else 0
             skip_count = 1 if action == "skip" else 0
-            print("\nDry run: Confluence page plan")
+            print("\nPlan: Confluence run")
             print(f"  resolved_page_id: {page_id}")
             print(f"  source_url: {source_url}")
             print(f"  output_path: {output_path}")
@@ -364,9 +376,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
             if confluence_config.dry_run:
                 manifest_output_path = manifest_path(confluence_config.output_dir)
-                print("\nDry run: recursive fetch plan")
+                print("\nPlan: Confluence run")
                 print(f"  resolved_root_page_id: {root_page_id}")
-                print(f"  tree: {confluence_config.tree}")
                 print(f"  max_depth: {confluence_config.max_depth}")
                 print(f"  manifest_path: {manifest_output_path}")
                 for _page, output_path, action in page_records:

@@ -112,6 +112,11 @@ def test_confluence_cli_smoke_uses_installed_entrypoint_with_default_stub_client
 
     assert result.returncode == 0, result.stderr
     assert "Confluence adapter invoked" in result.stdout
+    assert "client_mode: stub" in result.stdout
+    assert "content_source: scaffolded page content" in result.stdout
+    assert "fetch_scope: page" in result.stdout
+    assert "run_mode: write" in result.stdout
+    assert "auth_method:" not in result.stdout
     assert "Wrote:" in result.stdout
     assert "Summary: wrote 1, skipped 0" in result.stdout
     assert "Manifest:" in result.stdout
@@ -162,9 +167,9 @@ def test_confluence_help_lists_supported_auth_methods_and_examples(
     assert "--debug" in result.stdout
     assert "request debug details" in result.stdout
     assert "real-client" in result.stdout
-    assert "same target resolution, plan, and artifact flow" in result.stdout
-    assert "same local artifact paths" in result.stdout
+    assert "same resolve, plan, and artifact flow" in result.stdout
     assert "same page and manifest plan a write run would use" in result.stdout
+    assert "same resolve, dry-run, and write artifact flow" in result.stdout
     assert "contract-tested live Confluence fetches" in result.stdout
     assert "validated and normalized to canonical" in result.stdout
     assert "pageId form for output and manifests" in result.stdout

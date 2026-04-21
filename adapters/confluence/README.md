@@ -27,6 +27,8 @@ Out of the box, the default Confluence CLI:
   `bearer-env` or `client-cert-env` auth
 - keeps `stub` and `real` modes on the same CLI flow and artifact layout, with
   only the content source changing between modes
+- keeps dry-run and write messaging aligned across `stub` and `real`, including
+  the same plan header, artifact-path reporting, and write/skip summary shape
 - normalizes the stub page into markdown plus metadata
 - writes a deterministic page artifact and `manifest.json` on normal runs
 - supports dry-run output and manifest-based skip logic for the resolved page
