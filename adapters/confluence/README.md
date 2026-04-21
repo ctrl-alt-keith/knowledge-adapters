@@ -20,7 +20,42 @@ The Confluence-specific difference is that dry runs and write runs may report
 `write` or `skip` for a page when an existing manifest entry and on-disk
 artifact already match the planned output.
 
-## Tree Mode First Run
+## Recommended First Run
+
+Start with one page in the default `stub` mode before you try tree mode or live
+Confluence fetches:
+
+```bash
+knowledge-adapters confluence \
+  --base-url https://example.com/wiki \
+  --target 12345 \
+  --output-dir ./artifacts \
+  --dry-run
+```
+
+That first run resolves the target into a canonical page ID, previews
+`pages/12345.md`, previews `manifest.json`, and prints normalized markdown
+without contacting a live Confluence instance or requiring credentials.
+
+`--target` accepts either a numeric page ID or a full page URL under
+`--base-url`. Full page URLs are validated and normalized to canonical
+`pageId` form for dry-run and write reporting.
+
+If that dry run looks right, rerun the same command without `--dry-run` to
+write the stub artifact and `manifest.json`.
+
+When you want live Confluence content, keep the same CLI flow and add
+`--client-mode real` plus an auth method:
+
+- `bearer-env` via `CONFLUENCE_BEARER_TOKEN`
+- `client-cert-env` via `CONFLUENCE_CLIENT_CERT_FILE` plus optional
+  `CONFLUENCE_CLIENT_KEY_FILE`
+
+Tree mode is best treated as a follow-on step. With the default `stub` client,
+`--tree` still plans only the resolved root page because no child pages are
+discovered.
+
+## Tree Mode After First Run
 
 - `--tree` switches the run from one resolved page to the resolved root page
   plus any discovered descendants.

@@ -57,7 +57,10 @@ files.
 allowed and still produce metadata plus an empty `Content` section. Files that
 are not valid UTF-8 text fail fast with guidance to re-save the input as UTF-8.
 
-Minimal Confluence first run (default `stub` mode):
+Recommended Confluence first run:
+
+1. Start with the default `stub` client plus `--dry-run` so you can confirm the
+   resolve and write plan without credentials or live Confluence access.
 
 ```bash
 knowledge-adapters confluence \
@@ -71,19 +74,15 @@ This resolves page `12345`, previews `artifacts/pages/12345.md`, previews
 `artifacts/manifest.json`, and prints the normalized markdown without
 contacting a live Confluence instance.
 
-For Confluence runs, `--target` accepts either a numeric page ID or a full page
-URL under `--base-url`. Full page URLs are validated and normalized to canonical
+`--target` accepts either a numeric page ID or a full page URL under
+`--base-url`. Full page URLs are validated and normalized to canonical
 `pageId` form for artifact and manifest reporting.
 
-Confluence is also the adapter that currently uses manifest-based skip logic, so
-its dry runs and write runs may report `write` or `skip` for a page when an
-existing artifact already matches the planned output. `local_files` always plans
-one write.
+2. If that dry run looks right, rerun the same command without `--dry-run` to
+   write the stub artifact and `manifest.json`.
 
-When the dry run looks right, rerun the same command without `--dry-run` to
-write the artifact and manifest.
-
-Next step for Confluence: opt into real mode with bearer auth:
+3. When you want live Confluence content, keep the same command shape and opt
+   into `--client-mode real` plus auth:
 
 - `bearer-env` -> `CONFLUENCE_BEARER_TOKEN`
 - `client-cert-env` -> `CONFLUENCE_CLIENT_CERT_FILE` and optional `CONFLUENCE_CLIENT_KEY_FILE`
@@ -94,8 +93,17 @@ CONFLUENCE_BEARER_TOKEN=... knowledge-adapters confluence \
   --auth-method bearer-env \
   --base-url https://example.com/wiki \
   --target 12345 \
-  --output-dir ./artifacts
+  --output-dir ./artifacts \
+  --dry-run
 ```
+
+If that real-mode dry run looks right, rerun it without `--dry-run` to write
+the live-fetched artifact and manifest.
+
+Confluence is also the adapter that currently uses manifest-based skip logic, so
+its dry runs and write runs may report `write` or `skip` for a page when an
+existing artifact already matches the planned output. `local_files` always plans
+one write.
 
 ---
 
