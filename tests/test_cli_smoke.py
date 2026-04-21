@@ -35,7 +35,10 @@ def test_top_level_help_introduces_shared_cli_flow(tmp_path: Path) -> None:
     assert "Normalize knowledge sources into a shared local artifact layout." in result.stdout
     assert "plans a markdown artifact under pages/ plus manifest.json" in result.stdout
     assert "Normalize Confluence content into shared artifacts." in result.stdout
-    assert "Normalize a local text file into shared artifacts." in result.stdout
+    assert (
+        "Normalize one local UTF-8 text file into shared\n"
+        "                        artifacts." in result.stdout
+    )
     assert (
         "Start with --dry-run to preview the source, artifact path, manifest path,"
         in result.stdout
