@@ -113,21 +113,15 @@ def test_local_files_cli_help_includes_first_run_guidance(tmp_path: Path) -> Non
         in result.stdout
     )
     assert "Empty UTF-8 files are allowed" in result.stdout
-    assert "Files that are not valid UTF-8 text are rejected." in result.stdout
-    assert "Directories are not supported." in result.stdout
+    assert "Files that are not valid UTF-8 text are rejected" in result.stdout
+    assert "directories are not supported" in result.stdout
+    assert "local_files handles one file per run and always plans one write;" in result.stdout
     assert "--file-path FILE" in result.stdout
-    assert "Path to one existing local UTF-8 text file." in result.stdout
-    assert "Empty files" in result.stdout
-    assert "are allowed; directories are not supported." in result.stdout
-    assert "directories are not supported." in result.stdout
     assert "Relative paths" in result.stdout
     assert "resolve from the cwd." in result.stdout
     assert "--output-dir DIR" in result.stdout
     assert "Directory where pages/ and manifest.json are written." in result.stdout
-    assert (
-        "Unlike Confluence, local_files always plans one write; it does not use "
-        "manifest-based skip logic." in result.stdout
-    )
+    assert "it does not use manifest-based skip logic." in result.stdout
     assert "resolved file path, artifact path, manifest path" in result.stdout
     assert "without writing files." in result.stdout
     assert "knowledge-adapters local_files" in result.stdout
