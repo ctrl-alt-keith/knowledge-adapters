@@ -36,9 +36,8 @@ Every adapter follows the same high-level shape:
 - plan `manifest.json` in the selected output directory
 - write only when `--dry-run` is not set
 
-Recommended first run: on your first run, start with `--dry-run`, confirm the planned source,
-artifact path, and manifest path, then rerun the same command without
-`--dry-run`.
+Recommended first run: use `--dry-run`, confirm the planned source, artifact
+path, and manifest path, then rerun without `--dry-run`.
 
 Minimal local file first run:
 
