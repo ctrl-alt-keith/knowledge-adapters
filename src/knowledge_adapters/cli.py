@@ -61,9 +61,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run the Confluence adapter.",
         description=(
             "Normalize a Confluence page or page tree into local markdown artifacts. "
-            "Both stub and real modes follow the same target resolution and artifact "
-            "flow. The default stub mode writes scaffolded output without contacting "
-            "Confluence. Use --client-mode real for live Confluence fetches."
+            "Both stub and real modes follow the same target resolution, plan, and "
+            "artifact flow. Use --dry-run to preview the same page and manifest plan "
+            "a write "
+            "run would use. The default stub mode writes scaffolded output without "
+            "contacting Confluence. Use --client-mode real for contract-tested live "
+            "Confluence fetches."
         ),
         epilog=CONFLUENCE_HELP_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -76,7 +79,11 @@ def build_parser() -> argparse.ArgumentParser:
     confluence_parser.add_argument(
         "--target",
         required=True,
-        help="Confluence page ID or full page URL under --base-url.",
+        help=(
+            "Confluence page ID or full page URL under --base-url. Full URLs are "
+            "validated and normalized to canonical pageId form for output and "
+            "manifests."
+        ),
     )
     confluence_parser.add_argument(
         "--output-dir",

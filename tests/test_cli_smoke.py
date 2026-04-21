@@ -162,7 +162,11 @@ def test_confluence_help_lists_supported_auth_methods_and_examples(
     assert "--debug" in result.stdout
     assert "request debug details" in result.stdout
     assert "real-client" in result.stdout
-    assert "same target resolution and artifact flow" in result.stdout
+    assert "same target resolution, plan, and artifact flow" in result.stdout
     assert "same local artifact paths" in result.stdout
+    assert "same page and manifest plan a write run would use" in result.stdout
+    assert "contract-tested live Confluence fetches" in result.stdout
+    assert "validated and normalized to canonical" in result.stdout
+    assert "pageId form for output and manifests" in result.stdout
     assert "CONFLUENCE_BEARER_TOKEN=... knowledge-adapters confluence" in result.stdout
     assert "--dry-run" in result.stdout

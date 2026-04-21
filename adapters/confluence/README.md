@@ -22,9 +22,9 @@ Out of the box, the default Confluence CLI:
 - keeps dry-run and write output aligned around the same resolved page ID,
   canonical source URL, page artifact path, and manifest path
 - fetches stub page data for that resolved page
-- supports an opt-in real client path with `--client-mode real` for live page
-  fetches and breadth-first tree traversal using `bearer-env` or
-  `client-cert-env` auth
+- supports an opt-in real client path with `--client-mode real` for
+  contract-tested live page fetches and breadth-first tree traversal using
+  `bearer-env` or `client-cert-env` auth
 - keeps `stub` and `real` modes on the same CLI flow and artifact layout, with
   only the content source changing between modes
 - normalizes the stub page into markdown plus metadata
@@ -39,6 +39,8 @@ Out of the box, the default Confluence CLI:
 - `--client-mode real` supports `bearer-env` via `CONFLUENCE_BEARER_TOKEN`
   and `client-cert-env` via `CONFLUENCE_CLIENT_CERT_FILE` plus optional
   `CONFLUENCE_CLIENT_KEY_FILE`
+- real mode is contract-tested, but not fully live-validated across Confluence
+  environments
 - recursive traversal semantics are defined and tested, but multi-page tree runs
   still require `--client-mode real` or a monkeypatched client that returns child
   pages
