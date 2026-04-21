@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import pytest
 from pytest import CaptureFixture
 
 from knowledge_adapters.cli import main
@@ -119,3 +120,97 @@ def test_local_files_cli_dry_run_reports_output_without_writing(
     captured = capsys.readouterr()
     assert f"Dry run: would write {output_path}" in captured.out
     assert "Line one." in captured.out
+
+
+def test_fetch_file_reports_permission_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_file = tmp_path / "notes.txt"
+    source_file.write_text("Hello from disk.\n", encoding="utf-8")
+
+    def _raise_permission_error(self: Path, *, encoding: str) -> str:
+        raise PermissionError("permission denied")
+
+    monkeypatch.setattr(Path, "read_text", _raise_permission_error)
+
+    with pytest.raises(
+        ValueError,
+        match=rf"File is not readable: {source_file.resolve()}\. Check the file permissions\.",
+    ):
+        fetch_file(str(source_file))
+
+
+def test_local_files_cli_reports_missing_file_with_actionable_error(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    missing_file = tmp_path / "missing.txt"
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            [
+                "local_files",
+                "--file-path",
+                str(missing_file),
+                "--output-dir",
+                str(tmp_path / "out"),
+            ]
+        )
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert "Local files adapter invoked" not in captured.out
+    assert "knowledge-adapters local_files: error:" in captured.err
+    assert f"File does not exist: {missing_file}." in captured.err
+    assert "Check --file-path and try again." in captured.err
+
+
+def test_local_files_cli_reports_non_file_input_path(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    source_dir = tmp_path / "notes"
+    source_dir.mkdir()
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            [
+                "local_files",
+                "--file-path",
+                str(source_dir),
+                "--output-dir",
+                str(tmp_path / "out"),
+            ]
+        )
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert f"Path is not a regular file: {source_dir}." in captured.err
+    assert "Supply a single UTF-8 text file." in captured.err
+
+
+def test_local_files_cli_reports_invalid_output_dir(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    source_file = tmp_path / "notes.txt"
+    source_file.write_text("Hello from disk.\n", encoding="utf-8")
+    output_path = tmp_path / "artifacts.txt"
+    output_path.write_text("not a directory\n", encoding="utf-8")
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            [
+                "local_files",
+                "--file-path",
+                str(source_file),
+                "--output-dir",
+                str(output_path),
+            ]
+        )
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert f"Output path is not a directory: {output_path}." in captured.err
+    assert "Choose a directory path for --output-dir." in captured.err

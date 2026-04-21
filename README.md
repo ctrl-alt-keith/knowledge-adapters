@@ -23,8 +23,21 @@ Start with the built-in help:
 
 ```bash
 knowledge-adapters --help
+knowledge-adapters local_files --help
 knowledge-adapters confluence --help
 ```
+
+Minimal local file first run:
+
+```bash
+knowledge-adapters local_files \
+  --file-path ./notes/today.txt \
+  --output-dir ./artifacts
+```
+
+This reads one UTF-8 text file, writes `artifacts/pages/today.md`, and writes
+`artifacts/manifest.json`. Add `--dry-run` to preview the normalized markdown
+and planned output path without writing files.
 
 Confluence auth quick reference:
 
@@ -234,10 +247,10 @@ that design surface.
 
 ## Example
 
-Normalize a local text file into the standard markdown artifact:
+Normalize a local UTF-8 text file into the standard markdown artifact:
 
 ```bash
-.venv/bin/knowledge-adapters local_files \
+knowledge-adapters local_files \
   --file-path ./notes/today.txt \
   --output-dir ./artifacts
 ```
@@ -245,7 +258,7 @@ Normalize a local text file into the standard markdown artifact:
 Preview the normalized markdown without writing files:
 
 ```bash
-.venv/bin/knowledge-adapters local_files \
+knowledge-adapters local_files \
   --file-path ./notes/today.txt \
   --output-dir ./artifacts \
   --dry-run
