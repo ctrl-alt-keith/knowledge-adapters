@@ -208,8 +208,8 @@ def test_confluence_help_lists_supported_auth_methods_and_examples(
     assert "artifact layout and reporting" in result.stdout
     assert "page or, with --tree, a page tree" in result.stdout
     assert "planned artifact paths, manifest path, and write/skip decisions" in result.stdout
-    assert "In tree mode, dry-run previews the root page plus" in result.stdout
-    assert "artifact paths that write mode would use" in result.stdout
+    assert "In tree mode, dry-run previews the root page and" in result.stdout
+    assert "artifact paths used in write mode" in result.stdout
     assert "same resolve, plan, and write flow" in result.stdout
     assert "'real' fetches from" in result.stdout
     assert "using --auth-method" in result.stdout
@@ -217,7 +217,7 @@ def test_confluence_help_lists_supported_auth_methods_and_examples(
     assert "The CLI resolves either input into one canonical page" in result.stdout
     assert "source URL for artifact and manifest reporting" in result.stdout
     assert "artifact and manifest reporting" in result.stdout
-    assert "Traverse the resolved root page plus discovered" in result.stdout
+    assert "Traverse the resolved root page and discovered" in result.stdout
     assert "descendants instead of only one page." in result.stdout
     assert "Maximum descendant depth for --tree." in result.stdout
     assert "Ignored unless --tree is set." in result.stdout

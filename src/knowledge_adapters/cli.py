@@ -130,9 +130,9 @@ def build_parser() -> argparse.ArgumentParser:
             "you want descendants. Stub and real modes keep the same resolve, "
             "plan, and write flow. Use --dry-run to preview resolved page IDs, "
             "planned artifact paths, manifest path, and write/skip decisions "
-            "before writing. In tree mode, dry-run previews the root page plus "
+            "before writing. In tree mode, dry-run previews the root page and "
             "discovered descendants included by --max-depth and the artifact "
-            "paths that write mode would use. Use "
+            "paths used in write mode. Use "
             "--max-depth to limit descendant levels. Ignored unless --tree is "
             "set. The default stub mode uses scaffolded content "
             "without contacting Confluence. Use --client-mode real for "
@@ -202,7 +202,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--tree",
         action="store_true",
         help=(
-            "Traverse the resolved root page plus discovered descendants "
+            "Traverse the resolved root page and discovered descendants "
             "instead of only one page. Use --max-depth to limit descendant "
             "levels."
         ),
