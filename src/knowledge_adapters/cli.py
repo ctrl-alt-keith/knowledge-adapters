@@ -15,9 +15,11 @@ TOP_LEVEL_HELP_EXAMPLES = """First steps:
   knowledge-adapters confluence --help
 
 Typical flow:
-  1. Start with --dry-run to preview the source, artifact path, manifest path,
+  1. Start with local_files to try the artifact layout with a text file you
+     already have.
+  2. Start with --dry-run to preview the source, artifact path, manifest path,
      and action.
-  2. Re-run without --dry-run to write the same artifact layout under
+  3. Re-run without --dry-run to write the same artifact layout under
      ./artifacts.
 """
 
@@ -213,12 +215,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Normalize a local text file into shared artifacts.",
         description=(
             "Normalize one existing UTF-8 text file into the shared artifact layout. "
-            "Empty UTF-8 files are allowed and produce an empty content section. "
-            "Files that are not valid UTF-8 text are rejected. Directories are "
-            "not supported. Use --dry-run to preview the resolved file path, "
-            "artifact path, manifest path, and normalized markdown before "
-            "writing. Unlike Confluence, local_files always plans one write and "
-            "does not use manifest-based skip logic."
+            "Use --dry-run to preview the resolved file path, artifact path, "
+            "manifest path, and normalized markdown before writing. Empty UTF-8 "
+            "files are allowed and produce an empty content section. Files that "
+            "are not valid UTF-8 text are rejected. Directories are not "
+            "supported. Unlike Confluence, local_files always plans one write "
+            "and does not use manifest-based skip logic."
         ),
         epilog=LOCAL_FILES_HELP_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -228,9 +230,8 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         metavar="FILE",
         help=(
-            "Path to one existing local UTF-8 text file. Empty files are "
-            "allowed; directories are not supported. Relative paths resolve "
-            "from the cwd."
+            "Path to one existing local UTF-8 text file. Empty files are allowed; "
+            "directories are not supported. Relative paths resolve from the cwd."
         ),
     )
     local_files_parser.add_argument(
