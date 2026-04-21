@@ -47,7 +47,10 @@ def test_local_files_cli_smoke_uses_installed_entrypoint_with_readme_style_args(
 
     assert result.returncode == 0, result.stderr
     assert "Local files adapter invoked" in result.stdout
+    assert "run_mode: write" in result.stdout
     assert "Wrote:" in result.stdout
+    assert "Summary: wrote 1, skipped 0" in result.stdout
+    assert "Manifest:" in result.stdout
 
     output_path = tmp_path / "artifacts" / "pages" / "today.md"
     assert output_path.read_text(encoding="utf-8") == (
@@ -84,13 +87,14 @@ def test_local_files_cli_help_includes_first_run_guidance(tmp_path: Path) -> Non
 
     assert result.returncode == 0, result.stderr
     assert (
-        "Normalize a single local UTF-8 text file into a markdown artifact."
+        "Normalize a single local UTF-8 text file into local markdown artifacts."
         in result.stdout
     )
     assert "--file-path FILE" in result.stdout
-    assert "Readable UTF-8 text file to normalize." in result.stdout
+    assert "Local UTF-8 text file to normalize." in result.stdout
     assert "--output-dir DIR" in result.stdout
-    assert "Print the planned output path and normalized markdown" in result.stdout
+    assert "Directory to write normalized local artifacts." in result.stdout
+    assert "Preview the same output paths and write summary" in result.stdout
     assert "without writing files." in result.stdout
     assert "knowledge-adapters local_files" in result.stdout
     assert "--dry-run" in result.stdout
@@ -167,9 +171,10 @@ def test_confluence_help_lists_supported_auth_methods_and_examples(
     assert "--debug" in result.stdout
     assert "request debug details" in result.stdout
     assert "real-client" in result.stdout
-    assert "same resolve, plan, and artifact flow" in result.stdout
-    assert "same page and manifest plan a write run would use" in result.stdout
-    assert "same resolve, dry-run, and write artifact flow" in result.stdout
+    assert "same output paths and write/skip summary a write run would use" in result.stdout
+    assert "same resolve, plan, and write flow" in result.stdout
+    assert "'real' fetches from" in result.stdout
+    assert "using --auth-method" in result.stdout
     assert "contract-tested live Confluence fetches" in result.stdout
     assert "validated and normalized to canonical" in result.stdout
     assert "pageId form for output and manifests" in result.stdout

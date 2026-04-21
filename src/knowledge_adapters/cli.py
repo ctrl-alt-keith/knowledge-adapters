@@ -61,11 +61,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run the Confluence adapter.",
         description=(
             "Normalize a Confluence page or page tree into local markdown artifacts. "
-            "Both stub and real modes follow the same resolve, plan, and artifact "
-            "flow. Use --dry-run to preview the same page and manifest plan a write "
-            "run would use. The default stub mode uses scaffolded content without "
-            "contacting Confluence. Use --client-mode real for contract-tested live "
-            "Confluence fetches."
+            "Both stub and real modes follow the same resolve, plan, and write flow. "
+            "Use --dry-run to preview the same output paths and write/skip summary a "
+            "write run would use. The default stub mode uses scaffolded content "
+            "without contacting Confluence. Use --client-mode real for "
+            "contract-tested live Confluence fetches."
         ),
         epilog=CONFLUENCE_HELP_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -96,8 +96,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Choose the content source: 'stub' uses scaffolded page content with no "
             "network call; 'real' fetches from Confluence using --auth-method. Both "
-            "modes keep the same resolve, dry-run, and write artifact flow. Defaults "
-            "to 'stub'."
+            "modes keep the same resolve, plan, and write flow. Defaults to 'stub'."
         ),
     )
     confluence_parser.add_argument(
@@ -121,8 +120,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help=(
-            "Preview the same page, output path, manifest path, and write/skip summary "
-            "a write run would use, without writing files."
+            "Preview the same output paths and write/skip summary a write run would "
+            "use, without writing files."
         ),
     )
     confluence_parser.add_argument(
@@ -141,8 +140,9 @@ def build_parser() -> argparse.ArgumentParser:
         "local_files",
         help="Run the local files adapter.",
         description=(
-            "Normalize a single local UTF-8 text file into a markdown artifact. "
-            "Writes pages/<file-stem>.md and manifest.json under --output-dir."
+            "Normalize a single local UTF-8 text file into local markdown artifacts. "
+            "Use --dry-run to preview the same output paths and write summary a "
+            "write run would use."
         ),
         epilog=LOCAL_FILES_HELP_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -151,18 +151,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--file-path",
         required=True,
         metavar="FILE",
-        help="Readable UTF-8 text file to normalize.",
+        help="Local UTF-8 text file to normalize.",
     )
     local_files_parser.add_argument(
         "--output-dir",
         required=True,
         metavar="DIR",
-        help="Directory for generated artifacts: pages/<name>.md and manifest.json.",
+        help="Directory to write normalized local artifacts.",
     )
     local_files_parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Print the planned output path and normalized markdown without writing files.",
+        help=(
+            "Preview the same output paths and write summary a write run would use, "
+            "without writing files."
+        ),
     )
 
     return parser
@@ -479,6 +482,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         from knowledge_adapters.confluence.manifest import (
             build_manifest_entry,
+            manifest_path,
             write_manifest,
         )
         from knowledge_adapters.local_files.client import fetch_file
@@ -497,7 +501,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             exit_with_cli_error(
                 (
                     f"Output path is not a directory: {output_dir}. "
-                    "Choose a directory path for --output-dir."
+                    "Verify --output-dir and use a directory path."
                 ),
                 command="local_files",
             )
@@ -511,10 +515,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("Local files adapter invoked")
         print(f"  file_path: {local_files_config.file_path}")
         print(f"  output_dir: {local_files_config.output_dir}")
-        print(f"  dry_run: {local_files_config.dry_run}")
+        print(f"  run_mode: {'dry-run' if local_files_config.dry_run else 'write'}")
 
         input_path = Path(local_files_config.file_path)
         output_name = input_path.stem or input_path.name
+        manifest_output_path = manifest_path(local_files_config.output_dir)
         try:
             output_path = write_markdown(
                 local_files_config.output_dir,
@@ -526,7 +531,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             exit_with_cli_error(
                 (
                     f"Output directory is not writable: {output_dir}. "
-                    "Check the path and permissions for --output-dir."
+                    "Verify --output-dir and check the path permissions."
                 ),
                 command="local_files",
             )
@@ -534,7 +539,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             exit_with_cli_error(
                 (
                     f"Output path is not a directory: {output_dir}. "
-                    "Choose a directory path for --output-dir."
+                    "Verify --output-dir and use a directory path."
                 ),
                 command="local_files",
             )
@@ -542,17 +547,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             exit_with_cli_error(
                 (
                     f"Could not write output under {output_dir}. "
-                    "Check --output-dir and try again."
+                    "Verify --output-dir and try again."
                 ),
                 command="local_files",
             )
         if local_files_config.dry_run:
-            print(f"\nDry run: would write {output_path}\n")
+            print("\nPlan: Local files run")
+            print(f"  source_path: {input_path.resolve()}")
+            print(f"  output_path: {output_path}")
+            print(f"  manifest_path: {manifest_output_path}")
+            print("  action: would write")
+            print("  Summary: would write 1, would skip 0")
+            print()
             print(markdown)
             return 0
 
         try:
-            write_manifest(
+            manifest = write_manifest(
                 local_files_config.output_dir,
                 [
                     build_manifest_entry(
@@ -568,7 +579,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             exit_with_cli_error(
                 (
                     f"Output directory is not writable: {output_dir}. "
-                    "Check the path and permissions for --output-dir."
+                    "Verify --output-dir and check the path permissions."
                 ),
                 command="local_files",
             )
@@ -576,7 +587,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             exit_with_cli_error(
                 (
                     f"Output path is not a directory: {output_dir}. "
-                    "Choose a directory path for --output-dir."
+                    "Verify --output-dir and use a directory path."
                 ),
                 command="local_files",
             )
@@ -584,11 +595,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             exit_with_cli_error(
                 (
                     f"Could not write output under {output_dir}. "
-                    "Check --output-dir and try again."
+                    "Verify --output-dir and try again."
                 ),
                 command="local_files",
             )
         print(f"\nWrote: {output_path}")
+        print("\nSummary: wrote 1, skipped 0")
+        print(f"Manifest: {manifest}")
         return 0
 
     parser.error("Unknown command")
