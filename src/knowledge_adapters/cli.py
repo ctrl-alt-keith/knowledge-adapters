@@ -64,8 +64,8 @@ def build_parser() -> argparse.ArgumentParser:
             "Both stub and real modes follow the same resolve, plan, and artifact "
             "flow. Use --dry-run to preview the same page and manifest plan a write "
             "run would use. The default stub mode uses scaffolded content without "
-            "contacting Confluence. Use --client-mode real for live Confluence "
-            "fetches."
+            "contacting Confluence. Use --client-mode real for contract-tested live "
+            "Confluence fetches."
         ),
         epilog=CONFLUENCE_HELP_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -78,7 +78,11 @@ def build_parser() -> argparse.ArgumentParser:
     confluence_parser.add_argument(
         "--target",
         required=True,
-        help="Confluence page ID or full page URL under --base-url.",
+        help=(
+            "Confluence page ID or full page URL under --base-url. Full URLs are "
+            "validated and normalized to canonical pageId form for output and "
+            "manifests."
+        ),
     )
     confluence_parser.add_argument(
         "--output-dir",

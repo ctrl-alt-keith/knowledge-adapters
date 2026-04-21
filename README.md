@@ -27,6 +27,36 @@ knowledge-adapters local_files --help
 knowledge-adapters confluence --help
 ```
 
+Minimal Confluence first run (default `stub` mode):
+
+```bash
+knowledge-adapters confluence \
+  --base-url https://example.com/wiki \
+  --target 12345 \
+  --output-dir ./artifacts
+```
+
+This resolves page `12345`, writes `artifacts/pages/12345.md`, and writes
+`artifacts/manifest.json` without contacting a live Confluence instance.
+
+For Confluence runs, `--target` accepts either a numeric page ID or a full page
+URL under `--base-url`. Full page URLs are validated and normalized to canonical
+`pageId` form for output and manifests.
+
+Next step: opt into real mode with bearer auth:
+
+- `bearer-env` -> `CONFLUENCE_BEARER_TOKEN`
+- `client-cert-env` -> `CONFLUENCE_CLIENT_CERT_FILE` and optional `CONFLUENCE_CLIENT_KEY_FILE`
+
+```bash
+CONFLUENCE_BEARER_TOKEN=... knowledge-adapters confluence \
+  --client-mode real \
+  --auth-method bearer-env \
+  --base-url https://example.com/wiki \
+  --target 12345 \
+  --output-dir ./artifacts
+```
+
 Minimal local file first run:
 
 ```bash
@@ -38,28 +68,6 @@ knowledge-adapters local_files \
 This reads one UTF-8 text file, writes `artifacts/pages/today.md`, and writes
 `artifacts/manifest.json`. Add `--dry-run` to preview the normalized markdown
 and planned output path without writing files.
-
-Confluence auth quick reference:
-
-- `bearer-env` -> `CONFLUENCE_BEARER_TOKEN`
-- `client-cert-env` -> `CONFLUENCE_CLIENT_CERT_FILE` and optional `CONFLUENCE_CLIENT_KEY_FILE`
-
-For Confluence runs, `--target` accepts either a numeric page ID or a full page
-URL under `--base-url`.
-
-Minimal live Confluence example with bearer auth:
-
-```bash
-CONFLUENCE_BEARER_TOKEN=... knowledge-adapters confluence \
-  --client-mode real \
-  --auth-method bearer-env \
-  --base-url https://example.com/wiki \
-  --target 12345 \
-  --output-dir ./artifacts
-```
-
-Use the default `stub` client mode when you want to preview the artifact shape
-without contacting a live Confluence instance.
 
 ---
 
@@ -147,9 +155,8 @@ The initial implementation focuses on **Confluence** and **local file** adapters
 
 ### Planned MVP
 - Confluence adapter
-  - use runtime-provided auth and base URL for live Confluence fetches
-  - fetch real page content for a target page or page tree
-  - back recursive traversal and incremental sync with a non-stub client
+  - keep the default stub flow and opt-in real mode aligned around one CLI contract
+  - continue hardening contract-tested real-mode fetch, traversal, and incremental sync behavior against live environments
 - local files adapter
   - accept a runtime-provided file path
   - normalize file contents into markdown plus metadata
@@ -230,8 +237,9 @@ client.
   `--dry-run`, `--tree`, and `--max-depth`
 - generates stub page content for the resolved page without contacting a live
   Confluence instance
-- supports an opt-in real client path with `--client-mode real` for a single live
-  page fetch using `bearer-env` or `client-cert-env` auth
+- supports an opt-in real client path with `--client-mode real` for
+  contract-tested live page fetches and tree traversal using `bearer-env` or
+  `client-cert-env` auth
 - normalizes that stub content into markdown and writes `pages/<canonical_id>.md`
 - writes `manifest.json` for normal runs
 - supports dry-run output and manifest-based skip logic for the resolved page
@@ -280,6 +288,9 @@ Out of the box, this resolves page `12345`, generates stub content for that page
 writes `pages/12345.md`, and writes `manifest.json`. The default Confluence client
 does not contact a live Confluence instance yet.
 
+Full page URL targets are also accepted under `--base-url` and are normalized to
+canonical `pageId` form for output and manifests.
+
 Run the opt-in real Confluence client for a single resolved page:
 
 ```bash
@@ -292,7 +303,8 @@ CONFLUENCE_BEARER_TOKEN=... .venv/bin/knowledge-adapters confluence \
 
 In v1, `--client-mode real` supports both single-page fetches and real breadth-first
 tree traversal with `--tree` and `--max-depth`, using `bearer-env` auth and
-optional client certificates or `client-cert-env` auth.
+optional client certificates or `client-cert-env` auth. This opt-in path is
+contract-tested, but not fully live-validated across Confluence environments.
 
 For certificate-based auth, set `CONFLUENCE_CLIENT_CERT_FILE` to a combined PEM
 file, or set `CONFLUENCE_CLIENT_CERT_FILE` plus `CONFLUENCE_CLIENT_KEY_FILE` for
