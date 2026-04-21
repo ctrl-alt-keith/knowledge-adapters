@@ -49,13 +49,18 @@ knowledge-adapters local_files \
   --dry-run
 ```
 
+Use any existing UTF-8 text file for `--file-path`. Relative paths resolve from
+the directory where you run `knowledge-adapters`.
+
 This resolves the file path, previews `artifacts/pages/today.md`, previews
 `artifacts/manifest.json`, and prints the normalized markdown without writing
 files.
 
-`local_files` expects one UTF-8 text file at a time. Empty UTF-8 files are
-allowed and still produce metadata plus an empty `Content` section. Files that
-are not valid UTF-8 text fail fast with guidance to re-save the input as UTF-8.
+`local_files` expects one existing UTF-8 text file at a time; directories are
+not supported. Empty UTF-8 files are allowed and still produce metadata plus an
+empty `Content` section. Files that are not valid UTF-8 text, including binary
+files or files saved with another encoding, fail fast with guidance to re-save
+the input as UTF-8.
 
 Minimal Confluence first run (default `stub` mode):
 
@@ -294,6 +299,9 @@ knowledge-adapters local_files \
   --output-dir ./artifacts \
   --dry-run
 ```
+
+`--file-path` should point to one existing UTF-8 text file. Relative paths
+resolve from the current working directory, and directories are not supported.
 
 Write the same local file artifact after reviewing the plan:
 
