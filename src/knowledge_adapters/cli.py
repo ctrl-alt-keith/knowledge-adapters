@@ -223,8 +223,8 @@ def build_parser() -> argparse.ArgumentParser:
             "manifest path, and normalized markdown before writing. Empty UTF-8 "
             "files are allowed and produce an empty content section. Files that "
             "are not valid UTF-8 text are rejected. Directories are not "
-            "supported. Unlike Confluence, local_files always plans one write "
-            "and does not use manifest-based skip logic."
+            "supported. Unlike Confluence, local_files always plans one write; "
+            "it does not use manifest-based skip logic."
         ),
         epilog=LOCAL_FILES_HELP_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
