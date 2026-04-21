@@ -79,6 +79,23 @@ Hello from smoke test.
     ]
 
 
+def test_local_files_cli_help_includes_first_run_guidance(tmp_path: Path) -> None:
+    result = _run_cli(tmp_path, "local_files", "--help")
+
+    assert result.returncode == 0, result.stderr
+    assert (
+        "Normalize a single local UTF-8 text file into a markdown artifact."
+        in result.stdout
+    )
+    assert "--file-path FILE" in result.stdout
+    assert "Readable UTF-8 text file to normalize." in result.stdout
+    assert "--output-dir DIR" in result.stdout
+    assert "Print the planned output path and normalized markdown" in result.stdout
+    assert "without writing files." in result.stdout
+    assert "knowledge-adapters local_files" in result.stdout
+    assert "--dry-run" in result.stdout
+
+
 def test_confluence_cli_smoke_uses_installed_entrypoint_with_default_stub_client(
     tmp_path: Path,
 ) -> None:

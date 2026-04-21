@@ -21,6 +21,16 @@ CONFLUENCE_HELP_EXAMPLES = """Examples:
     --output-dir ./artifacts
 """
 
+LOCAL_FILES_HELP_EXAMPLES = """Examples:
+  knowledge-adapters local_files \\
+    --file-path ./notes/today.txt \\
+    --output-dir ./artifacts
+  knowledge-adapters local_files \\
+    --file-path ./notes/today.txt \\
+    --output-dir ./artifacts \\
+    --dry-run
+"""
+
 
 def _parse_confluence_auth_method(value: str) -> str:
     """Parse and validate a supported Confluence auth method."""
@@ -114,29 +124,42 @@ def build_parser() -> argparse.ArgumentParser:
     local_files_parser = subparsers.add_parser(
         "local_files",
         help="Run the local files adapter.",
+        description=(
+            "Normalize a single local UTF-8 text file into a markdown artifact. "
+            "Writes pages/<file-stem>.md and manifest.json under --output-dir."
+        ),
+        epilog=LOCAL_FILES_HELP_EXAMPLES,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     local_files_parser.add_argument(
         "--file-path",
         required=True,
-        help="Path to a local file to normalize.",
+        metavar="FILE",
+        help="Readable UTF-8 text file to normalize.",
     )
     local_files_parser.add_argument(
         "--output-dir",
         required=True,
-        help="Directory to write normalized local artifacts.",
+        metavar="DIR",
+        help="Directory for generated artifacts: pages/<name>.md and manifest.json.",
     )
     local_files_parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Plan actions without writing files.",
+        help="Print the planned output path and normalized markdown without writing files.",
     )
 
     return parser
 
 
-def exit_with_cli_error(message: str, *, debug_lines: Sequence[str] | None = None) -> None:
+def exit_with_cli_error(
+    message: str,
+    *,
+    command: str,
+    debug_lines: Sequence[str] | None = None,
+) -> None:
     """Exit the CLI with a stable user-facing error message."""
-    print(f"knowledge-adapters confluence: error: {message}", file=sys.stderr)
+    print(f"knowledge-adapters {command}: error: {message}", file=sys.stderr)
     if debug_lines:
         for line in debug_lines:
             print(f"  {line}", file=sys.stderr)
@@ -183,13 +206,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             max_depth=args.max_depth,
         )
         if confluence_config.max_depth < 0:
-            exit_with_cli_error("--max-depth must be greater than or equal to 0.")
+            exit_with_cli_error(
+                "--max-depth must be greater than or equal to 0.",
+                command="confluence",
+            )
 
         target = resolve_target(confluence_config.target)
         if target.page_id is None:
             exit_with_cli_error(
                 f"Could not resolve target {target.raw_value!r}. "
-                "Expected a Confluence page ID or full Confluence page URL."
+                "Expected a Confluence page ID or full Confluence page URL.",
+                command="confluence",
             )
 
         selected_fetch_page: Callable[[ResolvedTarget], dict[str, object]]
@@ -260,7 +287,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                         list_child_page_ids=selected_list_child_page_ids,
                     )
                 except (RuntimeError, ValueError) as exc:
-                    exit_with_cli_error(str(exc), debug_lines=_confluence_debug_lines(exc))
+                    exit_with_cli_error(
+                        str(exc),
+                        command="confluence",
+                        debug_lines=_confluence_debug_lines(exc),
+                    )
             else:
                 root_page_id, pages = walk_pages(
                     target,
@@ -333,7 +364,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         try:
             page = selected_fetch_page(target)
         except (RuntimeError, ValueError) as exc:
-            exit_with_cli_error(str(exc), debug_lines=_confluence_debug_lines(exc))
+            exit_with_cli_error(
+                str(exc),
+                command="confluence",
+                debug_lines=_confluence_debug_lines(exc),
+            )
 
         _print_confluence_invocation()
         page_id = str(page["canonical_id"])
@@ -393,39 +428,102 @@ def main(argv: Sequence[str] | None = None) -> int:
             dry_run=args.dry_run,
         )
 
+        output_dir = Path(local_files_config.output_dir).expanduser()
+        if output_dir.exists() and not output_dir.is_dir():
+            exit_with_cli_error(
+                (
+                    f"Output path is not a directory: {output_dir}. "
+                    "Choose a directory path for --output-dir."
+                ),
+                command="local_files",
+            )
+
+        try:
+            page = fetch_file(local_files_config.file_path)
+        except ValueError as exc:
+            exit_with_cli_error(str(exc), command="local_files")
+        markdown = normalize_to_markdown(page)
+
         print("Local files adapter invoked")
         print(f"  file_path: {local_files_config.file_path}")
         print(f"  output_dir: {local_files_config.output_dir}")
         print(f"  dry_run: {local_files_config.dry_run}")
 
-        page = fetch_file(local_files_config.file_path)
-        markdown = normalize_to_markdown(page)
-
         input_path = Path(local_files_config.file_path)
         output_name = input_path.stem or input_path.name
-        output_path = write_markdown(
-            local_files_config.output_dir,
-            output_name,
-            markdown,
-            dry_run=local_files_config.dry_run,
-        )
+        try:
+            output_path = write_markdown(
+                local_files_config.output_dir,
+                output_name,
+                markdown,
+                dry_run=local_files_config.dry_run,
+            )
+        except PermissionError:
+            exit_with_cli_error(
+                (
+                    f"Output directory is not writable: {output_dir}. "
+                    "Check the path and permissions for --output-dir."
+                ),
+                command="local_files",
+            )
+        except NotADirectoryError:
+            exit_with_cli_error(
+                (
+                    f"Output path is not a directory: {output_dir}. "
+                    "Choose a directory path for --output-dir."
+                ),
+                command="local_files",
+            )
+        except OSError:
+            exit_with_cli_error(
+                (
+                    f"Could not write output under {output_dir}. "
+                    "Check --output-dir and try again."
+                ),
+                command="local_files",
+            )
         if local_files_config.dry_run:
             print(f"\nDry run: would write {output_path}\n")
             print(markdown)
             return 0
 
-        write_manifest(
-            local_files_config.output_dir,
-            [
-                build_manifest_entry(
-                    canonical_id=str(page["canonical_id"]),
-                    source_url=str(page.get("source_url", "")),
-                    output_path=output_path,
-                    output_dir=local_files_config.output_dir,
-                    title=str(page["title"]) if page.get("title") else None,
-                )
-            ],
-        )
+        try:
+            write_manifest(
+                local_files_config.output_dir,
+                [
+                    build_manifest_entry(
+                        canonical_id=str(page["canonical_id"]),
+                        source_url=str(page.get("source_url", "")),
+                        output_path=output_path,
+                        output_dir=local_files_config.output_dir,
+                        title=str(page["title"]) if page.get("title") else None,
+                    )
+                ],
+            )
+        except PermissionError:
+            exit_with_cli_error(
+                (
+                    f"Output directory is not writable: {output_dir}. "
+                    "Check the path and permissions for --output-dir."
+                ),
+                command="local_files",
+            )
+        except NotADirectoryError:
+            exit_with_cli_error(
+                (
+                    f"Output path is not a directory: {output_dir}. "
+                    "Choose a directory path for --output-dir."
+                ),
+                command="local_files",
+            )
+        except OSError:
+            exit_with_cli_error(
+                (
+                    f"Could not write output under {output_dir}. "
+                    "Check --output-dir and try again."
+                ),
+                command="local_files",
+            )
         print(f"\nWrote: {output_path}")
         return 0
 
