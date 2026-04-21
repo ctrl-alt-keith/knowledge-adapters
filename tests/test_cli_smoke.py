@@ -121,6 +121,8 @@ def test_local_files_cli_help_includes_first_run_guidance(tmp_path: Path) -> Non
     assert "resolve from the cwd." in result.stdout
     assert "--output-dir DIR" in result.stdout
     assert "Directory where pages/ and manifest.json are written." in result.stdout
+    assert "Unlike Confluence, local_files always plans one write;" in result.stdout
+    assert "it does not use manifest-based skip logic." in result.stdout
     assert "resolved file path, artifact path, manifest path" in result.stdout
     assert "without writing files." in result.stdout
     assert "knowledge-adapters local_files" in result.stdout
@@ -203,8 +205,8 @@ def test_confluence_help_lists_supported_auth_methods_and_examples(
     assert "artifact layout and reporting" in result.stdout
     assert "page or, with --tree, a page tree" in result.stdout
     assert "planned artifact paths, manifest path, and write/skip decisions" in result.stdout
-    assert "In tree mode, dry-run previews the root plus discovered descendants" in result.stdout
-    assert "write mode applies that same plan" in result.stdout
+    assert "In tree mode, dry-run previews the root page plus" in result.stdout
+    assert "artifact paths that write mode would use" in result.stdout
     assert "same resolve, plan, and write flow" in result.stdout
     assert "'real' fetches from" in result.stdout
     assert "using --auth-method" in result.stdout
