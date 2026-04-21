@@ -352,8 +352,8 @@ def test_confluence_cli_tree_dry_run_reports_manifest_path(
     assert "max_depth: 0" in captured.out
     assert f"manifest_path: {output_dir / 'manifest.json'}" in captured.out
     assert "Plan: Confluence run" in captured.out
-    assert "unique_pages: 1" in captured.out
-    assert "Summary: would write 1, would skip 0" in captured.out
+    assert "pages_in_tree: 1" in captured.out
+    assert "Summary: dry-run preview; write 1, skip 0" in captured.out
 
 
 def test_confluence_cli_invalid_target_reports_expected_shapes(
