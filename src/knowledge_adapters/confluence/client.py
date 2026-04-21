@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import socket
+import ssl
 from urllib import parse, request
 from urllib.error import HTTPError, URLError
 
@@ -152,6 +154,78 @@ def _underlying_request_error_message(exc: HTTPError | URLError) -> str:
     return _sanitize_debug_value(str(exc.reason))
 
 
+def _auth_failure_message(auth_method: str) -> str:
+    if auth_method == "client-cert-env":
+        return (
+            "Confluence auth failed. Check CONFLUENCE_CLIENT_CERT_FILE / "
+            "CONFLUENCE_CLIENT_KEY_FILE."
+        )
+    return "Confluence auth failed. Check CONFLUENCE_BEARER_TOKEN."
+
+
+def _tls_failure_message(auth_method: str) -> str:
+    if auth_method == "client-cert-env":
+        return (
+            "Confluence TLS/client certificate failed. Check "
+            "CONFLUENCE_CLIENT_CERT_FILE / CONFLUENCE_CLIENT_KEY_FILE."
+        )
+    return "Confluence TLS/certificate failed. Verify --base-url and the server certificate."
+
+
+def _looks_like_tls_or_cert_error(reason: object) -> bool:
+    if isinstance(reason, ssl.SSLError):
+        return True
+
+    reason_text = str(reason).lower()
+    return any(
+        fragment in reason_text
+        for fragment in (
+            "certificate",
+            "cert",
+            "ssl",
+            "tls",
+            "handshake",
+            "pem",
+            "x509",
+        )
+    )
+
+
+def _looks_like_network_error(reason: object) -> bool:
+    if isinstance(reason, (ConnectionError, TimeoutError, socket.gaierror, socket.timeout)):
+        return True
+
+    reason_text = str(reason).lower()
+    return any(
+        fragment in reason_text
+        for fragment in (
+            "connection refused",
+            "name or service not known",
+            "network is unreachable",
+            "no route to host",
+            "nodename nor servname provided",
+            "temporary failure in name resolution",
+            "timed out",
+        )
+    )
+
+
+def _request_failure_message(exc: HTTPError | URLError, *, auth_method: str) -> str:
+    if isinstance(exc, HTTPError):
+        if exc.code in {401, 403}:
+            return _auth_failure_message(auth_method)
+        if exc.code == 404:
+            return "Confluence page not found. Verify --target."
+        return f"Confluence request failed (status {exc.code}). Verify --base-url and access."
+
+    reason = exc.reason
+    if _looks_like_tls_or_cert_error(reason):
+        return _tls_failure_message(auth_method)
+    if _looks_like_network_error(reason):
+        return "Confluence network request failed. Verify --base-url and network access."
+    return "Confluence request failed. Verify --base-url and try again."
+
+
 def _request_json(api_url: str, *, auth_method: str) -> dict[str, object]:
     request_auth = build_request_auth(auth_method)
     api_request = request.Request(
@@ -162,25 +236,9 @@ def _request_json(api_url: str, *, auth_method: str) -> dict[str, object]:
     try:
         with request.urlopen(api_request, context=request_auth.ssl_context) as response:
             raw_payload = json.loads(response.read().decode("utf-8"))
-    except HTTPError as exc:
-        if exc.code in {401, 403}:
-            message = (
-                "Confluence auth failed. Check --auth-method and the required "
-                "CONFLUENCE_* environment variables."
-            )
-        elif exc.code == 404:
-            message = "Confluence page not found."
-        else:
-            message = f"Confluence request failed with status {exc.code}."
+    except (HTTPError, URLError) as exc:
         raise ConfluenceRequestError(
-            message,
-            request_url=api_url,
-            auth_method=auth_method,
-            underlying_error=_underlying_request_error_message(exc),
-        ) from exc
-    except URLError as exc:
-        raise ConfluenceRequestError(
-            "Confluence request failed.",
+            _request_failure_message(exc, auth_method=auth_method),
             request_url=api_url,
             auth_method=auth_method,
             underlying_error=_underlying_request_error_message(exc),
