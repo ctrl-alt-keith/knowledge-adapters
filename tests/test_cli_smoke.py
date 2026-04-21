@@ -124,8 +124,10 @@ def test_local_files_cli_help_includes_first_run_guidance(tmp_path: Path) -> Non
     assert "resolve from the cwd." in result.stdout
     assert "--output-dir DIR" in result.stdout
     assert "Directory where pages/ and manifest.json are written." in result.stdout
-    assert "Unlike Confluence, local_files always plans one write;" in result.stdout
-    assert "it does not use manifest-based skip logic." in result.stdout
+    assert (
+        "Unlike Confluence, local_files always plans one write; it does not use "
+        "manifest-based skip logic." in result.stdout
+    )
     assert "resolved file path, artifact path, manifest path" in result.stdout
     assert "without writing files." in result.stdout
     assert "knowledge-adapters local_files" in result.stdout
