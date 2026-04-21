@@ -222,7 +222,94 @@ def test_confluence_cli_invalid_target_reports_expected_shapes(
     captured = capsys.readouterr()
     assert (
         "knowledge-adapters confluence: error: Could not resolve target "
-        "'not-a-page'. Expected a Confluence page ID or full Confluence page URL.\n"
+        "'not-a-page'. Provide a numeric page ID or full Confluence page URL.\n"
+    ) in captured.err
+
+
+def test_confluence_cli_rejects_empty_target(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    output_dir = tmp_path / "out"
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            [
+                "confluence",
+                "--base-url",
+                "https://example.com/wiki",
+                "--target",
+                "   ",
+                "--output-dir",
+                str(output_dir),
+            ]
+        )
+
+    assert exc_info.value.code == 2
+
+    captured = capsys.readouterr()
+    assert (
+        "knowledge-adapters confluence: error: --target cannot be empty. "
+        "Provide a page ID or full Confluence page URL.\n"
+    ) in captured.err
+
+
+def test_confluence_cli_rejects_malformed_target_url(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    output_dir = tmp_path / "out"
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            [
+                "confluence",
+                "--base-url",
+                "https://example.com/wiki",
+                "--target",
+                "https:///pages/viewpage.action?pageId=12345",
+                "--output-dir",
+                str(output_dir),
+            ]
+        )
+
+    assert exc_info.value.code == 2
+
+    captured = capsys.readouterr()
+    assert (
+        "knowledge-adapters confluence: error: Target URL "
+        "'https:///pages/viewpage.action?pageId=12345' is malformed. "
+        "Provide a full Confluence page URL or page ID.\n"
+    ) in captured.err
+
+
+def test_confluence_cli_rejects_target_url_outside_base_url(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    output_dir = tmp_path / "out"
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            [
+                "confluence",
+                "--base-url",
+                "https://example.com/wiki",
+                "--target",
+                "https://other.example.com/wiki/spaces/ENG/pages/12345/Runbook",
+                "--output-dir",
+                str(output_dir),
+            ]
+        )
+
+    assert exc_info.value.code == 2
+
+    captured = capsys.readouterr()
+    assert (
+        "knowledge-adapters confluence: error: Target URL "
+        "'https://other.example.com/wiki/spaces/ENG/pages/12345/Runbook' does not "
+        "match --base-url 'https://example.com/wiki'. Use a URL under that base URL "
+        "or pass the page ID directly.\n"
     ) in captured.err
 
 

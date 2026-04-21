@@ -11,7 +11,9 @@ This adapter is the first implementation of the generic adapter contract for `kn
 
 Out of the box, the default Confluence CLI:
 
-- accepts a page URL or page ID as input
+- accepts a page ID or full page URL as input
+- validates full page URLs against `--base-url` and requires the URL to include
+  the page ID
 - accepts `--base-url`, `--client-mode`, `--auth-method`, `--output-dir`,
   `--dry-run`, `--tree`, and `--max-depth`
 - resolves the target into a canonical page ID
