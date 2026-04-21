@@ -280,6 +280,23 @@ def main(argv: Sequence[str] | None = None) -> int:
                 title=str(page["title"]) if page.get("title") else None,
             )
 
+        def _print_single_page_dry_run(
+            *,
+            page_id: str,
+            source_url: str,
+            output_path: Path,
+            action: str,
+            markdown: str | None = None,
+        ) -> None:
+            print("\nDry run: Confluence page plan")
+            print(f"  resolved_page_id: {page_id}")
+            print(f"  source_url: {source_url}")
+            print(f"  output_path: {output_path}")
+            print(f"  action: would {action}")
+            if markdown is not None:
+                print()
+                print(markdown)
+
         if confluence_config.tree:
             if confluence_config.client_mode == "real":
                 try:
@@ -389,9 +406,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
 
         if confluence_config.dry_run:
-            print(f"\nDry run: would {action} {output_path}\n")
-            if action == "write":
-                print(normalize_to_markdown(page))
+            planned_markdown = normalize_to_markdown(page) if action == "write" else None
+            _print_single_page_dry_run(
+                page_id=page_id,
+                source_url=str(page.get("source_url", "")),
+                output_path=output_path,
+                action=action,
+                markdown=planned_markdown,
+            )
             return 0
 
         if action == "write":

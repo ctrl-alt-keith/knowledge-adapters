@@ -57,6 +57,12 @@ def _url_matches_base_url(*, page_url: str, base_url: str) -> bool:
     )
 
 
+def _canonical_page_url(*, base_url: str, page_id: str) -> str:
+    normalized_base_url = base_url.strip().rstrip("/")
+    encoded_page_id = parse.quote(page_id, safe="")
+    return f"{normalized_base_url}/pages/viewpage.action?pageId={encoded_page_id}"
+
+
 def resolve_target(target: str) -> ResolvedTarget:
     """Resolve a user-provided target into a canonical form.
 
@@ -112,7 +118,12 @@ def resolve_target_for_base_url(target: str, *, base_url: str) -> ResolvedTarget
     resolved = resolve_target(target)
 
     if resolved.input_kind == "page_id":
-        return resolved
+        return ResolvedTarget(
+            raw_value=resolved.raw_value,
+            page_id=resolved.page_id,
+            page_url=_canonical_page_url(base_url=base_url, page_id=resolved.page_id or ""),
+            input_kind=resolved.input_kind,
+        )
 
     if resolved.input_kind == "empty":
         raise ValueError("--target cannot be empty. Provide a page ID or full Confluence page URL.")
@@ -137,7 +148,12 @@ def resolve_target_for_base_url(target: str, *, base_url: str) -> ResolvedTarget
                 f"Target URL {resolved.raw_value!r} does not match --base-url {base_url!r}. "
                 "Use a URL under that base URL or pass the page ID directly."
             )
-        return resolved
+        return ResolvedTarget(
+            raw_value=resolved.raw_value,
+            page_id=resolved.page_id,
+            page_url=_canonical_page_url(base_url=base_url, page_id=resolved.page_id),
+            input_kind=resolved.input_kind,
+        )
 
     raise ValueError(
         f"Could not resolve target {resolved.raw_value!r}. "

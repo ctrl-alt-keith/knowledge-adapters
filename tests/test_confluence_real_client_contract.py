@@ -164,7 +164,7 @@ def test_default_cli_behavior_without_client_mode_still_uses_stub_client(
 - source: confluence
 - canonical_id: 12345
 - parent_id:
-- source_url: 
+- source_url: https://example.com/wiki/pages/viewpage.action?pageId=12345
 - fetched_at:
 - updated_at:
 - adapter: confluence
@@ -179,7 +179,7 @@ Stub content for page 12345.
     assert payload["files"] == [
         {
             "canonical_id": "12345",
-            "source_url": "",
+            "source_url": "https://example.com/wiki/pages/viewpage.action?pageId=12345",
             "output_path": "pages/12345.md",
             "title": "stub-page-12345",
         }

@@ -138,8 +138,43 @@ def test_confluence_cli_dry_run_reports_output_without_writing(
     assert not (output_dir / "manifest.json").exists()
 
     captured = capsys.readouterr()
-    assert f"Dry run: would write {output_path}" in captured.out
+    assert "Dry run: Confluence page plan" in captured.out
+    assert "resolved_page_id: 12345" in captured.out
+    assert "source_url: https://example.com/wiki/pages/viewpage.action?pageId=12345" in captured.out
+    assert f"output_path: {output_path}" in captured.out
+    assert "action: would write" in captured.out
     assert "# stub-page-12345" in captured.out
+
+
+def test_confluence_cli_dry_run_reports_same_resolved_target_details_for_full_url_input(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    output_dir = tmp_path / "out"
+
+    exit_code = main(
+        [
+            "confluence",
+            "--base-url",
+            "https://example.com/wiki",
+            "--target",
+            "https://example.com/wiki/spaces/ENG/pages/12345/Runbook",
+            "--output-dir",
+            str(output_dir),
+            "--dry-run",
+        ]
+    )
+
+    assert exit_code == 0
+
+    captured = capsys.readouterr()
+    assert "resolved_page_id: 12345" in captured.out
+    assert "source_url: https://example.com/wiki/pages/viewpage.action?pageId=12345" in captured.out
+    assert f"output_path: {output_dir / 'pages' / '12345.md'}" in captured.out
+    assert (
+        "- source_url: https://example.com/wiki/pages/viewpage.action?pageId=12345"
+        in captured.out
+    )
 
 
 def test_confluence_cli_writes_manifest_for_normal_run(tmp_path: Path) -> None:
@@ -163,7 +198,7 @@ def test_confluence_cli_writes_manifest_for_normal_run(tmp_path: Path) -> None:
     assert payload["files"] == [
         {
             "canonical_id": "12345",
-            "source_url": "",
+            "source_url": "https://example.com/wiki/pages/viewpage.action?pageId=12345",
             "output_path": "pages/12345.md",
             "title": "stub-page-12345",
         }
