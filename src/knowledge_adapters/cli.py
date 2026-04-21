@@ -118,17 +118,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     confluence_parser = subparsers.add_parser(
         "confluence",
-        help="Normalize Confluence content into shared artifacts.",
+        help=(
+            "Normalize Confluence content into shared artifacts. "
+            "Start with one page or use --tree to include descendants."
+        ),
         description=(
             "Normalize a Confluence page or, with --tree, a page tree into the "
-            "shared artifact layout. Stub and real modes keep the same resolve, "
+            "shared artifact layout. Start with one page, then add --tree when "
+            "you want descendants. Stub and real modes keep the same resolve, "
             "plan, and write flow. Use --dry-run to preview resolved page IDs, "
             "planned artifact paths, manifest path, and write/skip decisions "
             "before writing. In tree mode, dry-run previews the root plus "
-            "discovered descendants up to --max-depth, and write mode applies that "
-            "same plan. The default stub mode uses scaffolded content without "
-            "contacting Confluence. Use --client-mode real for contract-tested "
-            "live fetches."
+            "discovered descendants up to --max-depth, and write mode applies "
+            "that same plan. The default stub mode uses scaffolded content "
+            "without contacting Confluence. Use --client-mode real for "
+            "contract-tested live fetches."
         ),
         epilog=CONFLUENCE_HELP_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
