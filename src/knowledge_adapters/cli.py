@@ -487,7 +487,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             manifest_output_path = manifest_path(confluence_config.output_dir)
 
             print("\nPlan: Confluence run")
-            print(f"  root_page_id: {root_page_id} (root page)")
+            print(f"  resolved_root_page_id: {root_page_id} (root page)")
             print(f"  max_depth: {confluence_config.max_depth}")
             print(f"  manifest_path: {_display_output_path(manifest_output_path)}")
             print(f"  pages_in_tree: {len(page_records)} (root + descendants)")
