@@ -197,10 +197,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Normalize a local text file into shared artifacts.",
         description=(
             "Normalize one local UTF-8 text file into the shared artifact layout. "
-            "Use --dry-run to preview the resolved file path, artifact path, "
-            "manifest path, and normalized markdown before writing. Unlike "
-            "Confluence, local_files always plans one write and does not use "
-            "manifest-based skip logic."
+            "Empty UTF-8 files are allowed and produce an empty content section. "
+            "Files that are not valid UTF-8 text are rejected. Use --dry-run to "
+            "preview the resolved file path, artifact path, manifest path, and "
+            "normalized markdown before writing. Unlike Confluence, local_files "
+            "always plans one write and does not use manifest-based skip logic."
         ),
         epilog=LOCAL_FILES_HELP_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -209,7 +210,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--file-path",
         required=True,
         metavar="FILE",
-        help="Local UTF-8 text file to normalize. Relative paths resolve from the cwd.",
+        help=(
+            "Single local UTF-8 text file to normalize. Empty files are allowed. "
+            "Relative paths resolve from the cwd."
+        ),
     )
     local_files_parser.add_argument(
         "--output-dir",
@@ -630,6 +634,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"  source_url: {page.get('source_url', '')}")
         print(f"  artifact_path: {output_path}")
         print(f"  manifest_path: {manifest_output_path}")
+        content = str(page.get("content", ""))
+        if content:
+            print("  content_status: UTF-8 text with content")
+        else:
+            print(
+                "  content_status: empty UTF-8 file; output will contain metadata "
+                "and an empty content section"
+            )
         print(f"  action: {'would write' if local_files_config.dry_run else 'write'}")
         if local_files_config.dry_run:
             print("  Summary: would write 1, would skip 0")

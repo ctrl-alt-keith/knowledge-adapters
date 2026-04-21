@@ -11,7 +11,10 @@ def fetch_file(file_path: str) -> dict[str, object]:
     if not input_path.exists():
         raise ValueError(f"File does not exist: {input_path}. Verify --file-path and try again.")
     if not input_path.is_file():
-        raise ValueError(f"Path is not a regular file: {input_path}. Use a UTF-8 text file.")
+        raise ValueError(
+            f"Path is not a regular file: {input_path}. "
+            "local_files reads one UTF-8 text file at a time; directories are not supported."
+        )
 
     path = input_path.resolve()
     try:
@@ -22,7 +25,9 @@ def fetch_file(file_path: str) -> dict[str, object]:
         ) from exc
     except UnicodeDecodeError as exc:
         raise ValueError(
-            f"File is not readable as UTF-8 text: {path}. Use a UTF-8 text file."
+            f"File is not valid UTF-8 text: {path}. "
+            "local_files reads one UTF-8 text file at a time and does not support binary "
+            "or other encoded input. Re-save the file as UTF-8 text and try again."
         ) from exc
     except OSError as exc:
         raise ValueError(f"Could not read file: {path}. Verify --file-path and try again.") from exc
