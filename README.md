@@ -7,7 +7,7 @@ them into one predictable local artifact layout.
 
 ## Install (without cloning)
 
-For the CLI only, install directly from GitHub with `pipx`:
+To install only the CLI, use `pipx` directly from GitHub:
 
 ```bash
 pipx install git+https://github.com/ctrl-alt-keith/knowledge-adapters.git
