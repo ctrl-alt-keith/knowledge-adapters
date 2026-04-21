@@ -683,4 +683,4 @@ def test_incremental_dry_run_summary_reports_mixed_write_and_skip_counts(
 
     captured = capsys.readouterr()
     assert "Summary: would write 2, would skip 2" in captured.out
-    assert "4 unique pages" in captured.out
+    assert "unique_pages: 4" in captured.out

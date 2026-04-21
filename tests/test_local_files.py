@@ -121,8 +121,9 @@ def test_local_files_cli_dry_run_reports_output_without_writing(
     assert "Local files adapter invoked" in captured.out
     assert "run_mode: dry-run" in captured.out
     assert "Plan: Local files run" in captured.out
-    assert f"source_path: {source_file.resolve()}" in captured.out
-    assert f"output_path: {output_path}" in captured.out
+    assert f"resolved_file_path: {source_file.resolve()}" in captured.out
+    assert f"source_url: {source_file.resolve().as_uri()}" in captured.out
+    assert f"artifact_path: {output_path}" in captured.out
     assert f"manifest_path: {output_dir / 'manifest.json'}" in captured.out
     assert "action: would write" in captured.out
     assert "Summary: would write 1, would skip 0" in captured.out

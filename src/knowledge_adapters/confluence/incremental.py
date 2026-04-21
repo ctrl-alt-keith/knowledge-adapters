@@ -17,11 +17,16 @@ def load_previous_manifest_index(output_dir: str) -> dict[str, str] | None:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"Could not read prior manifest {path}.") from exc
+        raise RuntimeError(
+            f"Could not read prior manifest {path}. Fix or remove the manifest and try again."
+        ) from exc
 
     files = payload.get("files")
     if not isinstance(files, list):
-        raise RuntimeError(f"Prior manifest {path} is invalid: expected a files list.")
+        raise RuntimeError(
+            f"Prior manifest {path} is invalid: expected a files list. "
+            "Fix or remove the manifest and try again."
+        )
 
     entries_by_id: dict[str, str] = {}
     seen_output_paths: set[str] = set()
@@ -29,7 +34,8 @@ def load_previous_manifest_index(output_dir: str) -> dict[str, str] | None:
     for entry in files:
         if not isinstance(entry, dict):
             raise RuntimeError(
-                f"Prior manifest {path} is invalid: each files entry must be an object."
+                f"Prior manifest {path} is invalid: each files entry must be an object. "
+                "Fix or remove the manifest and try again."
             )
 
         canonical_id = entry.get("canonical_id")
@@ -37,16 +43,18 @@ def load_previous_manifest_index(output_dir: str) -> dict[str, str] | None:
         if not isinstance(canonical_id, str) or not isinstance(output_path, str):
             raise RuntimeError(
                 f"Prior manifest {path} is invalid: files entries must include string "
-                "canonical_id and output_path values."
+                "canonical_id and output_path values. Fix or remove the manifest and try again."
             )
 
         if canonical_id in entries_by_id:
             raise RuntimeError(
-                f"Prior manifest {path} is invalid: duplicate canonical_id {canonical_id!r}."
+                f"Prior manifest {path} is invalid: duplicate canonical_id {canonical_id!r}. "
+                "Fix or remove the manifest and try again."
             )
         if output_path in seen_output_paths:
             raise RuntimeError(
-                f"Prior manifest {path} is invalid: duplicate output_path {output_path!r}."
+                f"Prior manifest {path} is invalid: duplicate output_path {output_path!r}. "
+                "Fix or remove the manifest and try again."
             )
 
         entries_by_id[canonical_id] = output_path

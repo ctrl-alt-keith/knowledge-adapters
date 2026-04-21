@@ -7,6 +7,19 @@ the authoritative status page for what the default Confluence CLI currently does
 
 This adapter is the first implementation of the generic adapter contract for `knowledge-adapters`.
 
+## Shared CLI Flow
+
+Confluence follows the same product-level CLI flow as `local_files`:
+
+- inspect one source input
+- plan a markdown artifact under `pages/`
+- plan `manifest.json` in the output directory
+- write only when `--dry-run` is not set
+
+The Confluence-specific difference is that dry runs and write runs may report
+`write` or `skip` for a page when an existing manifest entry and on-disk
+artifact already match the planned output.
+
 ## Current Behavior
 
 Out of the box, the default Confluence CLI:
@@ -18,7 +31,7 @@ Out of the box, the default Confluence CLI:
   `--dry-run`, `--tree`, and `--max-depth`
 - resolves the target into a canonical page ID
 - normalizes page ID and full page URL targets into the same resolved source URL
-  for stub-mode metadata and dry-run reporting
+  for metadata, dry-run reporting, and write reporting
 - keeps dry-run and write output aligned around the same resolved page ID,
   canonical source URL, page artifact path, and manifest path
 - fetches stub page data for that resolved page
@@ -28,7 +41,7 @@ Out of the box, the default Confluence CLI:
 - keeps `stub` and `real` modes on the same CLI flow and artifact layout, with
   only the content source changing between modes
 - keeps dry-run and write messaging aligned across `stub` and `real`, including
-  the same plan header, artifact-path reporting, and write/skip summary shape
+  the same invocation, plan, action, and summary shape for single-page runs
 - normalizes the stub page into markdown plus metadata
 - writes a deterministic page artifact and `manifest.json` on normal runs
 - supports dry-run output and manifest-based skip logic for the resolved page

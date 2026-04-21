@@ -28,6 +28,21 @@ def _run_cli(tmp_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def test_top_level_help_introduces_shared_cli_flow(tmp_path: Path) -> None:
+    result = _run_cli(tmp_path, "--help")
+
+    assert result.returncode == 0, result.stderr
+    assert "Normalize knowledge sources into a shared local artifact layout." in result.stdout
+    assert "plans a markdown artifact under pages/ plus manifest.json" in result.stdout
+    assert "Normalize Confluence content into shared artifacts." in result.stdout
+    assert "Normalize a local text file into shared artifacts." in result.stdout
+    assert (
+        "Start with --dry-run to preview the source, artifact path, manifest path,"
+        in result.stdout
+    )
+    assert "Re-run without --dry-run to write the same artifact layout" in result.stdout
+
+
 def test_local_files_cli_smoke_uses_installed_entrypoint_with_readme_style_args(
     tmp_path: Path,
 ) -> None:
@@ -48,6 +63,10 @@ def test_local_files_cli_smoke_uses_installed_entrypoint_with_readme_style_args(
     assert result.returncode == 0, result.stderr
     assert "Local files adapter invoked" in result.stdout
     assert "run_mode: write" in result.stdout
+    assert "Plan: Local files run" in result.stdout
+    assert f"resolved_file_path: {source_file.resolve()}" in result.stdout
+    assert f"source_url: {source_file.resolve().as_uri()}" in result.stdout
+    assert f"artifact_path: {tmp_path / 'artifacts' / 'pages' / 'today.md'}" in result.stdout
     assert "Wrote:" in result.stdout
     assert "Summary: wrote 1, skipped 0" in result.stdout
     assert "Manifest:" in result.stdout
@@ -86,15 +105,12 @@ def test_local_files_cli_help_includes_first_run_guidance(tmp_path: Path) -> Non
     result = _run_cli(tmp_path, "local_files", "--help")
 
     assert result.returncode == 0, result.stderr
-    assert (
-        "Normalize a single local UTF-8 text file into local markdown artifacts."
-        in result.stdout
-    )
+    assert "Normalize one local UTF-8 text file into the shared artifact layout." in result.stdout
     assert "--file-path FILE" in result.stdout
-    assert "Local UTF-8 text file to normalize." in result.stdout
+    assert "Relative paths resolve" in result.stdout
     assert "--output-dir DIR" in result.stdout
-    assert "Directory to write normalized local artifacts." in result.stdout
-    assert "Preview the same output paths and write summary" in result.stdout
+    assert "Directory where pages/ and manifest.json are written." in result.stdout
+    assert "resolved file path, artifact path, manifest path" in result.stdout
     assert "without writing files." in result.stdout
     assert "knowledge-adapters local_files" in result.stdout
     assert "--dry-run" in result.stdout
@@ -120,6 +136,9 @@ def test_confluence_cli_smoke_uses_installed_entrypoint_with_default_stub_client
     assert "content_source: scaffolded page content" in result.stdout
     assert "fetch_scope: page" in result.stdout
     assert "run_mode: write" in result.stdout
+    assert "Plan: Confluence run" in result.stdout
+    assert "resolved_page_id: 12345" in result.stdout
+    assert "artifact_path:" in result.stdout
     assert "auth_method:" not in result.stdout
     assert "Wrote:" in result.stdout
     assert "Summary: wrote 1, skipped 0" in result.stdout
@@ -170,13 +189,14 @@ def test_confluence_help_lists_supported_auth_methods_and_examples(
     assert "client-cert-env" in result.stdout
     assert "--debug" in result.stdout
     assert "request debug details" in result.stdout
-    assert "real-client" in result.stdout
-    assert "same output paths and write/skip summary a write run would use" in result.stdout
+    assert "artifact layout and reporting" in result.stdout
+    assert "preview resolved page IDs, artifact paths, and write/skip decisions" in result.stdout
     assert "same resolve, plan, and write flow" in result.stdout
     assert "'real' fetches from" in result.stdout
     assert "using --auth-method" in result.stdout
-    assert "contract-tested live Confluence fetches" in result.stdout
-    assert "validated and normalized to canonical" in result.stdout
-    assert "pageId form for output and manifests" in result.stdout
+    assert "contract-tested live fetches" in result.stdout
+    assert "The CLI resolves either input into one canonical page" in result.stdout
+    assert "source URL for artifact and manifest reporting" in result.stdout
+    assert "artifact and manifest reporting" in result.stdout
     assert "CONFLUENCE_BEARER_TOKEN=... knowledge-adapters confluence" in result.stdout
     assert "--dry-run" in result.stdout
