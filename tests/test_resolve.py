@@ -103,6 +103,17 @@ def test_resolve_target_for_base_url_accepts_matching_page_url() -> None:
     )
 
     assert target.page_id == "7890"
+    assert target.page_url == "https://example.com/wiki/pages/viewpage.action?pageId=7890"
+
+
+def test_resolve_target_for_base_url_builds_canonical_page_url_for_page_id_input() -> None:
+    target = resolve_target_for_base_url(
+        "7890",
+        base_url="https://example.com/wiki/",
+    )
+
+    assert target.page_id == "7890"
+    assert target.page_url == "https://example.com/wiki/pages/viewpage.action?pageId=7890"
 
 
 def test_resolve_target_for_base_url_rejects_url_without_page_id() -> None:

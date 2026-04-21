@@ -347,7 +347,7 @@ Example shape from the default single-page Confluence client:
   "files": [
     {
       "canonical_id": "12345",
-      "source_url": "",
+      "source_url": "https://example.com/wiki/pages/viewpage.action?pageId=12345",
       "output_path": "pages/12345.md",
       "title": "stub-page-12345"
     }
@@ -366,7 +366,7 @@ only minimal root-run context:
   "files": [
     {
       "canonical_id": "12345",
-      "source_url": "",
+      "source_url": "https://example.com/wiki/pages/viewpage.action?pageId=12345",
       "output_path": "pages/12345.md",
       "title": "stub-page-12345"
     }

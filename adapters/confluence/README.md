@@ -17,6 +17,8 @@ Out of the box, the default Confluence CLI:
 - accepts `--base-url`, `--client-mode`, `--auth-method`, `--output-dir`,
   `--dry-run`, `--tree`, and `--max-depth`
 - resolves the target into a canonical page ID
+- normalizes page ID and full page URL targets into the same resolved source URL
+  for stub-mode metadata and dry-run reporting
 - fetches stub page data for that resolved page
 - supports an opt-in real client path with `--client-mode real` for live page
   fetches and breadth-first tree traversal using `bearer-env` or
