@@ -143,7 +143,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--base-url",
         required=True,
         help=(
-            "Base Confluence URL used to validate full page URLs and build "
+            "Base Confluence URL for validating full page URLs and building "
             "canonical source URLs."
         ),
     )
