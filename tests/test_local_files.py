@@ -125,6 +125,7 @@ def test_local_files_cli_dry_run_reports_output_without_writing(
     assert f"source_url: {source_file.resolve().as_uri()}" in captured.out
     assert f"artifact_path: {output_path}" in captured.out
     assert f"manifest_path: {output_dir / 'manifest.json'}" in captured.out
+    assert "content_status: UTF-8 text with content" in captured.out
     assert "action: would write" in captured.out
     assert "Summary: would write 1, would skip 0" in captured.out
     assert "Line one." in captured.out
@@ -195,7 +196,79 @@ def test_local_files_cli_reports_non_file_input_path(
     assert exc_info.value.code == 2
     captured = capsys.readouterr()
     assert f"Path is not a regular file: {source_dir}." in captured.err
-    assert "Use a UTF-8 text file." in captured.err
+    assert "local_files reads one UTF-8 text file at a time" in captured.err
+    assert "directories are not supported." in captured.err
+
+
+def test_local_files_cli_writes_empty_utf8_file_with_empty_content_section(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    source_file = tmp_path / "empty.txt"
+    source_file.write_text("", encoding="utf-8")
+    output_dir = tmp_path / "out"
+
+    exit_code = main(
+        [
+            "local_files",
+            "--file-path",
+            str(source_file),
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert (
+        "content_status: empty UTF-8 file; output will contain metadata and an empty "
+        "content section"
+    ) in captured.out
+
+    output_path = output_dir / "pages" / "empty.md"
+    assert output_path.read_text(encoding="utf-8") == (
+        f"""# empty.txt
+
+## Metadata
+- source: local_files
+- canonical_id: {source_file.resolve()}
+- parent_id:
+- source_url: {source_file.resolve().as_uri()}
+- fetched_at:
+- updated_at:
+- adapter: local_files
+
+## Content
+
+
+"""
+    )
+
+
+def test_local_files_cli_reports_non_utf8_input_with_actionable_error(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    source_file = tmp_path / "notes.txt"
+    source_file.write_bytes(b"\xff\xfe\x00not-utf8")
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            [
+                "local_files",
+                "--file-path",
+                str(source_file),
+                "--output-dir",
+                str(tmp_path / "out"),
+            ]
+        )
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert f"File is not valid UTF-8 text: {source_file.resolve()}." in captured.err
+    assert "local_files reads one UTF-8 text file at a time" in captured.err
+    assert "does not support binary or other encoded input." in captured.err
+    assert "Re-save the file as UTF-8 text and try again." in captured.err
 
 
 def test_local_files_cli_reports_invalid_output_dir(

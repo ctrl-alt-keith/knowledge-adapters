@@ -53,6 +53,10 @@ This resolves the file path, previews `artifacts/pages/today.md`, previews
 `artifacts/manifest.json`, and prints the normalized markdown without writing
 files.
 
+`local_files` expects one UTF-8 text file at a time. Empty UTF-8 files are
+allowed and still produce metadata plus an empty `Content` section. Files that
+are not valid UTF-8 text fail fast with guidance to re-save the input as UTF-8.
+
 Minimal Confluence first run (default `stub` mode):
 
 ```bash
