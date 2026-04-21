@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import socket
 import ssl
 from urllib import parse, request
@@ -10,6 +11,23 @@ from urllib.error import HTTPError, URLError
 
 from knowledge_adapters.confluence.auth import build_request_auth
 from knowledge_adapters.confluence.models import ResolvedTarget
+
+
+class ConfluenceRequestError(RuntimeError):
+    """Stable request failure with Confluence-specific debug context."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        request_url: str,
+        auth_method: str,
+        underlying_error: str,
+    ) -> None:
+        super().__init__(message)
+        self.request_url = request_url
+        self.auth_method = auth_method
+        self.underlying_error = underlying_error
 
 
 def fetch_page(target: ResolvedTarget) -> dict[str, object]:
@@ -119,6 +137,23 @@ def _map_child_page_ids(payload: dict[str, object]) -> list[str]:
     return child_page_ids
 
 
+def _sanitize_debug_value(value: str) -> str:
+    bearer_token = os.getenv("CONFLUENCE_BEARER_TOKEN", "").strip()
+    sanitized = value
+    if bearer_token:
+        sanitized = sanitized.replace(bearer_token, "[redacted]")
+    if "-----BEGIN " in sanitized or "-----END " in sanitized:
+        return "[redacted secret material]"
+    return sanitized
+
+
+def _underlying_request_error_message(exc: HTTPError | URLError) -> str:
+    if isinstance(exc, HTTPError):
+        return _sanitize_debug_value(str(exc))
+
+    return _sanitize_debug_value(str(exc.reason))
+
+
 def _auth_failure_message(auth_method: str) -> str:
     if auth_method == "client-cert-env":
         return (
@@ -202,7 +237,12 @@ def _request_json(api_url: str, *, auth_method: str) -> dict[str, object]:
         with request.urlopen(api_request, context=request_auth.ssl_context) as response:
             raw_payload = json.loads(response.read().decode("utf-8"))
     except (HTTPError, URLError) as exc:
-        raise RuntimeError(_request_failure_message(exc, auth_method=auth_method)) from exc
+        raise ConfluenceRequestError(
+            _request_failure_message(exc, auth_method=auth_method),
+            request_url=api_url,
+            auth_method=auth_method,
+            underlying_error=_underlying_request_error_message(exc),
+        ) from exc
     except json.JSONDecodeError as exc:
         raise ValueError("Response error: invalid JSON payload.") from exc
 

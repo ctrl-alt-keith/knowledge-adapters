@@ -140,4 +140,7 @@ def test_confluence_help_lists_supported_auth_methods_and_examples(
     assert "CONFLUENCE_BEARER_TOKEN" in result.stdout
     assert "CONFLUENCE_CLIENT_CERT_FILE" in result.stdout
     assert "client-cert-env" in result.stdout
+    assert "--debug" in result.stdout
+    assert "request debug details" in result.stdout
+    assert "real-client" in result.stdout
     assert "CONFLUENCE_BEARER_TOKEN=... knowledge-adapters confluence" in result.stdout

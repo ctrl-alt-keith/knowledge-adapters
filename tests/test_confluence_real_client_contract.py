@@ -980,3 +980,62 @@ def test_real_client_cli_surfaces_fetch_failures_as_concise_cli_errors(
     assert captured.err == f"knowledge-adapters confluence: error: {expected_message}\n"
     assert not (tmp_path / "out" / "manifest.json").exists()
     assert not (tmp_path / "out" / "pages" / "12345.md").exists()
+
+
+def test_real_client_cli_debug_mode_surfaces_request_context_for_request_failures(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+
+    def raise_url_error(*args: object, **kwargs: object) -> object:
+        raise _url_error(ValueError("synthetic transport failure"))
+
+    monkeypatch.setattr("urllib.request.urlopen", raise_url_error)
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(_confluence_argv(tmp_path / "out", "--client-mode", "real", "--debug"))
+
+    assert exc_info.value.code == 2
+
+    captured = capsys.readouterr()
+    assert (
+        captured.err
+        == "knowledge-adapters confluence: error: Confluence request failed. "
+        "Verify --base-url and try again.\n"
+        "  debug request_url: https://example.com/wiki/rest/api/content/12345"
+        "?expand=body.storage,_links\n"
+        "  debug client_mode: real\n"
+        "  debug auth_method: bearer-env\n"
+        "  debug exception: synthetic transport failure\n"
+    )
+    assert not (tmp_path / "out" / "manifest.json").exists()
+    assert not (tmp_path / "out" / "pages" / "12345.md").exists()
+
+
+def test_real_client_cli_default_mode_hides_debug_request_context(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+
+    def raise_url_error(*args: object, **kwargs: object) -> object:
+        raise _url_error(ValueError("synthetic transport failure"))
+
+    monkeypatch.setattr("urllib.request.urlopen", raise_url_error)
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(_confluence_argv(tmp_path / "out", "--client-mode", "real"))
+
+    assert exc_info.value.code == 2
+
+    captured = capsys.readouterr()
+    assert (
+        captured.err
+        == "knowledge-adapters confluence: error: Confluence request failed. "
+        "Verify --base-url and try again.\n"
+    )
+    assert "synthetic transport failure" not in captured.err
+    assert "rest/api/content/12345" not in captured.err

@@ -90,6 +90,11 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     confluence_parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Show Confluence request debug details for real-client failures.",
+    )
+    confluence_parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Plan actions without writing files.",
@@ -129,9 +134,12 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def exit_with_cli_error(message: str) -> None:
+def exit_with_cli_error(message: str, *, debug_lines: Sequence[str] | None = None) -> None:
     """Exit the CLI with a stable user-facing error message."""
     print(f"knowledge-adapters confluence: error: {message}", file=sys.stderr)
+    if debug_lines:
+        for line in debug_lines:
+            print(f"  {line}", file=sys.stderr)
     raise SystemExit(2)
 
 
@@ -142,6 +150,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "confluence":
         from knowledge_adapters.confluence.client import (
+            ConfluenceRequestError,
             fetch_page,
             fetch_real_page,
             list_real_child_page_ids,
@@ -168,6 +177,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             output_dir=args.output_dir,
             client_mode=args.client_mode,
             auth_method=args.auth_method,
+            debug=args.debug,
             dry_run=args.dry_run,
             tree=args.tree,
             max_depth=args.max_depth,
@@ -215,6 +225,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"  tree: {confluence_config.tree}")
             print(f"  max_depth: {confluence_config.max_depth}")
 
+        def _confluence_debug_lines(
+            exc: RuntimeError | ValueError,
+        ) -> tuple[str, ...] | None:
+            if not confluence_config.debug or not isinstance(exc, ConfluenceRequestError):
+                return None
+
+            return (
+                f"debug request_url: {exc.request_url}",
+                f"debug client_mode: {confluence_config.client_mode}",
+                f"debug auth_method: {exc.auth_method}",
+                f"debug exception: {exc.underlying_error}",
+            )
+
         def _build_manifest_entry_for_page(
             page: dict[str, object],
             output_path: Path,
@@ -237,7 +260,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         list_child_page_ids=selected_list_child_page_ids,
                     )
                 except (RuntimeError, ValueError) as exc:
-                    exit_with_cli_error(str(exc))
+                    exit_with_cli_error(str(exc), debug_lines=_confluence_debug_lines(exc))
             else:
                 root_page_id, pages = walk_pages(
                     target,
@@ -310,7 +333,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         try:
             page = selected_fetch_page(target)
         except (RuntimeError, ValueError) as exc:
-            exit_with_cli_error(str(exc))
+            exit_with_cli_error(str(exc), debug_lines=_confluence_debug_lines(exc))
 
         _print_confluence_invocation()
         page_id = str(page["canonical_id"])
