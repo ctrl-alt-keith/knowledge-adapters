@@ -63,8 +63,8 @@ def test_local_files_cli_writes_normalized_markdown(
     assert exit_code == 0
     captured = capsys.readouterr()
     assert "Summary: wrote 1, skipped 0" in captured.out
-    assert f"Artifact: {output_dir / 'pages' / 'meeting-notes.md'}" in captured.out
-    assert f"Manifest: {output_dir / 'manifest.json'}" in captured.out
+    assert f"Artifact path: {output_dir / 'pages' / 'meeting-notes.md'}" in captured.out
+    assert f"Manifest path: {output_dir / 'manifest.json'}" in captured.out
 
     output_path = output_dir / "pages" / "meeting-notes.md"
     assert output_path.exists()
@@ -130,8 +130,8 @@ def test_local_files_cli_dry_run_reports_output_without_writing(
     assert "Plan: Local files run" in captured.out
     assert f"resolved_file_path: {source_file.resolve()}" in captured.out
     assert f"source_url: {source_file.resolve().as_uri()}" in captured.out
-    assert f"Artifact: {output_path}" in captured.out
-    assert f"Manifest: {output_dir / 'manifest.json'}" in captured.out
+    assert f"Artifact path: {output_path}" in captured.out
+    assert f"Manifest path: {output_dir / 'manifest.json'}" in captured.out
     assert "content_status: UTF-8 text with content" in captured.out
     assert "action: would write" in captured.out
     assert "Summary: would write 1, would skip 0" in captured.out
