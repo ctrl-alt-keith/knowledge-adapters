@@ -139,6 +139,101 @@ def test_local_files_cli_dry_run_reports_output_without_writing(
     assert "Line one." in captured.out
 
 
+def test_local_files_cli_fails_fast_for_same_stem_artifact_collision(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    first_source = tmp_path / "notes.txt"
+    first_source.write_text("First file.\n", encoding="utf-8")
+    second_source = tmp_path / "notes.md"
+    second_source.write_text("Second file.\n", encoding="utf-8")
+    output_dir = tmp_path / "out"
+
+    exit_code = main(
+        [
+            "local_files",
+            "--file-path",
+            str(first_source),
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    capsys.readouterr()
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            [
+                "local_files",
+                "--file-path",
+                str(second_source),
+                "--output-dir",
+                str(output_dir),
+                "--dry-run",
+            ]
+        )
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert "knowledge-adapters local_files: error:" in captured.err
+    assert f"Artifact path collision: {output_dir / 'pages' / 'notes.md'}" in captured.err
+    assert f"source file {first_source.resolve()}" in captured.err
+    assert f"this run resolves {second_source.resolve()}." in captured.err
+    assert "Remove or rename one of the source files" in captured.err
+    manifest_payload = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest_payload["files"][0]["canonical_id"] == str(first_source.resolve())
+
+
+def test_local_files_cli_fails_fast_for_same_name_different_directory_collision(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    first_source = tmp_path / "a" / "notes.txt"
+    first_source.parent.mkdir(parents=True)
+    first_source.write_text("First file.\n", encoding="utf-8")
+    second_source = tmp_path / "b" / "notes.txt"
+    second_source.parent.mkdir(parents=True)
+    second_source.write_text("Second file.\n", encoding="utf-8")
+    output_dir = tmp_path / "out"
+
+    exit_code = main(
+        [
+            "local_files",
+            "--file-path",
+            str(first_source),
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    first_artifact = output_dir / "pages" / "notes.md"
+    original_artifact = first_artifact.read_text(encoding="utf-8")
+    capsys.readouterr()
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            [
+                "local_files",
+                "--file-path",
+                str(second_source),
+                "--output-dir",
+                str(output_dir),
+            ]
+        )
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert "knowledge-adapters local_files: error:" in captured.err
+    assert f"Artifact path collision: {first_artifact}" in captured.err
+    assert f"source file {first_source.resolve()}" in captured.err
+    assert f"this run resolves {second_source.resolve()}." in captured.err
+    assert first_artifact.read_text(encoding="utf-8") == original_artifact
+    manifest_payload = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest_payload["files"][0]["canonical_id"] == str(first_source.resolve())
+
+
 def test_fetch_file_reports_permission_errors(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -8,7 +8,9 @@ from pathlib import Path
 from knowledge_adapters.confluence.manifest import manifest_path
 
 
-def load_previous_manifest_index(output_dir: str) -> dict[str, str] | None:
+def _load_previous_manifest_indexes(
+    output_dir: str,
+) -> tuple[dict[str, str], dict[str, str]] | None:
     """Load and validate the previous manifest for incremental comparisons."""
     path = manifest_path(output_dir)
     if not path.exists():
@@ -29,7 +31,7 @@ def load_previous_manifest_index(output_dir: str) -> dict[str, str] | None:
         )
 
     entries_by_id: dict[str, str] = {}
-    seen_output_paths: set[str] = set()
+    entries_by_output_path: dict[str, str] = {}
 
     for entry in files:
         if not isinstance(entry, dict):
@@ -51,16 +53,34 @@ def load_previous_manifest_index(output_dir: str) -> dict[str, str] | None:
                 f"Prior manifest {path} is invalid: duplicate canonical_id {canonical_id!r}. "
                 "Fix or remove the manifest and try again."
             )
-        if output_path in seen_output_paths:
+        if output_path in entries_by_output_path:
             raise RuntimeError(
                 f"Prior manifest {path} is invalid: duplicate output_path {output_path!r}. "
                 "Fix or remove the manifest and try again."
             )
 
         entries_by_id[canonical_id] = output_path
-        seen_output_paths.add(output_path)
+        entries_by_output_path[output_path] = canonical_id
 
-    return entries_by_id
+    return entries_by_id, entries_by_output_path
+
+
+def load_previous_manifest_index(output_dir: str) -> dict[str, str] | None:
+    """Load and validate the previous manifest keyed by canonical_id."""
+    indexes = _load_previous_manifest_indexes(output_dir)
+    if indexes is None:
+        return None
+
+    return indexes[0]
+
+
+def load_previous_manifest_output_index(output_dir: str) -> dict[str, str] | None:
+    """Load and validate the previous manifest keyed by output_path."""
+    indexes = _load_previous_manifest_indexes(output_dir)
+    if indexes is None:
+        return None
+
+    return indexes[1]
 
 
 def is_already_written(

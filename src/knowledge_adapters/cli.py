@@ -103,6 +103,25 @@ def exit_with_output_error(
     )
 
 
+def exit_with_local_files_artifact_collision(
+    *,
+    output_path: Path,
+    manifest_output_path: Path,
+    prior_source_path: str,
+    current_source_path: str,
+) -> None:
+    """Exit with a consistent artifact-collision error for local_files."""
+    exit_with_cli_error(
+        (
+            f"Artifact path collision: {output_path} is already mapped to source file "
+            f"{prior_source_path} in {manifest_output_path}, but this run resolves "
+            f"{current_source_path}. Remove or rename one of the source files, or clear "
+            "the stale artifact directory before retrying."
+        ),
+        command="local_files",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the top-level CLI parser."""
     parser = argparse.ArgumentParser(
@@ -672,6 +691,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.command == "local_files":
+        from knowledge_adapters.confluence.incremental import (
+            load_previous_manifest_output_index,
+        )
         from knowledge_adapters.confluence.manifest import (
             build_manifest_entry,
             write_manifest,
@@ -715,6 +737,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         manifest_output_path = output_dir / "manifest.json"
         output_path = output_dir / "pages" / f"{output_name}.md"
         manifest_entry_output_path = output_dir_input / "pages" / f"{output_name}.md"
+        planned_output_path = output_path.relative_to(output_dir).as_posix()
+
+        try:
+            previous_manifest_output_index = load_previous_manifest_output_index(
+                local_files_config.output_dir
+            )
+        except RuntimeError as exc:
+            exit_with_cli_error(str(exc), command="local_files")
+
+        prior_source_path = None
+        if previous_manifest_output_index is not None:
+            prior_source_path = previous_manifest_output_index.get(planned_output_path)
+        current_source_path = str(page["canonical_id"])
+        if prior_source_path is not None and prior_source_path != current_source_path:
+            exit_with_local_files_artifact_collision(
+                output_path=output_path,
+                manifest_output_path=manifest_output_path,
+                prior_source_path=prior_source_path,
+                current_source_path=current_source_path,
+            )
 
         print("\nPlan: Local files run")
         print(f"  resolved_file_path: {resolved_input_path}")
