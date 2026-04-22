@@ -8,9 +8,13 @@ from knowledge_adapters.cli import main
 from knowledge_adapters.confluence.manifest import build_manifest_entry, write_manifest
 from knowledge_adapters.confluence.normalize import normalize_to_markdown
 from knowledge_adapters.confluence.writer import write_markdown
+from tests.cli_output_assertions import (
+    assert_dry_run_summary,
+    assert_tree_plan_page_count,
+    assert_write_summary,
+)
 from tests.confluence_output_assertions import (
     assert_single_page_confluence_dry_run_summary,
-    assert_tree_confluence_dry_run_summary,
 )
 
 
@@ -142,15 +146,18 @@ def test_confluence_cli_dry_run_reports_output_without_writing(
     assert not (output_dir / "manifest.json").exists()
 
     captured = capsys.readouterr()
-    assert_single_page_confluence_dry_run_summary(
-        captured.out,
-        client_mode="stub",
-        content_source="scaffolded page content",
-        page_id="12345",
-        source_url="https://example.com/wiki/pages/viewpage.action?pageId=12345",
-        artifact_path=output_path,
-        manifest_path=output_dir / "manifest.json",
-    )
+    assert "Confluence adapter invoked" in captured.out
+    assert "client_mode: stub" in captured.out
+    assert "content_source: scaffolded page content" in captured.out
+    assert "fetch_scope: page" in captured.out
+    assert "run_mode: dry-run" in captured.out
+    assert "Plan: Confluence run" in captured.out
+    assert "resolved_page_id: 12345" in captured.out
+    assert "source_url: https://example.com/wiki/pages/viewpage.action?pageId=12345" in captured.out
+    assert f"artifact_path: {output_path}" in captured.out
+    assert f"manifest_path: {output_dir / 'manifest.json'}" in captured.out
+    assert "action: would write" in captured.out
+    assert_dry_run_summary(captured.out, would_write=1, would_skip=0)
     assert "# stub-page-12345" in captured.out
 
 
@@ -248,15 +255,17 @@ def test_confluence_cli_full_flow_keeps_dry_run_and_write_artifacts_in_sync(
     assert not manifest_output_path.exists()
 
     dry_run_output = capsys.readouterr().out
-    assert_single_page_confluence_dry_run_summary(
-        dry_run_output,
-        client_mode="stub",
-        content_source="scaffolded page content",
-        page_id="12345",
-        source_url=canonical_source_url,
-        artifact_path=page_output_path,
-        manifest_path=manifest_output_path,
-    )
+    assert "client_mode: stub" in dry_run_output
+    assert "content_source: scaffolded page content" in dry_run_output
+    assert "fetch_scope: page" in dry_run_output
+    assert "run_mode: dry-run" in dry_run_output
+    assert "Plan: Confluence run" in dry_run_output
+    assert "resolved_page_id: 12345" in dry_run_output
+    assert f"source_url: {canonical_source_url}" in dry_run_output
+    assert f"artifact_path: {page_output_path}" in dry_run_output
+    assert f"manifest_path: {manifest_output_path}" in dry_run_output
+    assert "action: would write" in dry_run_output
+    assert_dry_run_summary(dry_run_output, would_write=1, would_skip=0)
 
     write_exit_code = main(
         [
@@ -285,7 +294,7 @@ def test_confluence_cli_full_flow_keeps_dry_run_and_write_artifacts_in_sync(
     assert f"manifest_path: {manifest_output_path}" in write_output
     assert "action: write" in write_output
     assert f"Wrote: {page_output_path}" in write_output
-    assert "Summary: wrote 1, skipped 0" in write_output
+    assert_write_summary(write_output, wrote=1, skipped=0)
     assert f"Manifest: {manifest_output_path}" in write_output
     assert f"Write complete. Artifacts created under {output_dir}" in write_output
 
@@ -354,16 +363,12 @@ def test_confluence_cli_tree_dry_run_reports_manifest_path(
     assert exit_code == 0
 
     captured = capsys.readouterr()
-    assert_tree_confluence_dry_run_summary(
-        captured.out,
-        root_page_id="12345",
-        manifest_path=output_dir / "manifest.json",
-        max_depth=0,
-        unique_pages=1,
-        write_count=1,
-        skip_count=0,
-        planned_actions=[("write", output_dir / "pages" / "12345.md")],
-    )
+    assert "fetch_scope: tree" in captured.out
+    assert "max_depth: 0" in captured.out
+    assert f"manifest_path: {output_dir / 'manifest.json'}" in captured.out
+    assert "Plan: Confluence run" in captured.out
+    assert_tree_plan_page_count(captured.out, count=1)
+    assert_dry_run_summary(captured.out, would_write=1, would_skip=0)
 
 
 def test_confluence_cli_invalid_target_reports_expected_shapes(

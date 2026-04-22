@@ -5,6 +5,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tests.cli_output_assertions import (
+    assert_contains_normalized,
+    assert_write_summary,
+    normalize_whitespace,
+)
+
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
@@ -30,20 +36,18 @@ def _run_cli(tmp_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 def test_top_level_help_introduces_shared_cli_flow(tmp_path: Path) -> None:
     result = _run_cli(tmp_path, "--help")
+    stdout = normalize_whitespace(result.stdout)
 
     assert result.returncode == 0, result.stderr
-    assert "Normalize knowledge sources into a shared local artifact layout." in result.stdout
-    assert "plans a markdown artifact under pages/ plus manifest.json" in result.stdout
-    assert "Normalize Confluence content into shared artifacts." in result.stdout
-    assert (
-        "Normalize one local UTF-8 text file into shared artifacts."
-        in " ".join(result.stdout.split())
-    )
+    assert "Normalize knowledge sources into a shared local artifact layout." in stdout
+    assert "plans a markdown artifact under pages/ plus manifest.json" in stdout
+    assert "Normalize Confluence content into shared artifacts." in stdout
+    assert "Normalize one local UTF-8 text file into shared artifacts." in stdout
     assert (
         "Start with --dry-run to preview the source, artifact path, manifest path,"
-        in result.stdout
+        in stdout
     )
-    assert "Re-run without --dry-run to write the same artifact layout" in result.stdout
+    assert "Re-run without --dry-run to write the same artifact layout" in stdout
 
 
 def test_local_files_cli_smoke_uses_installed_entrypoint_with_readme_style_args(
@@ -71,7 +75,7 @@ def test_local_files_cli_smoke_uses_installed_entrypoint_with_readme_style_args(
     assert f"source_url: {source_file.resolve().as_uri()}" in result.stdout
     assert f"artifact_path: {tmp_path / 'artifacts' / 'pages' / 'today.md'}" in result.stdout
     assert "Wrote:" in result.stdout
-    assert "Summary: wrote 1 file" in result.stdout
+    assert_write_summary(result.stdout, wrote=1, skipped=0)
     assert f"Artifact: {tmp_path / 'artifacts' / 'pages' / 'today.md'}" in result.stdout
     assert f"Manifest: {tmp_path / 'artifacts' / 'manifest.json'}" in result.stdout
     assert f"Write complete. Artifacts created under {tmp_path / 'artifacts'}" in result.stdout
@@ -108,26 +112,29 @@ Hello from smoke test.
 
 def test_local_files_cli_help_includes_first_run_guidance(tmp_path: Path) -> None:
     result = _run_cli(tmp_path, "local_files", "--help")
+    stdout = normalize_whitespace(result.stdout)
 
     assert result.returncode == 0, result.stderr
     assert (
         "Normalize one existing UTF-8 text file into the shared artifact layout."
-        in result.stdout
+        in stdout
     )
-    assert "Empty UTF-8 files are allowed" in result.stdout
-    assert "Files that are not valid UTF-8 text are rejected" in result.stdout
-    assert "directories are not supported" in result.stdout
-    assert "local_files handles one file per run and always plans one write;" in result.stdout
-    assert "--file-path FILE" in result.stdout
-    assert "Relative paths" in result.stdout
-    assert "resolve from the cwd." in result.stdout
-    assert "--output-dir DIR" in result.stdout
-    assert "Directory where pages/ and manifest.json are written." in result.stdout
-    assert "it does not use manifest-based skip logic." in result.stdout
-    assert "resolved file path, artifact path, manifest path" in result.stdout
-    assert "without writing files." in result.stdout
-    assert "knowledge-adapters local_files" in result.stdout
-    assert "--dry-run" in result.stdout
+    assert "Empty UTF-8 files are allowed" in stdout
+    assert "Files that are not valid UTF-8 text are rejected" in stdout
+    assert "directories are not supported" in stdout
+    assert "--file-path FILE" in stdout
+    assert "Path to the one existing local UTF-8 text file for this run." in stdout
+    assert "Empty files are allowed; directories are not supported." in stdout
+    assert "Relative paths" in stdout
+    assert "resolve from the cwd." in stdout
+    assert "--output-dir DIR" in stdout
+    assert "Directory where pages/ and manifest.json are written." in stdout
+    assert "local_files handles one file per run and always plans one write;" in stdout
+    assert "it does not use manifest-based skip logic." in stdout
+    assert "resolved file path, artifact path, manifest path" in stdout
+    assert "without writing files." in stdout
+    assert "knowledge-adapters local_files" in stdout
+    assert "--dry-run" in stdout
 
 
 def test_confluence_cli_smoke_uses_installed_entrypoint_with_default_stub_client(
@@ -155,7 +162,7 @@ def test_confluence_cli_smoke_uses_installed_entrypoint_with_default_stub_client
     assert "artifact_path:" in result.stdout
     assert "auth_method:" not in result.stdout
     assert "Wrote:" in result.stdout
-    assert "Summary: wrote 1, skipped 0" in result.stdout
+    assert_write_summary(result.stdout, wrote=1, skipped=0)
     assert "Manifest:" in result.stdout
     assert f"Write complete. Artifacts created under {tmp_path / 'artifacts'}" in result.stdout
 
@@ -197,29 +204,30 @@ def test_confluence_help_lists_supported_auth_methods_and_examples(
         "confluence",
         "--help",
     )
+    stdout = normalize_whitespace(result.stdout)
 
     assert result.returncode == 0
-    assert "CONFLUENCE_BEARER_TOKEN" in result.stdout
-    assert "CONFLUENCE_CLIENT_CERT_FILE" in result.stdout
-    assert "client-cert-env" in result.stdout
-    assert "--debug" in result.stdout
-    assert "request debug details" in result.stdout
-    assert "artifact layout and reporting" in result.stdout
-    assert "page or, with --tree, a page tree" in result.stdout
-    assert "planned artifact paths, manifest path, and write/skip decisions" in result.stdout
-    assert "In tree mode, dry-run previews the root page and" in result.stdout
-    assert "artifact paths used in write mode" in result.stdout
-    assert "same resolve, plan, and write flow" in result.stdout
-    assert "'real' fetches from" in result.stdout
-    assert "using --auth-method" in result.stdout
-    assert "contract-tested live fetches" in result.stdout
-    assert "The CLI resolves either input into one canonical page" in result.stdout
-    assert "source URL for artifact and manifest reporting" in result.stdout
-    assert "artifact and manifest reporting" in result.stdout
-    assert "Traverse the resolved root page and discovered" in result.stdout
-    assert "descendants instead of only one page." in result.stdout
-    assert "Maximum descendant depth for --tree." in result.stdout
-    assert "Ignored unless --tree is set." in result.stdout
-    assert "CONFLUENCE_BEARER_TOKEN=... knowledge-adapters confluence" in result.stdout
-    assert "--max-depth 1" in result.stdout
-    assert "--dry-run" in result.stdout
+    assert "CONFLUENCE_BEARER_TOKEN" in stdout
+    assert "CONFLUENCE_CLIENT_CERT_FILE" in stdout
+    assert "client-cert-env" in stdout
+    assert "--debug" in stdout
+    assert "request debug details" in stdout
+    assert "artifact layout and reporting" in stdout
+    assert "page or, with --tree, a page tree" in stdout
+    assert "planned artifact paths, manifest path, and write/skip decisions" in stdout
+    assert_contains_normalized(stdout, "In tree mode, dry-run previews the root page and")
+    assert "artifact paths used in write mode" in stdout
+    assert "same resolve, plan, and write flow" in stdout
+    assert "'real' fetches from" in stdout
+    assert "using --auth-method" in stdout
+    assert "contract-tested live fetches" in stdout
+    assert "The CLI resolves either input into one canonical page" in stdout
+    assert "source URL for artifact and manifest reporting" in stdout
+    assert "artifact and manifest reporting" in stdout
+    assert "Traverse the resolved root page and discovered" in stdout
+    assert "descendants instead of only one page." in stdout
+    assert "Maximum descendant depth for --tree." in stdout
+    assert "Ignored unless --tree is set." in stdout
+    assert "CONFLUENCE_BEARER_TOKEN=... knowledge-adapters confluence" in stdout
+    assert "--max-depth 1" in stdout
+    assert "--dry-run" in stdout
