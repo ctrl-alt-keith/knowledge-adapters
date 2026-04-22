@@ -120,6 +120,7 @@ def test_local_files_cli_help_includes_first_run_guidance(tmp_path: Path) -> Non
         in stdout
     )
     assert "Empty UTF-8 files are allowed" in stdout
+    assert "produce an empty content section." in stdout
     assert "Files that are not valid UTF-8 text are rejected" in stdout
     assert "directories are not supported" in stdout
     assert "--file-path FILE" in stdout
