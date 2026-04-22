@@ -275,6 +275,16 @@ def exit_with_cli_error(
     raise SystemExit(2)
 
 
+def print_dry_run_complete() -> None:
+    """Print a consistent dry-run completion message."""
+    print("\nDry run complete. No files written.")
+
+
+def print_write_complete(output_dir: Path) -> None:
+    """Print a consistent write completion message."""
+    print(f"\nWrite complete. Artifacts created under {output_dir}")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI."""
     parser = build_parser()
@@ -500,6 +510,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(
                     f"  Summary: dry-run preview; write {write_count}, skip {skip_count}"
                 )
+                print_dry_run_complete()
                 return 0
 
             files = [
@@ -535,6 +546,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             print(f"\nSummary: wrote {write_count}, skipped {skip_count}")
             print(f"\nManifest: {_display_output_path(manifest)}")
+            print_write_complete(output_dir)
             return 0
 
         try:
@@ -573,6 +585,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 dry_run=True,
                 markdown=planned_markdown,
             )
+            print_dry_run_complete()
             return 0
 
         _print_single_page_plan(
@@ -612,6 +625,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         skip_count = 1 if action == "skip" else 0
         print(f"\nSummary: wrote {write_count}, skipped {skip_count}")
         print(f"Manifest: {_display_output_path(manifest)}")
+        print_write_complete(output_dir)
         return 0
 
     if args.command == "local_files":
@@ -677,6 +691,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("  Summary: would write 1, would skip 0")
             print()
             print(markdown)
+            print_dry_run_complete()
             return 0
 
         try:
@@ -707,6 +722,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("\nSummary: wrote 1 file")
         print(f"Artifact: {output_path}")
         print(f"Manifest: {output_dir / manifest.relative_to(output_dir_input)}")
+        print_write_complete(output_dir)
         return 0
 
     parser.error("Unknown command")
