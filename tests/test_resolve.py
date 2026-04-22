@@ -1,6 +1,10 @@
 import pytest
 
-from knowledge_adapters.confluence.resolve import resolve_target, resolve_target_for_base_url
+from knowledge_adapters.confluence.resolve import (
+    resolve_target,
+    resolve_target_for_base_url,
+    validate_base_url,
+)
 
 
 def test_resolve_numeric_page_id() -> None:
@@ -114,6 +118,25 @@ def test_resolve_target_for_base_url_builds_canonical_page_url_for_page_id_input
 
     assert target.page_id == "7890"
     assert target.page_url == "https://example.com/wiki/pages/viewpage.action?pageId=7890"
+
+
+def test_validate_base_url_rejects_non_http_scheme() -> None:
+    with pytest.raises(
+        ValueError,
+        match="--base-url 'ftp://example.com/wiki' is invalid",
+    ):
+        validate_base_url("ftp://example.com/wiki")
+
+
+def test_resolve_target_for_base_url_rejects_malformed_base_url_before_target_resolution() -> None:
+    with pytest.raises(
+        ValueError,
+        match="--base-url 'https:///wiki' is invalid",
+    ):
+        resolve_target_for_base_url(
+            "https://example.com/wiki/spaces/ENG/pages/7890/Team+Runbook",
+            base_url="https:///wiki",
+        )
 
 
 def test_resolve_target_for_base_url_rejects_url_without_page_id() -> None:

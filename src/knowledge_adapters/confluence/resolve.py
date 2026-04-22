@@ -18,6 +18,18 @@ def _parse_absolute_http_url(value: str) -> parse.ParseResult | None:
     return parsed
 
 
+def validate_base_url(base_url: str) -> str:
+    """Validate and normalize a CLI-facing Confluence base URL."""
+    normalized_base_url = base_url.strip()
+    if _parse_absolute_http_url(normalized_base_url) is None:
+        raise ValueError(
+            f"--base-url {base_url!r} is invalid. "
+            "Provide a full http:// or https:// Confluence base URL, "
+            "for example 'https://example.com/wiki'."
+        )
+    return normalized_base_url
+
+
 def _page_id_from_url(parsed_url: parse.ParseResult) -> str | None:
     query_page_ids = parse.parse_qs(parsed_url.query).get("pageId", [])
     if query_page_ids:
@@ -115,13 +127,17 @@ def resolve_target(target: str) -> ResolvedTarget:
 
 def resolve_target_for_base_url(target: str, *, base_url: str) -> ResolvedTarget:
     """Resolve and validate a target for CLI-facing Confluence usage."""
+    validated_base_url = validate_base_url(base_url)
     resolved = resolve_target(target)
 
     if resolved.input_kind == "page_id":
         return ResolvedTarget(
             raw_value=resolved.raw_value,
             page_id=resolved.page_id,
-            page_url=_canonical_page_url(base_url=base_url, page_id=resolved.page_id or ""),
+            page_url=_canonical_page_url(
+                base_url=validated_base_url,
+                page_id=resolved.page_id or "",
+            ),
             input_kind=resolved.input_kind,
         )
 
@@ -142,16 +158,17 @@ def resolve_target_for_base_url(target: str, *, base_url: str) -> ResolvedTarget
             )
         if resolved.page_url and not _url_matches_base_url(
             page_url=resolved.page_url,
-            base_url=base_url,
+            base_url=validated_base_url,
         ):
             raise ValueError(
-                f"Target URL {resolved.raw_value!r} does not match --base-url {base_url!r}. "
+                f"Target URL {resolved.raw_value!r} does not match "
+                f"--base-url {validated_base_url!r}. "
                 "Use a URL under that base URL or pass the page ID directly."
             )
         return ResolvedTarget(
             raw_value=resolved.raw_value,
             page_id=resolved.page_id,
-            page_url=_canonical_page_url(base_url=base_url, page_id=resolved.page_id),
+            page_url=_canonical_page_url(base_url=validated_base_url, page_id=resolved.page_id),
             input_kind=resolved.input_kind,
         )
 
