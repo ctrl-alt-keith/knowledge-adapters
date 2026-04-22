@@ -5,7 +5,20 @@ them into one predictable local artifact layout.
 
 ---
 
-## Install (without cloning)
+## Choose Your Command Context
+
+This repository supports two different ways to run the CLI:
+
+- **Installed CLI user**: install the published tool and run `knowledge-adapters`
+- **Repo-local developer**: clone the repository, run `make` targets, and use `.venv/bin/knowledge-adapters`
+
+Keep those contexts separate when copying commands. Installed-user examples
+below use `knowledge-adapters`. Contributor and development examples use
+`.venv/bin/knowledge-adapters` plus `make`.
+
+---
+
+## Installed CLI Setup (without cloning)
 
 To install only the CLI, use `pipx` directly from GitHub:
 
@@ -14,11 +27,13 @@ pipx install git+https://github.com/ctrl-alt-keith/knowledge-adapters.git
 knowledge-adapters --help
 ```
 
-With a `pipx` install, use `knowledge-adapters` instead of `.venv/bin/knowledge-adapters` in the examples below.
+With a `pipx` install, use `knowledge-adapters` in the installed-user examples
+below. The repo-local developer workflow later in this README uses
+`.venv/bin/knowledge-adapters` instead.
 
 ---
 
-## First Run (installed CLI)
+## Installed CLI First Run
 
 Start with the built-in help so the shared flow is visible before you pick an
 adapter:
@@ -115,7 +130,11 @@ one write.
 
 ---
 
-## Local Development Setup
+## Repo-Local Development Setup
+
+These steps are for contributors working from a local clone of this repository.
+If you only want to use the CLI, stay in the installed-user sections above and
+skip the developer setup below.
 
 Use `uv` for the fastest local setup. A standard `pip` workflow is also supported.
 
@@ -137,7 +156,7 @@ pip install -e .[dev]
 
 ---
 
-## Developer Quickstart
+## Repo-Local Developer Quickstart
 
 ```bash
 git clone <repo>
@@ -152,7 +171,7 @@ make check
 authentication is not required to create the virtualenv, install dependencies,
 or run local validation.
 
-After `make dev`, the installed CLI entrypoint for this repo is:
+After `make dev`, the repo-local CLI entrypoint for this checkout is:
 
 ```bash
 .venv/bin/knowledge-adapters
@@ -333,6 +352,11 @@ that design surface.
 
 ## Examples
 
+### Installed CLI Examples
+
+These examples assume you installed the tool with `pipx` and are running the
+global `knowledge-adapters` command.
+
 Start with a dry run for the local files adapter:
 
 ```bash
@@ -352,6 +376,47 @@ knowledge-adapters local_files \
   --file-path ./notes/today.txt \
   --output-dir ./artifacts
 ```
+
+Start with a dry run for the default Confluence adapter:
+
+```bash
+knowledge-adapters confluence \
+  --base-url https://example.com/wiki \
+  --target 12345 \
+  --output-dir ./artifacts \
+  --dry-run
+```
+
+Out of the box, this resolves page `12345`, generates stub content for that
+page, previews `pages/12345.md`, previews `manifest.json`, and does not contact
+a live Confluence instance.
+
+Full page URL targets are also accepted under `--base-url` and are normalized to
+canonical `pageId` form for artifact and manifest reporting.
+
+Write the same Confluence artifact after reviewing the plan:
+
+```bash
+knowledge-adapters confluence \
+  --base-url https://example.com/wiki \
+  --target 12345 \
+  --output-dir ./artifacts
+```
+
+Run the opt-in real Confluence client for a single resolved page:
+
+```bash
+CONFLUENCE_BEARER_TOKEN=... knowledge-adapters confluence \
+  --client-mode real \
+  --base-url https://example.com/wiki \
+  --target 12345 \
+  --output-dir ./artifacts
+```
+
+### Repo-Local Developer Examples
+
+These examples assume you cloned the repository, ran `make dev`, and are using
+the local virtual environment entrypoint.
 
 Start with a dry run for the default Confluence adapter:
 

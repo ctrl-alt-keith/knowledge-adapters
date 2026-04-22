@@ -8,6 +8,10 @@ This project is designed to be **public-safe, reproducible, and adapter-focused*
 
 ## Development Setup
 
+This document is for **repo-local development**. If you only want to install
+and run the CLI as an end user, use the installed-user workflow in
+`README.md` instead of the `make` commands below.
+
 Bootstrap your local development environment:
 
 ```bash
@@ -35,6 +39,9 @@ running any other workflow that depends on an authenticated GitHub CLI session.
 ---
 
 ## Common Commands
+
+These commands are for contributors working from a clone of this repository.
+Installed CLI users should not need them.
 
 ```bash
 make check-env      # verify local development prerequisites
