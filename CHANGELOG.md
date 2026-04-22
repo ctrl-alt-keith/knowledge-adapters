@@ -9,6 +9,58 @@ Formal changelog coverage begins at `0.2.0`, when this repository started using
 `CHANGELOG.md` as part of the release flow. Earlier tagged releases `v0.1.0` and
 `v0.1.1` predate that practice and are not backfilled here.
 
+## 0.5.1
+
+This patch release makes the CLI easier to understand and more predictable to
+use. It focuses on clearer output, better first-run guidance, improved error
+messages, and stronger regression coverage.
+
+### CLI output / behavior
+
+- Help output explains the shared adapter flow more clearly.
+- Dry-run and write output are more consistent, with clearer plan, summary, and
+  completion messages.
+- Artifact and manifest paths are shown more explicitly, making it easier to
+  confirm what a run will do.
+- Output-related errors now give more direct guidance when a path is invalid or
+  not writable.
+
+### Confluence improvements
+
+- Confluence runs use clearer wording for target resolution, dry-run plans, and
+  summary output.
+- Real-client failures are easier to understand, with more actionable messages
+  for auth, network, TLS, and not-found cases.
+- URL and target validation are clearer and more consistent, which helps catch
+  input mistakes earlier.
+- Debug output is easier to use when troubleshooting real-client requests.
+
+### local_files improvements
+
+- local_files first-run behavior is explained more clearly in both help text and
+  CLI output.
+- Missing files, unreadable files, directories, and non-UTF-8 input now fail
+  with more helpful guidance.
+- Empty UTF-8 files are handled more clearly and reported in a more
+  understandable way.
+- Write summaries and planned output paths are easier to read.
+
+### test stability
+
+- CLI smoke and regression coverage were tightened around help text, summaries,
+  and manifest behavior to catch output drift earlier.
+- Real-client and packaging checks were hardened around failure handling, edge
+  cases, and release metadata consistency.
+
+### docs/help
+
+- README and built-in help now give clearer first-run guidance for both
+  adapters.
+- Installation and local setup instructions are easier to scan.
+- Confluence docs better explain common usage paths and troubleshooting
+  expectations.
+- local_files docs are clearer about supported input and expected behavior.
+
 ## 0.5.0
 
 - Added opt-in real Confluence tree traversal via `--client-mode real --tree`
