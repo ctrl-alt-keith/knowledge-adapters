@@ -465,14 +465,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             skip_count: int,
         ) -> None:
             descendant_count = max(total_pages - 1, 0)
-            print("  Summary:")
-            print(f"    mode: {mode}")
-            print(
+            summary_lines = (
+                f"    mode: {mode}",
                 "    pages_in_plan: "
-                f"{total_pages} (root 1, descendants {descendant_count})"
+                f"{total_pages} (root 1, descendants {descendant_count})",
+                f"    would_write: {write_count}",
+                f"    would_skip: {skip_count}",
             )
-            print(f"    would_write: {write_count}")
-            print(f"    would_skip: {skip_count}")
+            print("  Summary:")
+            for line in summary_lines:
+                print(line)
 
         if confluence_config.tree:
             if confluence_config.client_mode == "real":

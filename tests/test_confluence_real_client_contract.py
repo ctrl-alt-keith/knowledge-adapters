@@ -299,11 +299,13 @@ def test_stub_and_real_single_page_dry_runs_share_the_same_plan_shape(
     assert f"artifact_path: {stub_output_dir / 'pages' / '12345.md'}" in stub_output
     assert f"manifest_path: {stub_output_dir / 'manifest.json'}" in stub_output
     assert "action: would write" in stub_output
-    assert "  Summary:" in stub_output
-    assert "    mode: single" in stub_output
-    assert "    pages_in_plan: 1 (root 1, descendants 0)" in stub_output
-    assert "    would_write: 1" in stub_output
-    assert "    would_skip: 0" in stub_output
+    assert (
+        "  Summary:\n"
+        "    mode: single\n"
+        "    pages_in_plan: 1 (root 1, descendants 0)\n"
+        "    would_write: 1\n"
+        "    would_skip: 0\n"
+    ) in stub_output
 
     def stub_real_fetch(*args: object, **kwargs: object) -> dict[str, object]:
         return {
@@ -334,11 +336,13 @@ def test_stub_and_real_single_page_dry_runs_share_the_same_plan_shape(
     assert f"artifact_path: {real_output_dir / 'pages' / '12345.md'}" in real_output
     assert f"manifest_path: {real_output_dir / 'manifest.json'}" in real_output
     assert "action: would write" in real_output
-    assert "  Summary:" in real_output
-    assert "    mode: single" in real_output
-    assert "    pages_in_plan: 1 (root 1, descendants 0)" in real_output
-    assert "    would_write: 1" in real_output
-    assert "    would_skip: 0" in real_output
+    assert (
+        "  Summary:\n"
+        "    mode: single\n"
+        "    pages_in_plan: 1 (root 1, descendants 0)\n"
+        "    would_write: 1\n"
+        "    would_skip: 0\n"
+    ) in real_output
 
 
 @pytest.mark.parametrize(
