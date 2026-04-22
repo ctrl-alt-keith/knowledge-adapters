@@ -293,7 +293,7 @@ def test_stub_and_real_single_page_dry_runs_share_the_same_plan_shape(
     stub_output = capsys.readouterr().out
     assert "client_mode: stub" in stub_output
     assert "content_source: scaffolded page content" in stub_output
-    assert "fetch_scope: page" in stub_output
+    assert "mode: single" in stub_output
     assert "run_mode: dry-run" in stub_output
     assert "Plan: Confluence run" in stub_output
     assert "resolved_page_id: 12345" in stub_output
@@ -324,7 +324,7 @@ def test_stub_and_real_single_page_dry_runs_share_the_same_plan_shape(
     real_output = capsys.readouterr().out
     assert "client_mode: real" in real_output
     assert "content_source: live Confluence content" in real_output
-    assert "fetch_scope: page" in real_output
+    assert "mode: single" in real_output
     assert "run_mode: dry-run" in real_output
     assert "auth_method: bearer-env" in real_output
     assert "Plan: Confluence run" in real_output
