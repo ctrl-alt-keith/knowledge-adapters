@@ -128,6 +128,7 @@ def test_local_files_cli_dry_run_reports_output_without_writing(
     assert "content_status: UTF-8 text with content" in captured.out
     assert "action: would write" in captured.out
     assert "Summary: would write 1, would skip 0" in captured.out
+    assert "Dry run complete. No files written." in captured.out
     assert "Line one." in captured.out
 
 
