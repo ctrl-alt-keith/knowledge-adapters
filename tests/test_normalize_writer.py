@@ -8,6 +8,11 @@ from knowledge_adapters.cli import main
 from knowledge_adapters.confluence.manifest import build_manifest_entry, write_manifest
 from knowledge_adapters.confluence.normalize import normalize_to_markdown
 from knowledge_adapters.confluence.writer import write_markdown
+from tests.cli_output_assertions import (
+    assert_dry_run_summary,
+    assert_tree_plan_page_count,
+    assert_write_summary,
+)
 
 
 def test_normalize_to_markdown_includes_expected_sections_and_fields() -> None:
@@ -149,7 +154,7 @@ def test_confluence_cli_dry_run_reports_output_without_writing(
     assert f"artifact_path: {output_path}" in captured.out
     assert f"manifest_path: {output_dir / 'manifest.json'}" in captured.out
     assert "action: would write" in captured.out
-    assert "Summary: would write 1, would skip 0" in captured.out
+    assert_dry_run_summary(captured.out, would_write=1, would_skip=0)
     assert "# stub-page-12345" in captured.out
 
 
@@ -251,7 +256,7 @@ def test_confluence_cli_full_flow_keeps_dry_run_and_write_artifacts_in_sync(
     assert f"artifact_path: {page_output_path}" in dry_run_output
     assert f"manifest_path: {manifest_output_path}" in dry_run_output
     assert "action: would write" in dry_run_output
-    assert "Summary: would write 1, would skip 0" in dry_run_output
+    assert_dry_run_summary(dry_run_output, would_write=1, would_skip=0)
 
     write_exit_code = main(
         [
@@ -280,7 +285,7 @@ def test_confluence_cli_full_flow_keeps_dry_run_and_write_artifacts_in_sync(
     assert f"manifest_path: {manifest_output_path}" in write_output
     assert "action: write" in write_output
     assert f"Wrote: {page_output_path}" in write_output
-    assert "Summary: wrote 1, skipped 0" in write_output
+    assert_write_summary(write_output, wrote=1, skipped=0)
     assert f"Manifest: {manifest_output_path}" in write_output
 
     payload = json.loads(manifest_output_path.read_text(encoding="utf-8"))
@@ -352,8 +357,8 @@ def test_confluence_cli_tree_dry_run_reports_manifest_path(
     assert "max_depth: 0" in captured.out
     assert f"manifest_path: {output_dir / 'manifest.json'}" in captured.out
     assert "Plan: Confluence run" in captured.out
-    assert "unique_pages: 1" in captured.out
-    assert "Summary: would write 1, would skip 0" in captured.out
+    assert_tree_plan_page_count(captured.out, count=1)
+    assert_dry_run_summary(captured.out, would_write=1, would_skip=0)
 
 
 def test_confluence_cli_invalid_target_reports_expected_shapes(

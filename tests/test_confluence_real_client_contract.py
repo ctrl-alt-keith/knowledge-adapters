@@ -14,6 +14,7 @@ from pytest import CaptureFixture, MonkeyPatch
 
 from knowledge_adapters.cli import main
 from knowledge_adapters.confluence.models import ResolvedTarget
+from tests.cli_output_assertions import assert_dry_run_summary, assert_write_summary
 
 
 def _confluence_argv(output_dir: Path, *extra_args: str) -> list[str]:
@@ -242,7 +243,7 @@ def test_stub_and_real_single_page_write_runs_share_the_same_cli_shape(
     assert "action: write" in stub_output
     assert "auth_method:" not in stub_output
     assert f"Manifest: {stub_output_dir / 'manifest.json'}" in stub_output
-    assert "Summary: wrote 1, skipped 0" in stub_output
+    assert_write_summary(stub_output, wrote=1, skipped=0)
 
     def stub_real_fetch(*args: object, **kwargs: object) -> dict[str, object]:
         return {
@@ -275,7 +276,7 @@ def test_stub_and_real_single_page_write_runs_share_the_same_cli_shape(
     assert "action: write" in real_output
     assert "auth_method: bearer-env" in real_output
     assert f"Manifest: {real_output_dir / 'manifest.json'}" in real_output
-    assert "Summary: wrote 1, skipped 0" in real_output
+    assert_write_summary(real_output, wrote=1, skipped=0)
 
 
 def test_stub_and_real_single_page_dry_runs_share_the_same_plan_shape(
@@ -299,7 +300,7 @@ def test_stub_and_real_single_page_dry_runs_share_the_same_plan_shape(
     assert f"artifact_path: {stub_output_dir / 'pages' / '12345.md'}" in stub_output
     assert f"manifest_path: {stub_output_dir / 'manifest.json'}" in stub_output
     assert "action: would write" in stub_output
-    assert "Summary: would write 1, would skip 0" in stub_output
+    assert_dry_run_summary(stub_output, would_write=1, would_skip=0)
 
     def stub_real_fetch(*args: object, **kwargs: object) -> dict[str, object]:
         return {
@@ -330,7 +331,7 @@ def test_stub_and_real_single_page_dry_runs_share_the_same_plan_shape(
     assert f"artifact_path: {real_output_dir / 'pages' / '12345.md'}" in real_output
     assert f"manifest_path: {real_output_dir / 'manifest.json'}" in real_output
     assert "action: would write" in real_output
-    assert "Summary: would write 1, would skip 0" in real_output
+    assert_dry_run_summary(real_output, would_write=1, would_skip=0)
 
 
 @pytest.mark.parametrize(

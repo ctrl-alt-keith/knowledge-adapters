@@ -9,6 +9,11 @@ from pytest import CaptureFixture, MonkeyPatch
 
 from knowledge_adapters.cli import main
 from knowledge_adapters.confluence.models import ResolvedTarget
+from tests.cli_output_assertions import (
+    assert_dry_run_summary,
+    assert_tree_plan_page_count,
+    assert_write_summary,
+)
 
 
 def _synthetic_pages() -> dict[str, dict[str, object]]:
@@ -252,7 +257,7 @@ def test_incremental_dry_run_reports_both_would_write_and_would_skip_without_wri
     captured = capsys.readouterr()
     assert f"would skip {existing_page}" in captured.out
     assert f"would write {_page_path(output_dir, '200')}" in captured.out
-    assert "Summary: would write 1, would skip 1" in captured.out
+    assert_dry_run_summary(captured.out, would_write=1, would_skip=1)
     assert existing_page.read_text(encoding="utf-8") == "already written\n"
     assert not _page_path(output_dir, "200").exists()
     assert _manifest_path(output_dir).read_text(encoding="utf-8") == original_manifest
@@ -477,7 +482,7 @@ def test_incremental_normal_run_handles_larger_mixed_write_and_skip_set(
     assert f"Skipped: {_page_path(output_dir, '300')}" in captured.out
     assert f"Wrote: {_page_path(output_dir, '200')}" in captured.out
     assert f"Wrote: {_page_path(output_dir, '400')}" in captured.out
-    assert "Summary: wrote 2, skipped 2" in captured.out
+    assert_write_summary(captured.out, wrote=2, skipped=2)
 
 
 def test_incremental_dry_run_ignores_non_identity_manifest_fields_for_skip(
@@ -514,7 +519,7 @@ def test_incremental_dry_run_ignores_non_identity_manifest_fields_for_skip(
 
     captured = capsys.readouterr()
     assert f"would skip {existing_page}" in captured.out
-    assert "Summary: would write 1, would skip 1" in captured.out
+    assert_dry_run_summary(captured.out, would_write=1, would_skip=1)
 
 
 def test_incremental_run_fails_fast_for_duplicate_output_paths_in_prior_manifest(
@@ -610,7 +615,7 @@ def test_incremental_output_directory_reuse_handles_overlapping_and_new_pages(
     ]
 
     captured = capsys.readouterr()
-    assert "Summary: wrote 2, skipped 1" in captured.out
+    assert_write_summary(captured.out, wrote=2, skipped=1)
 
 
 def test_incremental_dry_run_summary_reports_mixed_write_and_skip_counts(
@@ -682,5 +687,5 @@ def test_incremental_dry_run_summary_reports_mixed_write_and_skip_counts(
     assert not _page_path(output_dir, "400").exists()
 
     captured = capsys.readouterr()
-    assert "Summary: would write 2, would skip 2" in captured.out
-    assert "unique_pages: 4" in captured.out
+    assert_dry_run_summary(captured.out, would_write=2, would_skip=2)
+    assert_tree_plan_page_count(captured.out, count=4)
