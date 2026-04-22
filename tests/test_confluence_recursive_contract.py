@@ -274,6 +274,8 @@ def test_recursive_dry_run_reports_unique_planned_outputs_without_writing(
     captured = capsys.readouterr()
     output = captured.out
 
+    assert "mode: tree" in output
+    assert "max_depth: 2 (root + children + grandchildren)" in output
     for page_id in ["100", "200", "300", "205", "210"]:
         assert output.count(f"{output_dir / 'pages' / f'{page_id}.md'}") == 1
     assert output.count("unique_pages: 5") == 1

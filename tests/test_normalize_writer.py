@@ -141,7 +141,7 @@ def test_confluence_cli_dry_run_reports_output_without_writing(
     assert "Confluence adapter invoked" in captured.out
     assert "client_mode: stub" in captured.out
     assert "content_source: scaffolded page content" in captured.out
-    assert "fetch_scope: page" in captured.out
+    assert "mode: single" in captured.out
     assert "run_mode: dry-run" in captured.out
     assert "Plan: Confluence run" in captured.out
     assert "resolved_page_id: 12345" in captured.out
@@ -243,7 +243,7 @@ def test_confluence_cli_full_flow_keeps_dry_run_and_write_artifacts_in_sync(
     dry_run_output = capsys.readouterr().out
     assert "client_mode: stub" in dry_run_output
     assert "content_source: scaffolded page content" in dry_run_output
-    assert "fetch_scope: page" in dry_run_output
+    assert "mode: single" in dry_run_output
     assert "run_mode: dry-run" in dry_run_output
     assert "Plan: Confluence run" in dry_run_output
     assert "resolved_page_id: 12345" in dry_run_output
@@ -348,8 +348,8 @@ def test_confluence_cli_tree_dry_run_reports_manifest_path(
     assert exit_code == 0
 
     captured = capsys.readouterr()
-    assert "fetch_scope: tree" in captured.out
-    assert "max_depth: 0" in captured.out
+    assert "mode: tree" in captured.out
+    assert "max_depth: 0 (root only)" in captured.out
     assert f"manifest_path: {output_dir / 'manifest.json'}" in captured.out
     assert "Plan: Confluence run" in captured.out
     assert "unique_pages: 1" in captured.out
