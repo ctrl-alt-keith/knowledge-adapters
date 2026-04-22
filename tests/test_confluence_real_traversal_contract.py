@@ -246,6 +246,27 @@ def test_real_tree_depth_semantics_use_separate_page_fetch_and_child_discovery(
     assert child_list_calls == expected_child_calls
 
 
+def test_real_tree_run_does_not_report_stub_discovery_limit(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    exit_code, _output_dir, _page_fetch_counts, _child_list_calls = _run_real_recursive_cli(
+        tmp_path,
+        monkeypatch,
+        max_depth=1,
+    )
+
+    assert exit_code == 0
+
+    output = capsys.readouterr().out
+    assert "client_mode: real" in output
+    assert (
+        "note: stub mode does not support descendant discovery; use --client-mode real "
+        "to discover descendants from Confluence."
+    ) not in output
+
+
 def test_real_tree_orders_pages_breadth_first_then_lexical_without_parent_adjacency(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,

@@ -197,6 +197,33 @@ Stub content for page 12345.
     ]
 
 
+def test_confluence_cli_tree_dry_run_with_stub_client_reports_discovery_limit(
+    tmp_path: Path,
+) -> None:
+    result = _run_cli(
+        tmp_path,
+        "confluence",
+        "--base-url",
+        "https://example.com/wiki",
+        "--target",
+        "12345",
+        "--output-dir",
+        "./artifacts",
+        "--tree",
+        "--max-depth",
+        "1",
+        "--dry-run",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "client_mode: stub" in result.stdout
+    assert "mode: tree" in result.stdout
+    assert (
+        "note: stub mode does not support descendant discovery; use --client-mode real "
+        "to discover descendants from Confluence."
+    ) in result.stdout
+
+
 def test_confluence_help_lists_supported_auth_methods_and_examples(
     tmp_path: Path,
 ) -> None:

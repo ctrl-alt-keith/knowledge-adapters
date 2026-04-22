@@ -511,6 +511,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             for line in summary_lines:
                 print(line)
 
+        def _print_stub_tree_mode_note() -> None:
+            if not (confluence_config.tree and confluence_config.client_mode == "stub"):
+                return
+
+            print(
+                "  note: stub mode does not support descendant discovery; "
+                "use --client-mode real to discover descendants from Confluence."
+            )
+
         if confluence_config.tree:
             if confluence_config.client_mode == "real":
                 try:
@@ -562,6 +571,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"  max_depth: {confluence_config.max_depth}")
             print(f"  Manifest: {_display_output_path(manifest_output_path)}")
             print(f"  pages_in_tree: {len(page_records)} (root + descendants)")
+            _print_stub_tree_mode_note()
 
             if confluence_config.dry_run:
                 _print_confluence_dry_run_summary(
