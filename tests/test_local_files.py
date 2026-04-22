@@ -42,7 +42,10 @@ def test_local_files_reuses_shared_normalizer() -> None:
     assert markdown.endswith("Hello from disk.\n")
 
 
-def test_local_files_cli_writes_normalized_markdown(tmp_path: Path) -> None:
+def test_local_files_cli_writes_normalized_markdown(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
     source_file = tmp_path / "meeting-notes.txt"
     source_file.write_text("Line one.\nLine two.\n", encoding="utf-8")
     output_dir = tmp_path / "out"
@@ -58,6 +61,10 @@ def test_local_files_cli_writes_normalized_markdown(tmp_path: Path) -> None:
     )
 
     assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "Summary: wrote 1, skipped 0" in captured.out
+    assert f"Artifact: {output_dir / 'pages' / 'meeting-notes.md'}" in captured.out
+    assert f"Manifest: {output_dir / 'manifest.json'}" in captured.out
 
     output_path = output_dir / "pages" / "meeting-notes.md"
     assert output_path.exists()
@@ -123,11 +130,12 @@ def test_local_files_cli_dry_run_reports_output_without_writing(
     assert "Plan: Local files run" in captured.out
     assert f"resolved_file_path: {source_file.resolve()}" in captured.out
     assert f"source_url: {source_file.resolve().as_uri()}" in captured.out
-    assert f"artifact_path: {output_path}" in captured.out
-    assert f"manifest_path: {output_dir / 'manifest.json'}" in captured.out
+    assert f"Artifact: {output_path}" in captured.out
+    assert f"Manifest: {output_dir / 'manifest.json'}" in captured.out
     assert "content_status: UTF-8 text with content" in captured.out
     assert "action: would write" in captured.out
     assert "Summary: would write 1, would skip 0" in captured.out
+    assert "Dry run complete. No files written." in captured.out
     assert "Line one." in captured.out
 
 
