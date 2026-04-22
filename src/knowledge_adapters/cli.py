@@ -437,10 +437,32 @@ def main(argv: Sequence[str] | None = None) -> int:
             if dry_run:
                 write_count = 1 if action == "write" else 0
                 skip_count = 1 if action == "skip" else 0
-                print(f"  Summary: would write {write_count}, would skip {skip_count}")
+                _print_confluence_dry_run_summary(
+                    mode="single",
+                    total_pages=1,
+                    write_count=write_count,
+                    skip_count=skip_count,
+                )
             if markdown is not None:
                 print()
                 print(markdown)
+
+        def _print_confluence_dry_run_summary(
+            *,
+            mode: str,
+            total_pages: int,
+            write_count: int,
+            skip_count: int,
+        ) -> None:
+            descendant_count = max(total_pages - 1, 0)
+            print("  Summary:")
+            print(f"    mode: {mode}")
+            print(
+                "    pages_in_plan: "
+                f"{total_pages} (root 1, descendants {descendant_count})"
+            )
+            print(f"    would_write: {write_count}")
+            print(f"    would_skip: {skip_count}")
 
         if confluence_config.tree:
             if confluence_config.client_mode == "real":
@@ -495,11 +517,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"  pages_in_tree: {len(page_records)} (root + descendants)")
 
             if confluence_config.dry_run:
+                _print_confluence_dry_run_summary(
+                    mode="tree",
+                    total_pages=len(page_records),
+                    write_count=write_count,
+                    skip_count=skip_count,
+                )
                 for _page, output_path, action in page_records:
                     print(f"  would {action} {_display_output_path(output_path)}")
-                print(
-                    f"  Summary: dry-run preview; write {write_count}, skip {skip_count}"
-                )
                 return 0
 
             files = [

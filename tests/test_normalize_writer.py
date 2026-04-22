@@ -149,7 +149,11 @@ def test_confluence_cli_dry_run_reports_output_without_writing(
     assert f"artifact_path: {output_path}" in captured.out
     assert f"manifest_path: {output_dir / 'manifest.json'}" in captured.out
     assert "action: would write" in captured.out
-    assert "Summary: would write 1, would skip 0" in captured.out
+    assert "  Summary:" in captured.out
+    assert "    mode: single" in captured.out
+    assert "    pages_in_plan: 1 (root 1, descendants 0)" in captured.out
+    assert "    would_write: 1" in captured.out
+    assert "    would_skip: 0" in captured.out
     assert "# stub-page-12345" in captured.out
 
 
@@ -251,7 +255,11 @@ def test_confluence_cli_full_flow_keeps_dry_run_and_write_artifacts_in_sync(
     assert f"artifact_path: {page_output_path}" in dry_run_output
     assert f"manifest_path: {manifest_output_path}" in dry_run_output
     assert "action: would write" in dry_run_output
-    assert "Summary: would write 1, would skip 0" in dry_run_output
+    assert "  Summary:" in dry_run_output
+    assert "    mode: single" in dry_run_output
+    assert "    pages_in_plan: 1 (root 1, descendants 0)" in dry_run_output
+    assert "    would_write: 1" in dry_run_output
+    assert "    would_skip: 0" in dry_run_output
 
     write_exit_code = main(
         [
@@ -353,7 +361,11 @@ def test_confluence_cli_tree_dry_run_reports_manifest_path(
     assert f"manifest_path: {output_dir / 'manifest.json'}" in captured.out
     assert "Plan: Confluence run" in captured.out
     assert "pages_in_tree: 1" in captured.out
-    assert "Summary: dry-run preview; write 1, skip 0" in captured.out
+    assert "  Summary:" in captured.out
+    assert "    mode: tree" in captured.out
+    assert "    pages_in_plan: 1 (root 1, descendants 0)" in captured.out
+    assert "    would_write: 1" in captured.out
+    assert "    would_skip: 0" in captured.out
 
 
 def test_confluence_cli_invalid_target_reports_expected_shapes(
