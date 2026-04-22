@@ -73,7 +73,7 @@ def test_local_files_cli_smoke_uses_installed_entrypoint_with_readme_style_args(
     assert "Plan: Local files run" in result.stdout
     assert f"resolved_file_path: {source_file.resolve()}" in result.stdout
     assert f"source_url: {source_file.resolve().as_uri()}" in result.stdout
-    assert f"artifact_path: {tmp_path / 'artifacts' / 'pages' / 'today.md'}" in result.stdout
+    assert f"Artifact: {tmp_path / 'artifacts' / 'pages' / 'today.md'}" in result.stdout
     assert "Wrote:" in result.stdout
     assert_write_summary(result.stdout, wrote=1, skipped=0)
     assert f"Artifact: {tmp_path / 'artifacts' / 'pages' / 'today.md'}" in result.stdout
@@ -159,7 +159,7 @@ def test_confluence_cli_smoke_uses_installed_entrypoint_with_default_stub_client
     assert "run_mode: write" in result.stdout
     assert "Plan: Confluence run" in result.stdout
     assert "resolved_page_id: 12345" in result.stdout
-    assert "artifact_path:" in result.stdout
+    assert "Artifact:" in result.stdout
     assert "auth_method:" not in result.stdout
     assert "Wrote:" in result.stdout
     assert_write_summary(result.stdout, wrote=1, skipped=0)

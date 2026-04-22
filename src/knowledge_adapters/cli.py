@@ -457,8 +457,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("\nPlan: Confluence run")
             print(f"  resolved_page_id: {page_id}")
             print(f"  source_url: {source_url}")
-            print(f"  artifact_path: {_display_output_path(output_path)}")
-            print(f"  manifest_path: {_display_output_path(manifest_output_path)}")
+            print(f"  Artifact: {_display_output_path(output_path)}")
+            print(f"  Manifest: {_display_output_path(manifest_output_path)}")
             print(f"  action: {'would ' if dry_run else ''}{action}")
             if dry_run:
                 write_count = 1 if action == "write" else 0
@@ -541,7 +541,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("\nPlan: Confluence run")
             print(f"  resolved_root_page_id: {root_page_id} (root page)")
             print(f"  max_depth: {confluence_config.max_depth}")
-            print(f"  manifest_path: {_display_output_path(manifest_output_path)}")
+            print(f"  Manifest: {_display_output_path(manifest_output_path)}")
             print(f"  pages_in_tree: {len(page_records)} (root + descendants)")
 
             if confluence_config.dry_run:
@@ -588,7 +588,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     exc=exc,
                 )
             print(f"\nSummary: wrote {write_count}, skipped {skip_count}")
-            print(f"\nManifest: {_display_output_path(manifest)}")
+            print(f"Manifest: {_display_output_path(manifest)}")
             print_write_complete(output_dir)
             return 0
 
@@ -719,8 +719,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("\nPlan: Local files run")
         print(f"  resolved_file_path: {resolved_input_path}")
         print(f"  source_url: {page.get('source_url', '')}")
-        print(f"  artifact_path: {output_path}")
-        print(f"  manifest_path: {manifest_output_path}")
+        print(f"  Artifact: {output_path}")
+        print(f"  Manifest: {manifest_output_path}")
         content = str(page.get("content", ""))
         if content:
             print("  content_status: UTF-8 text with content")
@@ -762,7 +762,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 exc=exc,
             )
         print(f"\nWrote: {output_path}")
-        print("\nSummary: wrote 1 file")
+        print("\nSummary: wrote 1, skipped 0")
         print(f"Artifact: {output_path}")
         print(f"Manifest: {output_dir / manifest.relative_to(output_dir_input)}")
         print_write_complete(output_dir)

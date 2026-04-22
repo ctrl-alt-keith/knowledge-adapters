@@ -29,7 +29,7 @@ def assert_single_page_confluence_dry_run_summary(
     assert "Confluence adapter invoked" in output
     assert f"client_mode: {client_mode}" in output
     assert f"content_source: {content_source}" in output
-    assert "fetch_scope: page" in output
+    assert "mode: single" in output
     assert "run_mode: dry-run" in output
     if auth_method is None:
         assert "auth_method:" not in output
@@ -39,8 +39,8 @@ def assert_single_page_confluence_dry_run_summary(
     assert "Plan: Confluence run" in output
     assert f"resolved_page_id: {page_id}" in output
     assert f"source_url: {source_url}" in output
-    assert f"artifact_path: {artifact_path}" in output
-    assert f"manifest_path: {manifest_path}" in output
+    assert f"Artifact: {artifact_path}" in output
+    assert f"Manifest: {manifest_path}" in output
     assert f"action: would {action}" in output
     assert summary_block in output
     assert "Dry run complete. No files written." in output
@@ -72,7 +72,7 @@ def assert_tree_confluence_dry_run_summary(
     assert "Confluence adapter invoked" in output
     assert f"client_mode: {client_mode}" in output
     assert f"content_source: {content_source}" in output
-    assert "fetch_scope: tree" in output
+    assert "mode: tree" in output
     assert "run_mode: dry-run" in output
     if auth_method is None:
         assert "auth_method:" not in output
@@ -82,7 +82,7 @@ def assert_tree_confluence_dry_run_summary(
     assert "Plan: Confluence run" in output
     assert f"resolved_root_page_id: {root_page_id} (root page)" in output
     assert f"max_depth: {max_depth}" in output
-    assert f"manifest_path: {manifest_path}" in output
+    assert f"Manifest: {manifest_path}" in output
     assert f"pages_in_tree: {unique_pages} (root + descendants)" in output
     assert summary_block in output
     for action, path in planned_actions:
