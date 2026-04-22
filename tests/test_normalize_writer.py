@@ -8,6 +8,7 @@ from knowledge_adapters.cli import main
 from knowledge_adapters.confluence.manifest import build_manifest_entry, write_manifest
 from knowledge_adapters.confluence.normalize import normalize_to_markdown
 from knowledge_adapters.confluence.writer import write_markdown
+from tests.cli_output_assertions import assert_contains_normalized
 
 
 def test_normalize_to_markdown_includes_expected_sections_and_fields() -> None:
@@ -145,11 +146,14 @@ def test_confluence_cli_dry_run_reports_output_without_writing(
     assert "run_mode: dry-run" in captured.out
     assert "Plan: Confluence run" in captured.out
     assert "resolved_page_id: 12345" in captured.out
-    assert "source_url: https://example.com/wiki/pages/viewpage.action?pageId=12345" in captured.out
-    assert f"artifact_path: {output_path}" in captured.out
-    assert f"manifest_path: {output_dir / 'manifest.json'}" in captured.out
-    assert "action: would write" in captured.out
-    assert "Summary: would write 1, would skip 0" in captured.out
+    assert_contains_normalized(
+        captured.out,
+        "source_url: https://example.com/wiki/pages/viewpage.action?pageId=12345",
+    )
+    assert_contains_normalized(captured.out, f"artifact_path: {output_path}")
+    assert_contains_normalized(captured.out, f"manifest_path: {output_dir / 'manifest.json'}")
+    assert_contains_normalized(captured.out, "action: would write")
+    assert_contains_normalized(captured.out, "Summary: would write 1, would skip 0")
     assert "# stub-page-12345" in captured.out
 
 
@@ -247,11 +251,11 @@ def test_confluence_cli_full_flow_keeps_dry_run_and_write_artifacts_in_sync(
     assert "run_mode: dry-run" in dry_run_output
     assert "Plan: Confluence run" in dry_run_output
     assert "resolved_page_id: 12345" in dry_run_output
-    assert f"source_url: {canonical_source_url}" in dry_run_output
-    assert f"artifact_path: {page_output_path}" in dry_run_output
-    assert f"manifest_path: {manifest_output_path}" in dry_run_output
-    assert "action: would write" in dry_run_output
-    assert "Summary: would write 1, would skip 0" in dry_run_output
+    assert_contains_normalized(dry_run_output, f"source_url: {canonical_source_url}")
+    assert_contains_normalized(dry_run_output, f"artifact_path: {page_output_path}")
+    assert_contains_normalized(dry_run_output, f"manifest_path: {manifest_output_path}")
+    assert_contains_normalized(dry_run_output, "action: would write")
+    assert_contains_normalized(dry_run_output, "Summary: would write 1, would skip 0")
 
     write_exit_code = main(
         [

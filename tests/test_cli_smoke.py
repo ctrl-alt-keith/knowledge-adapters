@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tests.cli_output_assertions import assert_contains_normalized
+
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
@@ -32,18 +34,27 @@ def test_top_level_help_introduces_shared_cli_flow(tmp_path: Path) -> None:
     result = _run_cli(tmp_path, "--help")
 
     assert result.returncode == 0, result.stderr
-    assert "Normalize knowledge sources into a shared local artifact layout." in result.stdout
-    assert "plans a markdown artifact under pages/ plus manifest.json" in result.stdout
+    assert_contains_normalized(
+        result.stdout,
+        "Normalize knowledge sources into a shared local artifact layout.",
+    )
+    assert_contains_normalized(
+        result.stdout,
+        "plans a markdown artifact under pages/ plus manifest.json",
+    )
     assert "Normalize Confluence content into shared artifacts." in result.stdout
-    assert (
-        "Normalize one local UTF-8 text file into shared\n"
-        "                        artifacts." in result.stdout
+    assert_contains_normalized(
+        result.stdout,
+        "Normalize one local UTF-8 text file into shared artifacts.",
     )
-    assert (
-        "Start with --dry-run to preview the source, artifact path, manifest path,"
-        in result.stdout
+    assert_contains_normalized(
+        result.stdout,
+        "Start with --dry-run to preview the source, artifact path, manifest path, and action.",
     )
-    assert "Re-run without --dry-run to write the same artifact layout" in result.stdout
+    assert_contains_normalized(
+        result.stdout,
+        "Re-run without --dry-run to write the same artifact layout under ./artifacts.",
+    )
 
 
 def test_local_files_cli_smoke_uses_installed_entrypoint_with_readme_style_args(
