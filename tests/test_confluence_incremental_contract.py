@@ -252,7 +252,11 @@ def test_incremental_dry_run_reports_both_would_write_and_would_skip_without_wri
     captured = capsys.readouterr()
     assert f"would skip {existing_page}" in captured.out
     assert f"would write {_page_path(output_dir, '200')}" in captured.out
-    assert "Summary: dry-run preview; write 1, skip 1" in captured.out
+    assert "  Summary:" in captured.out
+    assert "    mode: tree" in captured.out
+    assert "    pages_in_plan: 2 (root 1, descendants 1)" in captured.out
+    assert "    would_write: 1" in captured.out
+    assert "    would_skip: 1" in captured.out
     assert existing_page.read_text(encoding="utf-8") == "already written\n"
     assert not _page_path(output_dir, "200").exists()
     assert _manifest_path(output_dir).read_text(encoding="utf-8") == original_manifest
@@ -514,7 +518,11 @@ def test_incremental_dry_run_ignores_non_identity_manifest_fields_for_skip(
 
     captured = capsys.readouterr()
     assert f"would skip {existing_page}" in captured.out
-    assert "Summary: dry-run preview; write 1, skip 1" in captured.out
+    assert "  Summary:" in captured.out
+    assert "    mode: tree" in captured.out
+    assert "    pages_in_plan: 2 (root 1, descendants 1)" in captured.out
+    assert "    would_write: 1" in captured.out
+    assert "    would_skip: 1" in captured.out
 
 
 def test_incremental_run_fails_fast_for_duplicate_output_paths_in_prior_manifest(
@@ -682,5 +690,9 @@ def test_incremental_dry_run_summary_reports_mixed_write_and_skip_counts(
     assert not _page_path(output_dir, "400").exists()
 
     captured = capsys.readouterr()
-    assert "Summary: dry-run preview; write 2, skip 2" in captured.out
+    assert "  Summary:" in captured.out
+    assert "    mode: tree" in captured.out
+    assert "    pages_in_plan: 4 (root 1, descendants 3)" in captured.out
+    assert "    would_write: 2" in captured.out
+    assert "    would_skip: 2" in captured.out
     assert "pages_in_tree: 4" in captured.out
