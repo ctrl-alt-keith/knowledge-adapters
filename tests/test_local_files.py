@@ -42,7 +42,10 @@ def test_local_files_reuses_shared_normalizer() -> None:
     assert markdown.endswith("Hello from disk.\n")
 
 
-def test_local_files_cli_writes_normalized_markdown(tmp_path: Path) -> None:
+def test_local_files_cli_writes_normalized_markdown(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
     source_file = tmp_path / "meeting-notes.txt"
     source_file.write_text("Line one.\nLine two.\n", encoding="utf-8")
     output_dir = tmp_path / "out"
@@ -58,6 +61,10 @@ def test_local_files_cli_writes_normalized_markdown(tmp_path: Path) -> None:
     )
 
     assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "Summary: wrote 1 file" in captured.out
+    assert f"Artifact: {output_dir / 'pages' / 'meeting-notes.md'}" in captured.out
+    assert f"Manifest: {output_dir / 'manifest.json'}" in captured.out
 
     output_path = output_dir / "pages" / "meeting-notes.md"
     assert output_path.exists()
