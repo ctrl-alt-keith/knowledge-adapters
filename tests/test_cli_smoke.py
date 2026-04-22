@@ -73,11 +73,11 @@ def test_local_files_cli_smoke_uses_installed_entrypoint_with_readme_style_args(
     assert "Plan: Local files run" in result.stdout
     assert f"resolved_file_path: {source_file.resolve()}" in result.stdout
     assert f"source_url: {source_file.resolve().as_uri()}" in result.stdout
-    assert f"Artifact: {tmp_path / 'artifacts' / 'pages' / 'today.md'}" in result.stdout
+    assert f"Artifact path: {tmp_path / 'artifacts' / 'pages' / 'today.md'}" in result.stdout
     assert "Wrote:" in result.stdout
     assert_write_summary(result.stdout, wrote=1, skipped=0)
-    assert f"Artifact: {tmp_path / 'artifacts' / 'pages' / 'today.md'}" in result.stdout
-    assert f"Manifest: {tmp_path / 'artifacts' / 'manifest.json'}" in result.stdout
+    assert f"Artifact path: {tmp_path / 'artifacts' / 'pages' / 'today.md'}" in result.stdout
+    assert f"Manifest path: {tmp_path / 'artifacts' / 'manifest.json'}" in result.stdout
     assert f"Write complete. Artifacts created under {tmp_path / 'artifacts'}" in result.stdout
 
     output_path = tmp_path / "artifacts" / "pages" / "today.md"

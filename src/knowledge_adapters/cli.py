@@ -719,8 +719,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("\nPlan: Local files run")
         print(f"  resolved_file_path: {resolved_input_path}")
         print(f"  source_url: {page.get('source_url', '')}")
-        print(f"  Artifact: {output_path}")
-        print(f"  Manifest: {manifest_output_path}")
+        print(f"  Artifact path: {output_path}")
+        print(f"  Manifest path: {manifest_output_path}")
         content = str(page.get("content", ""))
         if content:
             print("  content_status: UTF-8 text with content")
@@ -763,8 +763,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         print(f"\nWrote: {output_path}")
         print("\nSummary: wrote 1, skipped 0")
-        print(f"Artifact: {output_path}")
-        print(f"Manifest: {output_dir / manifest.relative_to(output_dir_input)}")
+        print(f"Artifact path: {output_path}")
+        print(f"Manifest path: {output_dir / manifest.relative_to(output_dir_input)}")
         print_write_complete(output_dir)
         return 0
 
