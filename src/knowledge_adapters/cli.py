@@ -704,7 +704,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 exc=exc,
             )
         print(f"\nWrote: {output_path}")
-        print("\nSummary: wrote 1, skipped 0")
+        print("\nSummary: wrote 1 file")
+        print(f"Artifact: {output_path}")
         print(f"Manifest: {output_dir / manifest.relative_to(output_dir_input)}")
         return 0
 

@@ -71,8 +71,9 @@ def test_local_files_cli_smoke_uses_installed_entrypoint_with_readme_style_args(
     assert f"source_url: {source_file.resolve().as_uri()}" in result.stdout
     assert f"artifact_path: {tmp_path / 'artifacts' / 'pages' / 'today.md'}" in result.stdout
     assert "Wrote:" in result.stdout
-    assert "Summary: wrote 1, skipped 0" in result.stdout
-    assert "Manifest:" in result.stdout
+    assert "Summary: wrote 1 file" in result.stdout
+    assert f"Artifact: {tmp_path / 'artifacts' / 'pages' / 'today.md'}" in result.stdout
+    assert f"Manifest: {tmp_path / 'artifacts' / 'manifest.json'}" in result.stdout
 
     output_path = tmp_path / "artifacts" / "pages" / "today.md"
     assert output_path.read_text(encoding="utf-8") == (
