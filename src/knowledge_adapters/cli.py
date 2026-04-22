@@ -459,7 +459,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"  source_url: {source_url}")
             print(f"  Artifact: {_display_output_path(output_path)}")
             print(f"  Manifest: {_display_output_path(manifest_output_path)}")
-            print(f"  action: {'would ' if dry_run else ''}{action}")
+            print(f"  planned_action: {'would ' if dry_run else ''}{action}")
             if dry_run:
                 write_count = 1 if action == "write" else 0
                 skip_count = 1 if action == "skip" else 0

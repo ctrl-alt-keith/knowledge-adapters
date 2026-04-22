@@ -240,7 +240,7 @@ def test_stub_and_real_single_page_write_runs_share_the_same_cli_shape(
     assert "resolved_page_id: 12345" in stub_output
     assert f"Artifact: {stub_output_dir / 'pages' / '12345.md'}" in stub_output
     assert f"Manifest: {stub_output_dir / 'manifest.json'}" in stub_output
-    assert "action: write" in stub_output
+    assert "planned_action: write" in stub_output
     assert "auth_method:" not in stub_output
     assert f"Manifest: {stub_output_dir / 'manifest.json'}" in stub_output
     assert_write_summary(stub_output, wrote=1, skipped=0)
@@ -273,7 +273,7 @@ def test_stub_and_real_single_page_write_runs_share_the_same_cli_shape(
     assert "resolved_page_id: 12345" in real_output
     assert f"Artifact: {real_output_dir / 'pages' / '12345.md'}" in real_output
     assert f"Manifest: {real_output_dir / 'manifest.json'}" in real_output
-    assert "action: write" in real_output
+    assert "planned_action: write" in real_output
     assert "auth_method: bearer-env" in real_output
     assert f"Manifest: {real_output_dir / 'manifest.json'}" in real_output
     assert_write_summary(real_output, wrote=1, skipped=0)
@@ -300,7 +300,7 @@ def test_stub_and_real_single_page_dry_runs_share_the_same_plan_shape(
     assert "source_url: https://example.com/wiki/pages/viewpage.action?pageId=12345" in stub_output
     assert f"Artifact: {stub_output_dir / 'pages' / '12345.md'}" in stub_output
     assert f"Manifest: {stub_output_dir / 'manifest.json'}" in stub_output
-    assert "action: would write" in stub_output
+    assert "planned_action: would write" in stub_output
     assert_dry_run_summary(stub_output, would_write=1, would_skip=0)
 
     def stub_real_fetch(*args: object, **kwargs: object) -> dict[str, object]:
@@ -332,7 +332,7 @@ def test_stub_and_real_single_page_dry_runs_share_the_same_plan_shape(
     assert "source_url: https://example.com/wiki/spaces/ENG/pages/12345" in real_output
     assert f"Artifact: {real_output_dir / 'pages' / '12345.md'}" in real_output
     assert f"Manifest: {real_output_dir / 'manifest.json'}" in real_output
-    assert "action: would write" in real_output
+    assert "planned_action: would write" in real_output
     assert_dry_run_summary(real_output, would_write=1, would_skip=0)
 
 

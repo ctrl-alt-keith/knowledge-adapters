@@ -153,7 +153,7 @@ def test_confluence_cli_dry_run_reports_output_without_writing(
     assert "source_url: https://example.com/wiki/pages/viewpage.action?pageId=12345" in captured.out
     assert f"Artifact: {output_path}" in captured.out
     assert f"Manifest: {output_dir / 'manifest.json'}" in captured.out
-    assert "action: would write" in captured.out
+    assert "planned_action: would write" in captured.out
     assert_dry_run_summary(captured.out, would_write=1, would_skip=0)
     assert "# stub-page-12345" in captured.out
 
@@ -255,7 +255,7 @@ def test_confluence_cli_full_flow_keeps_dry_run_and_write_artifacts_in_sync(
     assert f"source_url: {canonical_source_url}" in dry_run_output
     assert f"Artifact: {page_output_path}" in dry_run_output
     assert f"Manifest: {manifest_output_path}" in dry_run_output
-    assert "action: would write" in dry_run_output
+    assert "planned_action: would write" in dry_run_output
     assert_dry_run_summary(dry_run_output, would_write=1, would_skip=0)
 
     write_exit_code = main(
@@ -283,7 +283,7 @@ def test_confluence_cli_full_flow_keeps_dry_run_and_write_artifacts_in_sync(
     assert "resolved_page_id: 12345" in write_output
     assert f"Artifact: {page_output_path}" in write_output
     assert f"Manifest: {manifest_output_path}" in write_output
-    assert "action: write" in write_output
+    assert "planned_action: write" in write_output
     assert f"Wrote: {page_output_path}" in write_output
     assert_write_summary(write_output, wrote=1, skipped=0)
     assert f"Manifest: {manifest_output_path}" in write_output
