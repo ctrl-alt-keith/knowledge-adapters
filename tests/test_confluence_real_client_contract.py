@@ -14,6 +14,9 @@ from pytest import CaptureFixture, MonkeyPatch
 
 from knowledge_adapters.cli import main
 from knowledge_adapters.confluence.models import ResolvedTarget
+from tests.confluence_output_assertions import (
+    assert_single_page_confluence_dry_run_summary,
+)
 
 
 def _confluence_argv(output_dir: Path, *extra_args: str) -> list[str]:
@@ -290,22 +293,15 @@ def test_stub_and_real_single_page_dry_runs_share_the_same_plan_shape(
     assert stub_exit_code == 0
 
     stub_output = capsys.readouterr().out
-    assert "client_mode: stub" in stub_output
-    assert "content_source: scaffolded page content" in stub_output
-    assert "fetch_scope: page" in stub_output
-    assert "run_mode: dry-run" in stub_output
-    assert "Plan: Confluence run" in stub_output
-    assert "resolved_page_id: 12345" in stub_output
-    assert f"artifact_path: {stub_output_dir / 'pages' / '12345.md'}" in stub_output
-    assert f"manifest_path: {stub_output_dir / 'manifest.json'}" in stub_output
-    assert "action: would write" in stub_output
-    assert (
-        "  Summary:\n"
-        "    mode: single\n"
-        "    pages_in_plan: 1 (root 1, descendants 0)\n"
-        "    would_write: 1\n"
-        "    would_skip: 0\n"
-    ) in stub_output
+    assert_single_page_confluence_dry_run_summary(
+        stub_output,
+        client_mode="stub",
+        content_source="scaffolded page content",
+        page_id="12345",
+        source_url="https://example.com/wiki/pages/viewpage.action?pageId=12345",
+        artifact_path=stub_output_dir / "pages" / "12345.md",
+        manifest_path=stub_output_dir / "manifest.json",
+    )
 
     def stub_real_fetch(*args: object, **kwargs: object) -> dict[str, object]:
         return {
@@ -326,23 +322,16 @@ def test_stub_and_real_single_page_dry_runs_share_the_same_plan_shape(
     assert real_exit_code == 0
 
     real_output = capsys.readouterr().out
-    assert "client_mode: real" in real_output
-    assert "content_source: live Confluence content" in real_output
-    assert "fetch_scope: page" in real_output
-    assert "run_mode: dry-run" in real_output
-    assert "auth_method: bearer-env" in real_output
-    assert "Plan: Confluence run" in real_output
-    assert "resolved_page_id: 12345" in real_output
-    assert f"artifact_path: {real_output_dir / 'pages' / '12345.md'}" in real_output
-    assert f"manifest_path: {real_output_dir / 'manifest.json'}" in real_output
-    assert "action: would write" in real_output
-    assert (
-        "  Summary:\n"
-        "    mode: single\n"
-        "    pages_in_plan: 1 (root 1, descendants 0)\n"
-        "    would_write: 1\n"
-        "    would_skip: 0\n"
-    ) in real_output
+    assert_single_page_confluence_dry_run_summary(
+        real_output,
+        client_mode="real",
+        content_source="live Confluence content",
+        page_id="12345",
+        source_url="https://example.com/wiki/spaces/ENG/pages/12345",
+        artifact_path=real_output_dir / "pages" / "12345.md",
+        manifest_path=real_output_dir / "manifest.json",
+        auth_method="bearer-env",
+    )
 
 
 @pytest.mark.parametrize(
