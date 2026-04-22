@@ -1,4 +1,4 @@
-.PHONY: dev test smoke lint fix format typecheck check check-env clean
+.PHONY: dev test smoke lint fix format typecheck check check-env check-gh-env clean
 
 VENV = .venv
 PYTHON = $(VENV)/bin/python
@@ -16,6 +16,9 @@ $(VENV)/bin/activate:
 dev: $(VENV)/bin/activate
 
 check-env:
+	@command -v python3 >/dev/null 2>&1 || { echo "Error: python3 is required for local development." >&2; exit 1; }
+
+check-gh-env:
 	@command -v gh >/dev/null 2>&1 || { echo "Error: GitHub CLI (gh) is required but is not installed." >&2; exit 1; }
 	@gh auth status >/dev/null 2>&1 || { echo "Error: GitHub CLI authentication is required. Run 'gh auth login' and try again." >&2; exit 1; }
 
