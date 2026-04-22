@@ -146,8 +146,8 @@ def test_confluence_cli_dry_run_reports_output_without_writing(
     assert "Plan: Confluence run" in captured.out
     assert "resolved_page_id: 12345" in captured.out
     assert "source_url: https://example.com/wiki/pages/viewpage.action?pageId=12345" in captured.out
-    assert f"artifact_path: {output_path}" in captured.out
-    assert f"manifest_path: {output_dir / 'manifest.json'}" in captured.out
+    assert f"Artifact: {output_path}" in captured.out
+    assert f"Manifest: {output_dir / 'manifest.json'}" in captured.out
     assert "action: would write" in captured.out
     assert "Summary: would write 1, would skip 0" in captured.out
     assert "Dry run complete. No files written." in captured.out
@@ -178,7 +178,7 @@ def test_confluence_cli_dry_run_reports_same_resolved_target_details_for_full_ur
     captured = capsys.readouterr()
     assert "resolved_page_id: 12345" in captured.out
     assert "source_url: https://example.com/wiki/pages/viewpage.action?pageId=12345" in captured.out
-    assert f"artifact_path: {output_dir / 'pages' / '12345.md'}" in captured.out
+    assert f"Artifact: {output_dir / 'pages' / '12345.md'}" in captured.out
     assert (
         "- source_url: https://example.com/wiki/pages/viewpage.action?pageId=12345"
         in captured.out
@@ -249,8 +249,8 @@ def test_confluence_cli_full_flow_keeps_dry_run_and_write_artifacts_in_sync(
     assert "Plan: Confluence run" in dry_run_output
     assert "resolved_page_id: 12345" in dry_run_output
     assert f"source_url: {canonical_source_url}" in dry_run_output
-    assert f"artifact_path: {page_output_path}" in dry_run_output
-    assert f"manifest_path: {manifest_output_path}" in dry_run_output
+    assert f"Artifact: {page_output_path}" in dry_run_output
+    assert f"Manifest: {manifest_output_path}" in dry_run_output
     assert "action: would write" in dry_run_output
     assert "Summary: would write 1, would skip 0" in dry_run_output
     assert "Dry run complete. No files written." in dry_run_output
@@ -278,8 +278,8 @@ def test_confluence_cli_full_flow_keeps_dry_run_and_write_artifacts_in_sync(
     assert "run_mode: write" in write_output
     assert "Plan: Confluence run" in write_output
     assert "resolved_page_id: 12345" in write_output
-    assert f"artifact_path: {page_output_path}" in write_output
-    assert f"manifest_path: {manifest_output_path}" in write_output
+    assert f"Artifact: {page_output_path}" in write_output
+    assert f"Manifest: {manifest_output_path}" in write_output
     assert "action: write" in write_output
     assert f"Wrote: {page_output_path}" in write_output
     assert "Summary: wrote 1, skipped 0" in write_output
@@ -353,7 +353,7 @@ def test_confluence_cli_tree_dry_run_reports_manifest_path(
     captured = capsys.readouterr()
     assert "fetch_scope: tree" in captured.out
     assert "max_depth: 0" in captured.out
-    assert f"manifest_path: {output_dir / 'manifest.json'}" in captured.out
+    assert f"Manifest: {output_dir / 'manifest.json'}" in captured.out
     assert "Plan: Confluence run" in captured.out
     assert "pages_in_tree: 1" in captured.out
     assert "Summary: dry-run preview; write 1, skip 0" in captured.out
