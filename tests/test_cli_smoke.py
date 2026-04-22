@@ -6,6 +6,10 @@ import sys
 from pathlib import Path
 
 
+def _normalize_whitespace(text: str) -> str:
+    return " ".join(text.split())
+
+
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
@@ -30,15 +34,13 @@ def _run_cli(tmp_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 def test_top_level_help_introduces_shared_cli_flow(tmp_path: Path) -> None:
     result = _run_cli(tmp_path, "--help")
+    normalized_stdout = _normalize_whitespace(result.stdout)
 
     assert result.returncode == 0, result.stderr
     assert "Normalize knowledge sources into a shared local artifact layout." in result.stdout
     assert "plans a markdown artifact under pages/ plus manifest.json" in result.stdout
     assert "Normalize Confluence content into shared artifacts." in result.stdout
-    assert (
-        "Normalize one local UTF-8 text file into shared\n"
-        "                        artifacts." in result.stdout
-    )
+    assert "Normalize one local UTF-8 text file into shared artifacts." in normalized_stdout
     assert (
         "Start with --dry-run to preview the source, artifact path, manifest path,"
         in result.stdout
@@ -106,30 +108,31 @@ Hello from smoke test.
 
 def test_local_files_cli_help_includes_first_run_guidance(tmp_path: Path) -> None:
     result = _run_cli(tmp_path, "local_files", "--help")
+    stdout = _normalize_whitespace(result.stdout)
 
     assert result.returncode == 0, result.stderr
     assert (
         "Normalize one existing UTF-8 text file into the shared artifact layout."
-        in result.stdout
+        in stdout
     )
-    assert "Empty UTF-8 files are allowed" in result.stdout
-    assert "Files that are not valid UTF-8 text are rejected." in result.stdout
-    assert "Directories are not supported." in result.stdout
-    assert "--file-path FILE" in result.stdout
-    assert "Path to one existing local UTF-8 text file." in result.stdout
-    assert "Empty files" in result.stdout
-    assert "are allowed; directories are not supported." in result.stdout
-    assert "directories are not supported." in result.stdout
-    assert "Relative paths" in result.stdout
-    assert "resolve from the cwd." in result.stdout
-    assert "--output-dir DIR" in result.stdout
-    assert "Directory where pages/ and manifest.json are written." in result.stdout
-    assert "Unlike Confluence, local_files always plans one write;" in result.stdout
-    assert "it does not use manifest-based skip logic." in result.stdout
-    assert "resolved file path, artifact path, manifest path" in result.stdout
-    assert "without writing files." in result.stdout
-    assert "knowledge-adapters local_files" in result.stdout
-    assert "--dry-run" in result.stdout
+    assert "Empty UTF-8 files are allowed" in stdout
+    assert "Files that are not valid UTF-8 text are rejected." in stdout
+    assert "Directories are not supported." in stdout
+    assert "--file-path FILE" in stdout
+    assert "Path to one existing local UTF-8 text file." in stdout
+    assert "Empty files" in stdout
+    assert "are allowed; directories are not supported." in stdout
+    assert "directories are not supported." in stdout
+    assert "Relative paths" in stdout
+    assert "resolve from the cwd." in stdout
+    assert "--output-dir DIR" in stdout
+    assert "Directory where pages/ and manifest.json are written." in stdout
+    assert "Unlike Confluence, local_files always plans one write;" in stdout
+    assert "it does not use manifest-based skip logic." in stdout
+    assert "resolved file path, artifact path, manifest path" in stdout
+    assert "without writing files." in stdout
+    assert "knowledge-adapters local_files" in stdout
+    assert "--dry-run" in stdout
 
 
 def test_confluence_cli_smoke_uses_installed_entrypoint_with_default_stub_client(
