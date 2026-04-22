@@ -69,6 +69,8 @@ def test_local_files_cli_smoke_uses_installed_entrypoint_with_readme_style_args(
 
     assert result.returncode == 0, result.stderr
     assert "Local files adapter invoked" in result.stdout
+    assert f"file_path: {source_file.resolve()}" in result.stdout
+    assert f"output_dir: {(tmp_path / 'artifacts').resolve()}" in result.stdout
     assert "run_mode: write" in result.stdout
     assert "Plan: Local files run" in result.stdout
     assert f"resolved_file_path: {source_file.resolve()}" in result.stdout
@@ -154,6 +156,7 @@ def test_confluence_cli_smoke_uses_installed_entrypoint_with_default_stub_client
 
     assert result.returncode == 0, result.stderr
     assert "Confluence adapter invoked" in result.stdout
+    assert f"output_dir: {(tmp_path / 'artifacts').resolve()}" in result.stdout
     assert "client_mode: stub" in result.stdout
     assert "content_source: scaffolded page content" in result.stdout
     assert "fetch_scope: page" in result.stdout

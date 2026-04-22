@@ -139,6 +139,45 @@ def test_local_files_cli_dry_run_reports_output_without_writing(
     assert "Line one." in captured.out
 
 
+def test_local_files_cli_renders_symlinked_paths_consistently(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    real_root = tmp_path / "real"
+    real_root.mkdir()
+    alias_root = tmp_path / "alias"
+    try:
+        alias_root.symlink_to(real_root, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
+
+    source_file = real_root / "meeting-notes.txt"
+    source_file.write_text("Line one.\nLine two.\n", encoding="utf-8")
+    file_path_arg = alias_root / "meeting-notes.txt"
+    output_dir_arg = alias_root / "out"
+    resolved_output_dir = (real_root / "out").resolve()
+
+    exit_code = main(
+        [
+            "local_files",
+            "--file-path",
+            str(file_path_arg),
+            "--output-dir",
+            str(output_dir_arg),
+            "--dry-run",
+        ]
+    )
+
+    assert exit_code == 0
+
+    captured = capsys.readouterr()
+    assert f"file_path: {source_file.resolve()}" in captured.out
+    assert f"output_dir: {resolved_output_dir}" in captured.out
+    assert f"resolved_file_path: {source_file.resolve()}" in captured.out
+    assert f"Artifact path: {resolved_output_dir / 'pages' / 'meeting-notes.md'}" in captured.out
+    assert f"Manifest path: {resolved_output_dir / 'manifest.json'}" in captured.out
+
+
 def test_local_files_cli_fails_fast_for_same_stem_artifact_collision(
     tmp_path: Path,
     capsys: CaptureFixture[str],

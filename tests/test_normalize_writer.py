@@ -218,6 +218,43 @@ def test_confluence_cli_writes_manifest_for_normal_run(tmp_path: Path) -> None:
     assert isinstance(payload["generated_at"], str)
 
 
+def test_confluence_cli_renders_symlinked_output_paths_consistently(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    real_root = tmp_path / "real"
+    real_root.mkdir()
+    alias_root = tmp_path / "alias"
+    try:
+        alias_root.symlink_to(real_root, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
+
+    output_dir_arg = alias_root / "out"
+    resolved_output_dir = (real_root / "out").resolve()
+
+    exit_code = main(
+        [
+            "confluence",
+            "--base-url",
+            "https://example.com/wiki",
+            "--target",
+            "12345",
+            "--output-dir",
+            str(output_dir_arg),
+        ]
+    )
+
+    assert exit_code == 0
+
+    captured = capsys.readouterr()
+    assert f"output_dir: {resolved_output_dir}" in captured.out
+    assert f"Artifact: {resolved_output_dir / 'pages' / '12345.md'}" in captured.out
+    assert f"Wrote: {resolved_output_dir / 'pages' / '12345.md'}" in captured.out
+    assert f"Manifest: {resolved_output_dir / 'manifest.json'}" in captured.out
+    assert f"Write complete. Artifacts created under {resolved_output_dir}" in captured.out
+
+
 def test_confluence_cli_full_flow_keeps_dry_run_and_write_artifacts_in_sync(
     tmp_path: Path,
     capsys: CaptureFixture[str],

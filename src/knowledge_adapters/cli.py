@@ -294,6 +294,11 @@ def exit_with_cli_error(
     raise SystemExit(2)
 
 
+def render_user_path(path: str | Path) -> str:
+    """Render user-facing paths with one consistent absolute form."""
+    return str(Path(path).expanduser().resolve())
+
+
 def print_dry_run_complete() -> None:
     """Print a consistent dry-run completion message."""
     print("\nDry run complete. No files written.")
@@ -301,7 +306,7 @@ def print_dry_run_complete() -> None:
 
 def print_write_complete(output_dir: Path) -> None:
     """Print a consistent write completion message."""
-    print(f"\nWrite complete. Artifacts created under {output_dir}")
+    print(f"\nWrite complete. Artifacts created under {render_user_path(output_dir)}")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -412,7 +417,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("Confluence adapter invoked")
             print(f"  base_url: {confluence_config.base_url}")
             print(f"  target: {target.raw_value}")
-            print(f"  output_dir: {confluence_config.output_dir}")
+            print(f"  output_dir: {render_user_path(confluence_config.output_dir)}")
             print(f"  client_mode: {confluence_config.client_mode}")
             print(f"  content_source: {content_source}")
             if confluence_config.dry_run:
@@ -455,13 +460,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 title=str(page["title"]) if page.get("title") else None,
             )
 
-        def _display_output_path(path: Path) -> Path:
-            """Return an absolute path for user-facing output."""
-            try:
-                relative_path = path.relative_to(output_dir_input)
-            except ValueError:
-                return path if path.is_absolute() else path.resolve()
-            return output_dir / relative_path
+        def _display_output_path(path: Path) -> str:
+            """Return the consistent user-facing path form for CLI output."""
+            return render_user_path(path)
 
         def _print_single_page_plan(
             *,
@@ -737,13 +738,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         markdown = normalize_to_markdown(page)
 
         print("Local files adapter invoked")
-        print(f"  file_path: {local_files_config.file_path}")
-        print(f"  output_dir: {local_files_config.output_dir}")
+        print(f"  file_path: {render_user_path(local_files_config.file_path)}")
+        print(f"  output_dir: {render_user_path(local_files_config.output_dir)}")
         print(f"  run_mode: {'dry-run' if local_files_config.dry_run else 'write'}")
 
         input_path = Path(local_files_config.file_path)
         output_name = input_path.stem or input_path.name
-        resolved_input_path = input_path.resolve()
+        resolved_input_path = render_user_path(input_path)
         manifest_output_path = output_dir / "manifest.json"
         output_path = output_dir / "pages" / f"{output_name}.md"
         manifest_entry_output_path = output_dir_input / "pages" / f"{output_name}.md"
@@ -771,8 +772,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("\nPlan: Local files run")
         print(f"  resolved_file_path: {resolved_input_path}")
         print(f"  source_url: {page.get('source_url', '')}")
-        print(f"  Artifact path: {output_path}")
-        print(f"  Manifest path: {manifest_output_path}")
+        print(f"  Artifact path: {render_user_path(output_path)}")
+        print(f"  Manifest path: {render_user_path(manifest_output_path)}")
         content = str(page.get("content", ""))
         if content:
             print("  content_status: UTF-8 text with content")
@@ -813,10 +814,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 command="local_files",
                 exc=exc,
             )
-        print(f"\nWrote: {output_path}")
+        print(f"\nWrote: {render_user_path(output_path)}")
         print("\nSummary: wrote 1, skipped 0")
-        print(f"Artifact path: {output_path}")
-        print(f"Manifest path: {output_dir / manifest.relative_to(output_dir_input)}")
+        print(f"Artifact path: {render_user_path(output_path)}")
+        print(f"Manifest path: {render_user_path(manifest)}")
         print_write_complete(output_dir)
         return 0
 
