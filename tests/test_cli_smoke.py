@@ -232,3 +232,26 @@ def test_confluence_help_lists_supported_auth_methods_and_examples(
     assert "CONFLUENCE_BEARER_TOKEN=... knowledge-adapters confluence" in stdout
     assert "--max-depth 1" in stdout
     assert "--dry-run" in stdout
+
+
+def test_confluence_cli_rejects_invalid_base_url_before_planning(tmp_path: Path) -> None:
+    result = _run_cli(
+        tmp_path,
+        "confluence",
+        "--base-url",
+        "ftp://example.com/wiki",
+        "--target",
+        "12345",
+        "--output-dir",
+        "./artifacts",
+    )
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert "Plan: Confluence run" not in result.stdout
+    assert "Confluence adapter invoked" not in result.stdout
+    assert (
+        "knowledge-adapters confluence: error: --base-url 'ftp://example.com/wiki' "
+        "is invalid. Provide a full http:// or https:// Confluence base URL, for "
+        "example 'https://example.com/wiki'.\n"
+    ) == result.stderr
