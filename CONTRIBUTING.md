@@ -16,18 +16,29 @@ make dev
 ```
 
 These commands will:
-- verify GitHub CLI (`gh`) is installed and authenticated
+- verify local development prerequisites
 - create a local `.venv`
 - install all development dependencies (`pytest`, `ruff`, `mypy`, etc.)
 
 > Note: You do not need to manually activate the virtual environment when using `make` targets.
+
+GitHub authentication is not required for local setup or `make check`.
+GitHub-specific workflows stay explicit through:
+
+```bash
+make check-gh-env
+```
+
+Use `make check-gh-env` before opening pull requests, cutting releases, or
+running any other workflow that depends on an authenticated GitHub CLI session.
 
 ---
 
 ## Common Commands
 
 ```bash
-make check-env   # verify required GitHub tooling
+make check-env      # verify local development prerequisites
+make check-gh-env   # verify GitHub CLI install + auth for PR/release workflows
 make test        # run tests
 make lint        # check linting (ruff)
 make fix         # auto-fix lint issues where possible

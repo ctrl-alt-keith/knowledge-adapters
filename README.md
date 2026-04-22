@@ -148,6 +148,10 @@ make dev
 make check
 ```
 
+`make check-env` verifies only the local prerequisites for development. GitHub
+authentication is not required to create the virtualenv, install dependencies,
+or run local validation.
+
 After `make dev`, the installed CLI entrypoint for this repo is:
 
 ```bash
@@ -157,7 +161,8 @@ After `make dev`, the installed CLI entrypoint for this repo is:
 Common commands:
 
 ```bash
-make check-env
+make check-env      # verify local development prerequisites
+make check-gh-env   # verify GitHub CLI install + auth for PR/release workflows
 make test
 make smoke
 make lint
@@ -165,6 +170,10 @@ make fix
 make format
 make typecheck
 ```
+
+Run `make check-gh-env` before GitHub-dependent workflows such as opening pull
+requests or performing release steps that require an authenticated `gh`
+session.
 
 ---
 
