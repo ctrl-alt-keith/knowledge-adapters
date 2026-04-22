@@ -154,6 +154,7 @@ def test_confluence_cli_dry_run_reports_output_without_writing(
     assert "    pages_in_plan: 1 (root 1, descendants 0)" in captured.out
     assert "    would_write: 1" in captured.out
     assert "    would_skip: 0" in captured.out
+    assert "Dry run complete. No files written." in captured.out
     assert "# stub-page-12345" in captured.out
 
 
@@ -260,6 +261,7 @@ def test_confluence_cli_full_flow_keeps_dry_run_and_write_artifacts_in_sync(
     assert "    pages_in_plan: 1 (root 1, descendants 0)" in dry_run_output
     assert "    would_write: 1" in dry_run_output
     assert "    would_skip: 0" in dry_run_output
+    assert "Dry run complete. No files written." in dry_run_output
 
     write_exit_code = main(
         [
@@ -290,6 +292,7 @@ def test_confluence_cli_full_flow_keeps_dry_run_and_write_artifacts_in_sync(
     assert f"Wrote: {page_output_path}" in write_output
     assert "Summary: wrote 1, skipped 0" in write_output
     assert f"Manifest: {manifest_output_path}" in write_output
+    assert f"Write complete. Artifacts created under {output_dir}" in write_output
 
     payload = json.loads(manifest_output_path.read_text(encoding="utf-8"))
     assert payload["files"] == [
