@@ -18,6 +18,14 @@ def assert_single_page_confluence_dry_run_summary(
     write_count: int = 1,
     skip_count: int = 0,
 ) -> None:
+    summary_block = (
+        "  Summary:\n"
+        "    mode: single\n"
+        "    pages_in_plan: 1 (root 1, descendants 0)\n"
+        f"    would_write: {write_count}\n"
+        f"    would_skip: {skip_count}\n"
+    )
+
     assert "Confluence adapter invoked" in output
     assert f"client_mode: {client_mode}" in output
     assert f"content_source: {content_source}" in output
@@ -34,7 +42,8 @@ def assert_single_page_confluence_dry_run_summary(
     assert f"artifact_path: {artifact_path}" in output
     assert f"manifest_path: {manifest_path}" in output
     assert f"action: would {action}" in output
-    assert f"Summary: would write {write_count}, would skip {skip_count}" in output
+    assert summary_block in output
+    assert "Dry run complete. No files written." in output
 
 
 def assert_tree_confluence_dry_run_summary(
@@ -51,6 +60,15 @@ def assert_tree_confluence_dry_run_summary(
     auth_method: str | None = None,
     planned_actions: Iterable[tuple[str, Path]] = (),
 ) -> None:
+    descendant_count = max(unique_pages - 1, 0)
+    summary_block = (
+        "  Summary:\n"
+        "    mode: tree\n"
+        f"    pages_in_plan: {unique_pages} (root 1, descendants {descendant_count})\n"
+        f"    would_write: {write_count}\n"
+        f"    would_skip: {skip_count}\n"
+    )
+
     assert "Confluence adapter invoked" in output
     assert f"client_mode: {client_mode}" in output
     assert f"content_source: {content_source}" in output
@@ -65,7 +83,8 @@ def assert_tree_confluence_dry_run_summary(
     assert f"resolved_root_page_id: {root_page_id} (root page)" in output
     assert f"max_depth: {max_depth}" in output
     assert f"manifest_path: {manifest_path}" in output
-    assert f"unique_pages: {unique_pages} (root + descendants)" in output
+    assert f"pages_in_tree: {unique_pages} (root + descendants)" in output
+    assert summary_block in output
     for action, path in planned_actions:
         assert f"would {action} {path}" in output
-    assert f"Summary: would write {write_count}, would skip {skip_count}" in output
+    assert "Dry run complete. No files written." in output

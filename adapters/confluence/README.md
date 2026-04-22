@@ -22,8 +22,8 @@ artifact already match the planned output.
 
 ## Recommended First Run
 
-Start with one page in the default `stub` mode before you try tree mode or live
-Confluence fetches:
+Start with a single-page dry run in the default `stub` mode before trying tree
+mode or live Confluence fetches:
 
 ```bash
 knowledge-adapters confluence \
@@ -44,16 +44,15 @@ without contacting a live Confluence instance or requiring credentials.
 If that dry run looks right, rerun the same command without `--dry-run` to
 write the stub artifact and `manifest.json`.
 
-When you want live Confluence content, keep the same CLI flow and add
-`--client-mode real` plus an auth method:
+For live Confluence content, keep the same CLI flow and add `--client-mode
+real` plus an auth method:
 
 - `bearer-env` via `CONFLUENCE_BEARER_TOKEN`
 - `client-cert-env` via `CONFLUENCE_CLIENT_CERT_FILE` plus optional
   `CONFLUENCE_CLIENT_KEY_FILE`
 
-Tree mode is best treated as a follow-on step. With the default `stub` client,
-`--tree` still plans only the resolved root page because no child pages are
-discovered.
+Treat tree mode as a follow-on step. With the default `stub` client, `--tree`
+still plans only the resolved root page because no child pages are discovered.
 
 ## Tree Mode After First Run
 

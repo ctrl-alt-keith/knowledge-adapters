@@ -287,6 +287,7 @@ def test_confluence_cli_full_flow_keeps_dry_run_and_write_artifacts_in_sync(
     assert f"Wrote: {page_output_path}" in write_output
     assert "Summary: wrote 1, skipped 0" in write_output
     assert f"Manifest: {manifest_output_path}" in write_output
+    assert f"Write complete. Artifacts created under {output_dir}" in write_output
 
     payload = json.loads(manifest_output_path.read_text(encoding="utf-8"))
     assert payload["files"] == [
