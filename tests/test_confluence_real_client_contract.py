@@ -14,6 +14,7 @@ from pytest import CaptureFixture, MonkeyPatch
 
 from knowledge_adapters.cli import main
 from knowledge_adapters.confluence.models import ResolvedTarget
+from tests.cli_output_assertions import assert_dry_run_summary, assert_write_summary
 
 
 def _confluence_argv(output_dir: Path, *extra_args: str) -> list[str]:
@@ -242,7 +243,7 @@ def test_stub_and_real_single_page_write_runs_share_the_same_cli_shape(
     assert "action: write" in stub_output
     assert "auth_method:" not in stub_output
     assert f"Manifest: {stub_output_dir / 'manifest.json'}" in stub_output
-    assert "Summary: wrote 1, skipped 0" in stub_output
+    assert_write_summary(stub_output, wrote=1, skipped=0)
 
     def stub_real_fetch(*args: object, **kwargs: object) -> dict[str, object]:
         return {
@@ -275,7 +276,7 @@ def test_stub_and_real_single_page_write_runs_share_the_same_cli_shape(
     assert "action: write" in real_output
     assert "auth_method: bearer-env" in real_output
     assert f"Manifest: {real_output_dir / 'manifest.json'}" in real_output
-    assert "Summary: wrote 1, skipped 0" in real_output
+    assert_write_summary(real_output, wrote=1, skipped=0)
 
 
 def test_stub_and_real_single_page_dry_runs_share_the_same_plan_shape(
@@ -292,14 +293,15 @@ def test_stub_and_real_single_page_dry_runs_share_the_same_plan_shape(
     stub_output = capsys.readouterr().out
     assert "client_mode: stub" in stub_output
     assert "content_source: scaffolded page content" in stub_output
-    assert "fetch_scope: page" in stub_output
+    assert "mode: single" in stub_output
     assert "run_mode: dry-run" in stub_output
     assert "Plan: Confluence run" in stub_output
     assert "resolved_page_id: 12345" in stub_output
+    assert "source_url: https://example.com/wiki/pages/viewpage.action?pageId=12345" in stub_output
     assert f"Artifact: {stub_output_dir / 'pages' / '12345.md'}" in stub_output
     assert f"Manifest: {stub_output_dir / 'manifest.json'}" in stub_output
     assert "action: would write" in stub_output
-    assert "Summary: would write 1, would skip 0" in stub_output
+    assert_dry_run_summary(stub_output, would_write=1, would_skip=0)
 
     def stub_real_fetch(*args: object, **kwargs: object) -> dict[str, object]:
         return {
@@ -322,15 +324,16 @@ def test_stub_and_real_single_page_dry_runs_share_the_same_plan_shape(
     real_output = capsys.readouterr().out
     assert "client_mode: real" in real_output
     assert "content_source: live Confluence content" in real_output
-    assert "fetch_scope: page" in real_output
+    assert "mode: single" in real_output
     assert "run_mode: dry-run" in real_output
     assert "auth_method: bearer-env" in real_output
     assert "Plan: Confluence run" in real_output
     assert "resolved_page_id: 12345" in real_output
+    assert "source_url: https://example.com/wiki/spaces/ENG/pages/12345" in real_output
     assert f"Artifact: {real_output_dir / 'pages' / '12345.md'}" in real_output
     assert f"Manifest: {real_output_dir / 'manifest.json'}" in real_output
     assert "action: would write" in real_output
-    assert "Summary: would write 1, would skip 0" in real_output
+    assert_dry_run_summary(real_output, would_write=1, would_skip=0)
 
 
 @pytest.mark.parametrize(

@@ -374,13 +374,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             selected_fetch_page = fetch_page
 
+        def _describe_tree_depth(max_depth: int) -> str:
+            if max_depth == 0:
+                return "root only"
+            if max_depth == 1:
+                return "root + children"
+            if max_depth == 2:
+                return "root + children + grandchildren"
+            return f"root + descendants through depth {max_depth}"
+
         def _print_confluence_invocation() -> None:
             content_source = (
                 "scaffolded page content"
                 if confluence_config.client_mode == "stub"
                 else "live Confluence content"
             )
-            fetch_scope = "tree" if confluence_config.tree else "page"
             run_mode = "dry-run" if confluence_config.dry_run else "write"
             print("Confluence adapter invoked")
             print(f"  base_url: {confluence_config.base_url}")
@@ -388,10 +396,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"  output_dir: {confluence_config.output_dir}")
             print(f"  client_mode: {confluence_config.client_mode}")
             print(f"  content_source: {content_source}")
-            print(f"  fetch_scope: {fetch_scope}")
+            if confluence_config.dry_run:
+                mode = "tree" if confluence_config.tree else "single"
+                print(f"  mode: {mode}")
+            else:
+                fetch_scope = "tree" if confluence_config.tree else "page"
+                print(f"  fetch_scope: {fetch_scope}")
             print(f"  run_mode: {run_mode}")
             if confluence_config.tree:
-                print(f"  max_depth: {confluence_config.max_depth}")
+                max_depth = str(confluence_config.max_depth)
+                if confluence_config.dry_run:
+                    max_depth = f"{max_depth} ({_describe_tree_depth(confluence_config.max_depth)})"
+                print(f"  max_depth: {max_depth}")
             if confluence_config.client_mode == "real":
                 print(f"  auth_method: {confluence_config.auth_method}")
 
@@ -447,10 +463,34 @@ def main(argv: Sequence[str] | None = None) -> int:
             if dry_run:
                 write_count = 1 if action == "write" else 0
                 skip_count = 1 if action == "skip" else 0
-                print(f"  Summary: would write {write_count}, would skip {skip_count}")
+                _print_confluence_dry_run_summary(
+                    mode="single",
+                    total_pages=1,
+                    write_count=write_count,
+                    skip_count=skip_count,
+                )
             if markdown is not None:
                 print()
                 print(markdown)
+
+        def _print_confluence_dry_run_summary(
+            *,
+            mode: str,
+            total_pages: int,
+            write_count: int,
+            skip_count: int,
+        ) -> None:
+            descendant_count = max(total_pages - 1, 0)
+            summary_lines = (
+                f"    mode: {mode}",
+                "    pages_in_plan: "
+                f"{total_pages} (root 1, descendants {descendant_count})",
+                f"    would_write: {write_count}",
+                f"    would_skip: {skip_count}",
+            )
+            print("  Summary:")
+            for line in summary_lines:
+                print(line)
 
         if confluence_config.tree:
             if confluence_config.client_mode == "real":
@@ -505,11 +545,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"  pages_in_tree: {len(page_records)} (root + descendants)")
 
             if confluence_config.dry_run:
+                _print_confluence_dry_run_summary(
+                    mode="tree",
+                    total_pages=len(page_records),
+                    write_count=write_count,
+                    skip_count=skip_count,
+                )
                 for _page, output_path, action in page_records:
                     print(f"  would {action} {_display_output_path(output_path)}")
-                print(
-                    f"  Summary: dry-run preview; write {write_count}, skip {skip_count}"
-                )
                 print_dry_run_complete()
                 return 0
 

@@ -7,6 +7,7 @@ from pytest import CaptureFixture, MonkeyPatch
 
 from knowledge_adapters.cli import main
 from knowledge_adapters.confluence.models import ResolvedTarget
+from tests.cli_output_assertions import assert_tree_plan_page_count
 
 
 def _synthetic_pages() -> dict[str, dict[str, object]]:
@@ -274,9 +275,11 @@ def test_recursive_dry_run_reports_unique_planned_outputs_without_writing(
     captured = capsys.readouterr()
     output = captured.out
 
+    assert "mode: tree" in output
+    assert "max_depth: 2 (root + children + grandchildren)" in output
     for page_id in ["100", "200", "300", "205", "210"]:
         assert output.count(f"{output_dir / 'pages' / f'{page_id}.md'}") == 1
-    assert output.count("pages_in_tree: 5") == 1
+    assert_tree_plan_page_count(output, count=5)
 
 
 def test_recursive_deeper_tree_excludes_descendants_beyond_max_depth(
