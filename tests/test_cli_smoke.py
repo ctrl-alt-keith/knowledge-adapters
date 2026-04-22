@@ -76,7 +76,9 @@ def test_local_files_cli_smoke_uses_installed_entrypoint_with_readme_style_args(
     assert f"artifact_path: {tmp_path / 'artifacts' / 'pages' / 'today.md'}" in result.stdout
     assert "Wrote:" in result.stdout
     assert_write_summary(result.stdout, wrote=1, skipped=0)
-    assert "Manifest:" in result.stdout
+    assert f"Artifact: {tmp_path / 'artifacts' / 'pages' / 'today.md'}" in result.stdout
+    assert f"Manifest: {tmp_path / 'artifacts' / 'manifest.json'}" in result.stdout
+    assert f"Write complete. Artifacts created under {tmp_path / 'artifacts'}" in result.stdout
 
     output_path = tmp_path / "artifacts" / "pages" / "today.md"
     assert output_path.read_text(encoding="utf-8") == (
@@ -119,18 +121,16 @@ def test_local_files_cli_help_includes_first_run_guidance(tmp_path: Path) -> Non
     )
     assert "Empty UTF-8 files are allowed" in stdout
     assert "Files that are not valid UTF-8 text are rejected" in stdout
-    assert "Directories are not supported." in stdout
+    assert "directories are not supported" in stdout
     assert "--file-path FILE" in stdout
-    assert "Path to one existing local UTF-8 text file" in stdout
-    assert "Empty files" in stdout
-    assert "are allowed; directories are not supported." in stdout
-    assert "directories are not supported." in stdout
+    assert "Path to the one existing local UTF-8 text file for this run." in stdout
+    assert "Empty files are allowed; directories are not supported." in stdout
     assert "Relative paths" in stdout
     assert "resolve from the cwd." in stdout
     assert "--output-dir DIR" in stdout
     assert "Directory where pages/ and manifest.json are written." in stdout
-    assert "Unlike Confluence, local_files" in stdout
-    assert "does not use manifest-based skip logic." in stdout
+    assert "local_files handles one file per run and always plans one write;" in stdout
+    assert "it does not use manifest-based skip logic." in stdout
     assert "resolved file path, artifact path, manifest path" in stdout
     assert "without writing files." in stdout
     assert "knowledge-adapters local_files" in stdout
@@ -164,6 +164,7 @@ def test_confluence_cli_smoke_uses_installed_entrypoint_with_default_stub_client
     assert "Wrote:" in result.stdout
     assert_write_summary(result.stdout, wrote=1, skipped=0)
     assert "Manifest:" in result.stdout
+    assert f"Write complete. Artifacts created under {tmp_path / 'artifacts'}" in result.stdout
 
     output_path = tmp_path / "artifacts" / "pages" / "12345.md"
     assert output_path.read_text(encoding="utf-8") == (
@@ -214,9 +215,8 @@ def test_confluence_help_lists_supported_auth_methods_and_examples(
     assert "artifact layout and reporting" in stdout
     assert "page or, with --tree, a page tree" in stdout
     assert "planned artifact paths, manifest path, and write/skip decisions" in stdout
-    assert_contains_normalized(stdout, "In tree mode, dry-run previews the root page")
-    assert "artifact paths" in stdout
-    assert "write mode" in stdout
+    assert_contains_normalized(stdout, "In tree mode, dry-run previews the root page and")
+    assert "artifact paths used in write mode" in stdout
     assert "same resolve, plan, and write flow" in stdout
     assert "'real' fetches from" in stdout
     assert "using --auth-method" in stdout
@@ -224,7 +224,7 @@ def test_confluence_help_lists_supported_auth_methods_and_examples(
     assert "The CLI resolves either input into one canonical page" in stdout
     assert "source URL for artifact and manifest reporting" in stdout
     assert "artifact and manifest reporting" in stdout
-    assert "Traverse the resolved root page plus discovered" in stdout
+    assert "Traverse the resolved root page and discovered" in stdout
     assert "descendants instead of only one page." in stdout
     assert "Maximum descendant depth for --tree." in stdout
     assert "Ignored unless --tree is set." in stdout

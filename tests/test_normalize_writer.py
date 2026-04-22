@@ -13,6 +13,9 @@ from tests.cli_output_assertions import (
     assert_tree_plan_page_count,
     assert_write_summary,
 )
+from tests.confluence_output_assertions import (
+    assert_single_page_confluence_dry_run_summary,
+)
 
 
 def test_normalize_to_markdown_includes_expected_sections_and_fields() -> None:
@@ -180,9 +183,15 @@ def test_confluence_cli_dry_run_reports_same_resolved_target_details_for_full_ur
     assert exit_code == 0
 
     captured = capsys.readouterr()
-    assert "resolved_page_id: 12345" in captured.out
-    assert "source_url: https://example.com/wiki/pages/viewpage.action?pageId=12345" in captured.out
-    assert f"artifact_path: {output_dir / 'pages' / '12345.md'}" in captured.out
+    assert_single_page_confluence_dry_run_summary(
+        captured.out,
+        client_mode="stub",
+        content_source="scaffolded page content",
+        page_id="12345",
+        source_url="https://example.com/wiki/pages/viewpage.action?pageId=12345",
+        artifact_path=output_dir / "pages" / "12345.md",
+        manifest_path=output_dir / "manifest.json",
+    )
     assert (
         "- source_url: https://example.com/wiki/pages/viewpage.action?pageId=12345"
         in captured.out
@@ -287,6 +296,7 @@ def test_confluence_cli_full_flow_keeps_dry_run_and_write_artifacts_in_sync(
     assert f"Wrote: {page_output_path}" in write_output
     assert_write_summary(write_output, wrote=1, skipped=0)
     assert f"Manifest: {manifest_output_path}" in write_output
+    assert f"Write complete. Artifacts created under {output_dir}" in write_output
 
     payload = json.loads(manifest_output_path.read_text(encoding="utf-8"))
     assert payload["files"] == [

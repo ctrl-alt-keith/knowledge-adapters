@@ -130,9 +130,9 @@ def build_parser() -> argparse.ArgumentParser:
             "you want descendants. Stub and real modes keep the same resolve, "
             "plan, and write flow. Use --dry-run to preview resolved page IDs, "
             "planned artifact paths, manifest path, and write/skip decisions "
-            "before writing. In tree mode, dry-run previews the root page plus "
+            "before writing. In tree mode, dry-run previews the root page and "
             "discovered descendants included by --max-depth and the artifact "
-            "paths that write mode would use. Use "
+            "paths used in write mode. Use "
             "--max-depth to limit descendant levels. Ignored unless --tree is "
             "set. The default stub mode uses scaffolded content "
             "without contacting Confluence. Use --client-mode real for "
@@ -202,7 +202,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--tree",
         action="store_true",
         help=(
-            "Traverse the resolved root page plus discovered descendants "
+            "Traverse the resolved root page and discovered descendants "
             "instead of only one page. Use --max-depth to limit descendant "
             "levels."
         ),
@@ -224,9 +224,10 @@ def build_parser() -> argparse.ArgumentParser:
             "Normalize one existing UTF-8 text file into the shared artifact layout. "
             "Start with --dry-run to preview the resolved file path, artifact path, "
             "manifest path, and normalized markdown before writing. Empty UTF-8 "
-            "files are allowed; output includes an empty content section. Files "
-            "that are not valid UTF-8 text are rejected. Directories are not "
-            "supported. Unlike Confluence, local_files always plans one write; "
+            "files are allowed and produce an empty content section. Files that "
+            "are not valid UTF-8 text are rejected, and directories are not "
+            "supported. Unlike "
+            "Confluence, local_files handles one file per run and always plans one write; "
             "it does not use manifest-based skip logic."
         ),
         epilog=LOCAL_FILES_HELP_EXAMPLES,
@@ -237,8 +238,9 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         metavar="FILE",
         help=(
-            "Path to one existing local UTF-8 text file. Empty files are allowed; "
-            "directories are not supported. Relative paths resolve from the cwd."
+            "Path to the one existing local UTF-8 text file for this run. Empty "
+            "files are allowed; directories are not supported. Relative paths "
+            "resolve from the cwd."
         ),
     )
     local_files_parser.add_argument(
@@ -271,6 +273,16 @@ def exit_with_cli_error(
         for line in debug_lines:
             print(f"  {line}", file=sys.stderr)
     raise SystemExit(2)
+
+
+def print_dry_run_complete() -> None:
+    """Print a consistent dry-run completion message."""
+    print("\nDry run complete. No files written.")
+
+
+def print_write_complete(output_dir: Path) -> None:
+    """Print a consistent write completion message."""
+    print(f"\nWrite complete. Artifacts created under {output_dir}")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -435,10 +447,34 @@ def main(argv: Sequence[str] | None = None) -> int:
             if dry_run:
                 write_count = 1 if action == "write" else 0
                 skip_count = 1 if action == "skip" else 0
-                print(f"  Summary: would write {write_count}, would skip {skip_count}")
+                _print_confluence_dry_run_summary(
+                    mode="single",
+                    total_pages=1,
+                    write_count=write_count,
+                    skip_count=skip_count,
+                )
             if markdown is not None:
                 print()
                 print(markdown)
+
+        def _print_confluence_dry_run_summary(
+            *,
+            mode: str,
+            total_pages: int,
+            write_count: int,
+            skip_count: int,
+        ) -> None:
+            descendant_count = max(total_pages - 1, 0)
+            summary_lines = (
+                f"    mode: {mode}",
+                "    pages_in_plan: "
+                f"{total_pages} (root 1, descendants {descendant_count})",
+                f"    would_write: {write_count}",
+                f"    would_skip: {skip_count}",
+            )
+            print("  Summary:")
+            for line in summary_lines:
+                print(line)
 
         if confluence_config.tree:
             if confluence_config.client_mode == "real":
@@ -490,12 +526,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"  resolved_root_page_id: {root_page_id} (root page)")
             print(f"  max_depth: {confluence_config.max_depth}")
             print(f"  manifest_path: {_display_output_path(manifest_output_path)}")
-            print(f"  unique_pages: {len(page_records)} (root + descendants)")
+            print(f"  pages_in_tree: {len(page_records)} (root + descendants)")
 
             if confluence_config.dry_run:
+                _print_confluence_dry_run_summary(
+                    mode="tree",
+                    total_pages=len(page_records),
+                    write_count=write_count,
+                    skip_count=skip_count,
+                )
                 for _page, output_path, action in page_records:
                     print(f"  would {action} {_display_output_path(output_path)}")
-                print(f"  Summary: would write {write_count}, would skip {skip_count}")
+                print_dry_run_complete()
                 return 0
 
             files = [
@@ -531,6 +573,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             print(f"\nSummary: wrote {write_count}, skipped {skip_count}")
             print(f"\nManifest: {_display_output_path(manifest)}")
+            print_write_complete(output_dir)
             return 0
 
         try:
@@ -569,6 +612,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 dry_run=True,
                 markdown=planned_markdown,
             )
+            print_dry_run_complete()
             return 0
 
         _print_single_page_plan(
@@ -608,6 +652,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         skip_count = 1 if action == "skip" else 0
         print(f"\nSummary: wrote {write_count}, skipped {skip_count}")
         print(f"Manifest: {_display_output_path(manifest)}")
+        print_write_complete(output_dir)
         return 0
 
     if args.command == "local_files":
@@ -673,6 +718,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("  Summary: would write 1, would skip 0")
             print()
             print(markdown)
+            print_dry_run_complete()
             return 0
 
         try:
@@ -700,8 +746,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 exc=exc,
             )
         print(f"\nWrote: {output_path}")
-        print("\nSummary: wrote 1, skipped 0")
+        print("\nSummary: wrote 1 file")
+        print(f"Artifact: {output_path}")
         print(f"Manifest: {output_dir / manifest.relative_to(output_dir_input)}")
+        print_write_complete(output_dir)
         return 0
 
     parser.error("Unknown command")

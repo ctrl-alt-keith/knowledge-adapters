@@ -14,6 +14,7 @@ from tests.cli_output_assertions import (
     assert_tree_plan_page_count,
     assert_write_summary,
 )
+from tests.confluence_output_assertions import assert_tree_confluence_dry_run_summary
 
 
 def _synthetic_pages() -> dict[str, dict[str, object]]:
@@ -138,8 +139,19 @@ def test_incremental_dry_run_without_manifest_marks_all_pages_as_write(
     assert exit_code == 0
 
     captured = capsys.readouterr()
-    assert f"would write {_page_path(output_dir, '100')}" in captured.out
-    assert f"would write {_page_path(output_dir, '200')}" in captured.out
+    assert_tree_confluence_dry_run_summary(
+        captured.out,
+        root_page_id="100",
+        manifest_path=_manifest_path(output_dir),
+        max_depth=1,
+        unique_pages=2,
+        write_count=2,
+        skip_count=0,
+        planned_actions=[
+            ("write", _page_path(output_dir, "100")),
+            ("write", _page_path(output_dir, "200")),
+        ],
+    )
     assert f"would skip {_page_path(output_dir, '100')}" not in captured.out
     assert f"would skip {_page_path(output_dir, '200')}" not in captured.out
     assert not _page_path(output_dir, "100").exists()
@@ -217,6 +229,17 @@ def test_incremental_dry_run_uses_manifest_identity_and_file_existence_for_skip(
     assert exit_code == 0
 
     captured = capsys.readouterr()
+    write_count = 1 if expected_phrase == "would skip" else 2
+    skip_count = 1 if expected_phrase == "would skip" else 0
+    assert_tree_confluence_dry_run_summary(
+        captured.out,
+        root_page_id="100",
+        manifest_path=_manifest_path(output_dir),
+        max_depth=1,
+        unique_pages=2,
+        write_count=write_count,
+        skip_count=skip_count,
+    )
     assert f"{expected_phrase} {_page_path(output_dir, '100')}" in captured.out
     if materialize_file and manifest_entry["output_path"] == "pages/100.md":
         assert _page_path(output_dir, "100").read_text(encoding="utf-8") == "existing artifact\n"
