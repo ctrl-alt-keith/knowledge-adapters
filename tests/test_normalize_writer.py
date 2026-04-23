@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 import pytest
@@ -8,6 +7,12 @@ from knowledge_adapters.cli import main
 from knowledge_adapters.confluence.manifest import build_manifest_entry, write_manifest
 from knowledge_adapters.confluence.normalize import normalize_to_markdown
 from knowledge_adapters.confluence.writer import write_markdown
+from tests.artifact_assertions import (
+    assert_manifest_entries,
+    assert_manifest_entry,
+    assert_markdown_document,
+    manifest_file,
+)
 from tests.cli_output_assertions import (
     assert_dry_run_summary,
     assert_tree_plan_page_count,
@@ -25,32 +30,39 @@ def test_normalize_to_markdown_includes_expected_sections_and_fields() -> None:
 
     markdown = normalize_to_markdown(page)
 
-    expected = """# Team Notes
-
-## Metadata
-- source: confluence
-- canonical_id: 12345
-- parent_id:
-- source_url: https://example.com/wiki/spaces/ENG/pages/12345
-- fetched_at:
-- updated_at:
-- adapter: confluence
-
-## Content
-
-Hello from Confluence.
-"""
-
-    assert markdown == expected
+    assert_markdown_document(
+        markdown,
+        title="Team Notes",
+        metadata={
+            "source": "confluence",
+            "canonical_id": "12345",
+            "parent_id": "",
+            "source_url": "https://example.com/wiki/spaces/ENG/pages/12345",
+            "fetched_at": "",
+            "updated_at": "",
+            "adapter": "confluence",
+        },
+        content="Hello from Confluence.",
+    )
 
 
 def test_normalize_to_markdown_uses_safe_defaults_for_missing_fields() -> None:
     markdown = normalize_to_markdown({})
 
-    assert markdown.startswith("# untitled\n")
-    assert "- canonical_id: \n" in markdown
-    assert "- source_url: \n" in markdown
-    assert markdown.endswith("\n\n")
+    assert_markdown_document(
+        markdown,
+        title="untitled",
+        metadata={
+            "source": "confluence",
+            "canonical_id": "",
+            "parent_id": "",
+            "source_url": "",
+            "fetched_at": "",
+            "updated_at": "",
+            "adapter": "confluence",
+        },
+        content="",
+    )
 
 
 def test_write_markdown_writes_to_pages_subdirectory(tmp_path: Path) -> None:
@@ -84,12 +96,13 @@ def test_build_manifest_entry_uses_relative_output_path_and_optional_title(
         title="Page 42",
     )
 
-    assert entry == {
-        "canonical_id": "page-42",
-        "source_url": "https://example.com/wiki/pages/42",
-        "output_path": "pages/page-42.md",
-        "title": "Page 42",
-    }
+    assert_manifest_entry(
+        entry,
+        canonical_id="page-42",
+        source_url="https://example.com/wiki/pages/42",
+        output_path="pages/page-42.md",
+        title="Page 42",
+    )
 
 
 def test_write_manifest_writes_minimal_payload_for_current_run(tmp_path: Path) -> None:
@@ -106,15 +119,16 @@ def test_write_manifest_writes_minimal_payload_for_current_run(tmp_path: Path) -
 
     assert manifest == tmp_path / "manifest.json"
 
-    payload = json.loads(manifest.read_text(encoding="utf-8"))
-    assert payload["files"] == [
-        {
-            "canonical_id": "page-42",
-            "source_url": "https://example.com/wiki/pages/42",
-            "output_path": "pages/page-42.md",
-        }
-    ]
-    assert isinstance(payload["generated_at"], str)
+    assert_manifest_entries(
+        manifest,
+        files=[
+            manifest_file(
+                canonical_id="page-42",
+                source_url="https://example.com/wiki/pages/42",
+                output_path="pages/page-42.md",
+            )
+        ],
+    )
 
 
 def test_confluence_cli_dry_run_reports_output_without_writing(
@@ -206,16 +220,17 @@ def test_confluence_cli_writes_manifest_for_normal_run(tmp_path: Path) -> None:
 
     assert exit_code == 0
 
-    payload = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
-    assert payload["files"] == [
-        {
-            "canonical_id": "12345",
-            "source_url": "https://example.com/wiki/pages/viewpage.action?pageId=12345",
-            "output_path": "pages/12345.md",
-            "title": "stub-page-12345",
-        }
-    ]
-    assert isinstance(payload["generated_at"], str)
+    assert_manifest_entries(
+        output_dir / "manifest.json",
+        files=[
+            manifest_file(
+                canonical_id="12345",
+                source_url="https://example.com/wiki/pages/viewpage.action?pageId=12345",
+                output_path="pages/12345.md",
+                title="stub-page-12345",
+            )
+        ],
+    )
 
 
 def test_confluence_cli_renders_symlinked_output_paths_consistently(
@@ -326,15 +341,17 @@ def test_confluence_cli_full_flow_keeps_dry_run_and_write_artifacts_in_sync(
     assert f"Manifest: {manifest_output_path}" in write_output
     assert f"Write complete. Artifacts created under {output_dir}" in write_output
 
-    payload = json.loads(manifest_output_path.read_text(encoding="utf-8"))
-    assert payload["files"] == [
-        {
-            "canonical_id": "12345",
-            "source_url": canonical_source_url,
-            "output_path": "pages/12345.md",
-            "title": "stub-page-12345",
-        }
-    ]
+    assert_manifest_entries(
+        manifest_output_path,
+        files=[
+            manifest_file(
+                canonical_id="12345",
+                source_url=canonical_source_url,
+                output_path="pages/12345.md",
+                title="stub-page-12345",
+            )
+        ],
+    )
 
 
 def test_confluence_cli_tree_run_reports_manifest_path(
