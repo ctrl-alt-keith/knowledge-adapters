@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
-from pytest import CaptureFixture
+from pytest import CaptureFixture, MonkeyPatch
 
 from knowledge_adapters.cli import main
 from knowledge_adapters.run_config import ConfiguredRun, load_run_config
@@ -278,7 +278,7 @@ runs:
 
 def test_run_command_preserves_nested_adapter_error_details(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: MonkeyPatch,
     capsys: CaptureFixture[str],
 ) -> None:
     monkeypatch.delenv("CONFLUENCE_BEARER_TOKEN", raising=False)
@@ -315,3 +315,122 @@ runs:
         "Missing Confluence bearer token. Set CONFLUENCE_BEARER_TOKEN for "
         "--client-mode real --auth-method bearer-env."
     ) in captured.err
+
+
+def test_load_run_config_includes_confluence_tls_and_client_cert_paths(tmp_path: Path) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: docs-home
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home
+    ca_bundle: ./certs/internal-ca.pem
+    client_cert_file: ./certs/confluence-client.crt
+    client_key_file: ./certs/confluence-client.key
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    run_config = load_run_config(config_path)
+
+    assert run_config.runs == (
+        ConfiguredRun(
+            name="docs-home",
+            run_type="confluence",
+            argv=(
+                "confluence",
+                "--base-url",
+                "https://example.com/wiki",
+                "--target",
+                "12345",
+                "--output-dir",
+                str((tmp_path / "artifacts" / "confluence" / "docs-home").resolve()),
+                "--ca-bundle",
+                str((tmp_path / "certs" / "internal-ca.pem").resolve()),
+                "--client-cert-file",
+                str((tmp_path / "certs" / "confluence-client.crt").resolve()),
+                "--client-key-file",
+                str((tmp_path / "certs" / "confluence-client.key").resolve()),
+            ),
+            dry_run=False,
+        ),
+    )
+
+
+def test_load_run_config_rejects_confluence_client_key_without_client_cert(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: docs-home
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home
+    client_key_file: ./certs/confluence-client.key
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="must set 'client_cert_file' when 'client_key_file'"):
+        load_run_config(config_path)
+
+
+def test_run_command_passes_confluence_tls_config_to_real_client(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    from knowledge_adapters.confluence import client as client_module
+
+    observed_kwargs: list[dict[str, object]] = []
+
+    def stub_real_fetch(*args: object, **kwargs: object) -> dict[str, object]:
+        del args
+        observed_kwargs.append(dict(kwargs))
+        return {
+            "canonical_id": "12345",
+            "title": "Real Page",
+            "content": "<p>Hello from Confluence.</p>",
+            "source_url": "https://example.com/wiki/spaces/ENG/pages/12345",
+            "page_version": 7,
+            "last_modified": "2026-04-20T12:34:56Z",
+        }
+
+    monkeypatch.setattr(client_module, "fetch_real_page", stub_real_fetch, raising=False)
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: docs-home
+    type: confluence
+    client_mode: real
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home
+    ca_bundle: ./certs/internal-ca.pem
+    client_cert_file: ./certs/confluence-client.crt
+    client_key_file: ./certs/confluence-client.key
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(["run", str(config_path)])
+
+    assert exit_code == 0
+    assert observed_kwargs == [
+        {
+            "base_url": "https://example.com/wiki",
+            "auth_method": "bearer-env",
+            "ca_bundle": str((tmp_path / "certs" / "internal-ca.pem").resolve()),
+            "client_cert_file": str((tmp_path / "certs" / "confluence-client.crt").resolve()),
+            "client_key_file": str((tmp_path / "certs" / "confluence-client.key").resolve()),
+        }
+    ]

@@ -202,8 +202,10 @@ def _run_real_recursive_cli(
         base_url: str = "https://example.com/wiki",
         auth_method: str = "bearer-env",
         ca_bundle: str | None = None,
+        client_cert_file: str | None = None,
+        client_key_file: str | None = None,
     ) -> dict[str, object]:
-        del base_url, auth_method, ca_bundle
+        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
 
         page_id = str(target.page_id)
         page_fetch_counts[page_id] = page_fetch_counts.get(page_id, 0) + 1
@@ -322,8 +324,10 @@ def test_real_tree_incremental_run_skips_full_page_fetch_for_unchanged_pages(
         base_url: str = "https://example.com/wiki",
         auth_method: str = "bearer-env",
         ca_bundle: str | None = None,
+        client_cert_file: str | None = None,
+        client_key_file: str | None = None,
     ) -> dict[str, object]:
-        del base_url, auth_method, ca_bundle
+        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
         page_id = str(target.page_id)
         full_fetch_counts[page_id] = full_fetch_counts.get(page_id, 0) + 1
         return dict(pages[page_id])
@@ -334,8 +338,10 @@ def test_real_tree_incremental_run_skips_full_page_fetch_for_unchanged_pages(
         base_url: str = "https://example.com/wiki",
         auth_method: str = "bearer-env",
         ca_bundle: str | None = None,
+        client_cert_file: str | None = None,
+        client_key_file: str | None = None,
     ) -> dict[str, object]:
-        del base_url, auth_method, ca_bundle
+        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
         page_id = str(target.page_id)
         summary_fetch_counts[page_id] = summary_fetch_counts.get(page_id, 0) + 1
         page = dict(pages[page_id])
@@ -664,8 +670,10 @@ def test_real_tree_stops_without_writes_when_later_child_list_fails_after_partia
         base_url: str = "https://example.com/wiki",
         auth_method: str = "bearer-env",
         ca_bundle: str | None = None,
+        client_cert_file: str | None = None,
+        client_key_file: str | None = None,
     ) -> dict[str, object]:
-        del base_url, auth_method, ca_bundle
+        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
 
         page_id = str(target.page_id)
         page_fetch_counts[page_id] = page_fetch_counts.get(page_id, 0) + 1
@@ -746,8 +754,10 @@ def test_real_tree_stops_without_writes_when_later_page_fetch_fails_after_partia
         base_url: str = "https://example.com/wiki",
         auth_method: str = "bearer-env",
         ca_bundle: str | None = None,
+        client_cert_file: str | None = None,
+        client_key_file: str | None = None,
     ) -> dict[str, object]:
-        del base_url, auth_method, ca_bundle
+        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
 
         page_id = str(target.page_id)
         page_fetch_counts[page_id] = page_fetch_counts.get(page_id, 0) + 1

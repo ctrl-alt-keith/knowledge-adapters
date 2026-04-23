@@ -21,6 +21,8 @@ def build_request_auth(
     auth_method: str,
     *,
     ca_bundle: str | None = None,
+    client_cert_file: str | None = None,
+    client_key_file: str | None = None,
 ) -> RequestAuth:
     """Build auth material for a supported auth method."""
     if auth_method == "bearer-env":
@@ -35,7 +37,12 @@ def build_request_auth(
 
     return RequestAuth(
         headers=headers,
-        ssl_context=_client_cert_ssl_context(auth_method, ca_bundle=ca_bundle),
+        ssl_context=_client_cert_ssl_context(
+            auth_method,
+            ca_bundle=ca_bundle,
+            client_cert_file=client_cert_file,
+            client_key_file=client_key_file,
+        ),
     )
 
 
@@ -54,9 +61,16 @@ def _client_cert_ssl_context(
     auth_method: str,
     *,
     ca_bundle: str | None = None,
+    client_cert_file: str | None = None,
+    client_key_file: str | None = None,
 ) -> ssl.SSLContext | None:
-    cert_file = os.getenv("CONFLUENCE_CLIENT_CERT_FILE", "").strip()
-    key_file = os.getenv("CONFLUENCE_CLIENT_KEY_FILE", "").strip()
+    cert_file = _first_non_empty(client_cert_file, os.getenv("CONFLUENCE_CLIENT_CERT_FILE"))
+    key_file = _first_non_empty(client_key_file, os.getenv("CONFLUENCE_CLIENT_KEY_FILE"))
+    resolved_ca_bundle = _first_non_empty(
+        ca_bundle,
+        os.getenv("REQUESTS_CA_BUNDLE"),
+        os.getenv("SSL_CERT_FILE"),
+    )
 
     if key_file and not cert_file:
         raise ValueError(
@@ -70,11 +84,11 @@ def _client_cert_ssl_context(
             "CONFLUENCE_CLIENT_CERT_FILE for --client-mode real --auth-method "
             "client-cert-env."
         )
-    if not cert_file and not ca_bundle:
+    if not cert_file and not resolved_ca_bundle:
         return None
 
     try:
-        ssl_context = ssl.create_default_context(cafile=ca_bundle)
+        ssl_context = ssl.create_default_context(cafile=resolved_ca_bundle)
     except (OSError, ssl.SSLError, ValueError) as exc:
         raise ValueError("Invalid Confluence CA bundle. Check --ca-bundle.") from exc
 
@@ -94,3 +108,13 @@ def _client_cert_ssl_context(
         ) from exc
 
     return ssl_context
+
+
+def _first_non_empty(*values: str | None) -> str | None:
+    for value in values:
+        if value is None:
+            continue
+        normalized_value = value.strip()
+        if normalized_value:
+            return normalized_value
+    return None

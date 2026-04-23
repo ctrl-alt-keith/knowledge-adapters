@@ -13,6 +13,8 @@ class ConfluenceConfig:
     target: str
     output_dir: str
     ca_bundle: str | None = None
+    client_cert_file: str | None = None
+    client_key_file: str | None = None
     client_mode: str = "stub"
     auth_method: str = "bearer-env"
     debug: bool = False

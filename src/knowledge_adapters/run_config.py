@@ -18,7 +18,10 @@ _CONFLUENCE_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
     {
         "auth_method",
         "base_url",
+        "ca_bundle",
         "client_mode",
+        "client_cert_file",
+        "client_key_file",
         "debug",
         "dry_run",
         "max_depth",
@@ -189,6 +192,47 @@ def _build_confluence_argv(
                 f"{auth_method!r}. Use {supported_values}."
             )
         argv.extend(["--auth-method", auth_method])
+
+    ca_bundle = _optional_string(run_config, "ca_bundle", index=index, config_path=config_path)
+    if ca_bundle is not None:
+        argv.extend(
+            [
+                "--ca-bundle",
+                _resolve_path_string(ca_bundle, config_path=config_path),
+            ]
+        )
+
+    client_cert_file = _optional_string(
+        run_config,
+        "client_cert_file",
+        index=index,
+        config_path=config_path,
+    )
+    client_key_file = _optional_string(
+        run_config,
+        "client_key_file",
+        index=index,
+        config_path=config_path,
+    )
+    if client_key_file is not None and client_cert_file is None:
+        raise ValueError(
+            f"Run {name!r} in {config_path} must set 'client_cert_file' when "
+            "'client_key_file' is provided."
+        )
+    if client_cert_file is not None:
+        argv.extend(
+            [
+                "--client-cert-file",
+                _resolve_path_string(client_cert_file, config_path=config_path),
+            ]
+        )
+    if client_key_file is not None:
+        argv.extend(
+            [
+                "--client-key-file",
+                _resolve_path_string(client_key_file, config_path=config_path),
+            ]
+        )
 
     if _optional_bool(run_config, "debug", index=index, config_path=config_path, default=False):
         argv.append("--debug")

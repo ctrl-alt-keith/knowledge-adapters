@@ -221,6 +221,14 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     confluence_parser.add_argument(
+        "--client-cert-file",
+        help=argparse.SUPPRESS,
+    )
+    confluence_parser.add_argument(
+        "--client-key-file",
+        help=argparse.SUPPRESS,
+    )
+    confluence_parser.add_argument(
         "--client-mode",
         choices=("stub", "real"),
         default="stub",
@@ -547,6 +555,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             target=args.target,
             output_dir=args.output_dir,
             ca_bundle=args.ca_bundle,
+            client_cert_file=args.client_cert_file,
+            client_key_file=args.client_key_file,
             client_mode=args.client_mode,
             auth_method=args.auth_method,
             debug=args.debug,
@@ -592,6 +602,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     base_url=confluence_config.base_url,
                     auth_method=confluence_config.auth_method,
                     ca_bundle=confluence_config.ca_bundle,
+                    client_cert_file=confluence_config.client_cert_file,
+                    client_key_file=confluence_config.client_key_file,
                 )
 
             def selected_fetch_page_summary(
@@ -602,6 +614,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     base_url=confluence_config.base_url,
                     auth_method=confluence_config.auth_method,
                     ca_bundle=confluence_config.ca_bundle,
+                    client_cert_file=confluence_config.client_cert_file,
+                    client_key_file=confluence_config.client_key_file,
                 )
 
             def selected_list_child_page_ids(
@@ -612,6 +626,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     base_url=confluence_config.base_url,
                     auth_method=confluence_config.auth_method,
                     ca_bundle=confluence_config.ca_bundle,
+                    client_cert_file=confluence_config.client_cert_file,
+                    client_key_file=confluence_config.client_key_file,
                 )
         else:
             selected_fetch_page = fetch_page
