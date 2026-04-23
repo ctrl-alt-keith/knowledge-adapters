@@ -228,6 +228,8 @@ def test_confluence_cli_writes_manifest_for_normal_run(tmp_path: Path) -> None:
                 source_url="https://example.com/wiki/pages/viewpage.action?pageId=12345",
                 output_path="pages/12345.md",
                 title="stub-page-12345",
+                page_version=1,
+                last_modified="1970-01-01T00:00:00Z",
             )
         ],
     )
@@ -349,6 +351,8 @@ def test_confluence_cli_full_flow_keeps_dry_run_and_write_artifacts_in_sync(
                 source_url=canonical_source_url,
                 output_path="pages/12345.md",
                 title="stub-page-12345",
+                page_version=1,
+                last_modified="1970-01-01T00:00:00Z",
             )
         ],
     )

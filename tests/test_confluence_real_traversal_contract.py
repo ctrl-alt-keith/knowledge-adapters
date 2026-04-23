@@ -40,8 +40,23 @@ def _load_manifest(output_dir: Path) -> dict[str, object]:
     return cast(dict[str, object], payload)
 
 
-def _manifest_files(payload: dict[str, object]) -> list[dict[str, str]]:
-    return cast(list[dict[str, str]], payload["files"])
+def _manifest_files(payload: dict[str, object]) -> list[dict[str, object]]:
+    return cast(list[dict[str, object]], payload["files"])
+
+
+def _write_previous_manifest(output_dir: Path, files: list[dict[str, object]]) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-04-19T00:00:00Z",
+                "files": files,
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
 
 def _real_pages() -> dict[str, dict[str, object]]:
@@ -51,48 +66,64 @@ def _real_pages() -> dict[str, dict[str, object]]:
             "title": "Root Page",
             "source_url": "https://example.com/wiki/pages/100",
             "content": "Root content.",
+            "page_version": 1,
+            "last_modified": "2026-04-20T00:00:00Z",
         },
         "200": {
             "canonical_id": "200",
             "title": "Shared Child",
             "source_url": "https://example.com/wiki/pages/200",
             "content": "Shared child content.",
+            "page_version": 2,
+            "last_modified": "2026-04-20T00:01:00Z",
         },
         "300": {
             "canonical_id": "300",
             "title": "Sibling Child",
             "source_url": "https://example.com/wiki/pages/300",
             "content": "Sibling child content.",
+            "page_version": 3,
+            "last_modified": "2026-04-20T00:02:00Z",
         },
         "205": {
             "canonical_id": "205",
             "title": "Grandchild A",
             "source_url": "https://example.com/wiki/pages/205",
             "content": "Grandchild A content.",
+            "page_version": 4,
+            "last_modified": "2026-04-20T00:03:00Z",
         },
         "210": {
             "canonical_id": "210",
             "title": "Grandchild B",
             "source_url": "https://example.com/wiki/pages/210",
             "content": "Grandchild B content.",
+            "page_version": 5,
+            "last_modified": "2026-04-20T00:04:00Z",
         },
         "400": {
             "canonical_id": "400",
             "title": "Branch B",
             "source_url": "https://example.com/wiki/pages/400",
             "content": "Branch B content.",
+            "page_version": 6,
+            "last_modified": "2026-04-20T00:05:00Z",
         },
         "500": {
             "canonical_id": "500",
             "title": "Leaf",
             "source_url": "https://example.com/wiki/pages/500",
             "content": "Leaf content.",
+            "page_version": 7,
+            "last_modified": "2026-04-20T00:06:00Z",
         },
         "900": {
             "canonical_id": "900",
             "title": "Later Grandchild",
             "source_url": "https://example.com/wiki/pages/900",
             "content": "Later grandchild content.",
+            "page_version": 8,
+            "last_modified": "2026-04-20T00:07:00Z",
         },
     }
 
@@ -244,6 +275,103 @@ def test_real_tree_depth_semantics_use_separate_page_fetch_and_child_discovery(
     assert [entry["canonical_id"] for entry in _manifest_files(payload)] == expected_ids
     assert page_fetch_counts == expected_fetch_counts
     assert child_list_calls == expected_child_calls
+
+
+def test_real_tree_incremental_run_skips_full_page_fetch_for_unchanged_pages(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    from knowledge_adapters.confluence import client as client_module
+
+    output_dir = tmp_path / "out"
+    pages = _real_pages()
+    _write_previous_manifest(
+        output_dir,
+        [
+            {
+                "canonical_id": "100",
+                "source_url": pages["100"]["source_url"],
+                "output_path": "pages/100.md",
+                "title": pages["100"]["title"],
+                "page_version": pages["100"]["page_version"],
+                "last_modified": pages["100"]["last_modified"],
+            },
+            {
+                "canonical_id": "200",
+                "source_url": pages["200"]["source_url"],
+                "output_path": "pages/200.md",
+                "title": pages["200"]["title"],
+                "page_version": pages["200"]["page_version"],
+                "last_modified": pages["200"]["last_modified"],
+            },
+        ],
+    )
+    for page_id in ("100", "200"):
+        page_path = output_dir / "pages" / f"{page_id}.md"
+        page_path.parent.mkdir(parents=True, exist_ok=True)
+        page_path.write_text(f"existing {page_id}\n", encoding="utf-8")
+
+    full_fetch_counts: dict[str, int] = {}
+    summary_fetch_counts: dict[str, int] = {}
+
+    def stub_real_fetch(
+        target: ResolvedTarget,
+        *,
+        base_url: str = "https://example.com/wiki",
+        auth_method: str = "bearer-env",
+    ) -> dict[str, object]:
+        del base_url, auth_method
+        page_id = str(target.page_id)
+        full_fetch_counts[page_id] = full_fetch_counts.get(page_id, 0) + 1
+        return dict(pages[page_id])
+
+    def stub_real_fetch_summary(
+        target: ResolvedTarget,
+        *,
+        base_url: str = "https://example.com/wiki",
+        auth_method: str = "bearer-env",
+    ) -> dict[str, object]:
+        del base_url, auth_method
+        page_id = str(target.page_id)
+        summary_fetch_counts[page_id] = summary_fetch_counts.get(page_id, 0) + 1
+        page = dict(pages[page_id])
+        page.pop("content", None)
+        return page
+
+    def stub_child_id_discovery(*args: object, **kwargs: object) -> list[str]:
+        parent_id = _called_page_id(args, kwargs)
+        result = _real_children()[parent_id]
+        if isinstance(result, Exception):
+            raise result
+        return [str(child_id) for child_id in result]
+
+    monkeypatch.setattr(client_module, "fetch_real_page", stub_real_fetch, raising=False)
+    monkeypatch.setattr(
+        client_module,
+        "fetch_real_page_summary",
+        stub_real_fetch_summary,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        client_module,
+        "list_real_child_page_ids",
+        stub_child_id_discovery,
+        raising=False,
+    )
+
+    exit_code = main(_real_tree_argv(output_dir, max_depth=1))
+
+    assert exit_code == 0
+    assert full_fetch_counts == {"300": 1}
+    assert summary_fetch_counts == {"100": 1, "200": 1, "300": 1}
+
+    captured = capsys.readouterr()
+    assert "Skipped: " in captured.out
+    assert "Wrote: " in captured.out
+    assert "new_pages: 1" in captured.out
+    assert "changed_pages: 0" in captured.out
+    assert "unchanged_pages: 2" in captured.out
 
 
 def test_real_tree_run_does_not_report_stub_discovery_limit(

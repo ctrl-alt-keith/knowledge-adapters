@@ -24,6 +24,8 @@ def _synthetic_pages() -> dict[str, dict[str, object]]:
             "title": "Root A",
             "source_url": "https://example.com/wiki/pages/100",
             "content": "Root A content.",
+            "page_version": 1,
+            "last_modified": "2026-04-20T00:00:00Z",
             "children": ["200"],
         },
         "200": {
@@ -31,6 +33,8 @@ def _synthetic_pages() -> dict[str, dict[str, object]]:
             "title": "Shared Child",
             "source_url": "https://example.com/wiki/pages/200",
             "content": "Shared child content.",
+            "page_version": 2,
+            "last_modified": "2026-04-20T00:01:00Z",
             "children": [],
         },
         "900": {
@@ -38,6 +42,8 @@ def _synthetic_pages() -> dict[str, dict[str, object]]:
             "title": "Root B",
             "source_url": "https://example.com/wiki/pages/900",
             "content": "Root B content.",
+            "page_version": 9,
+            "last_modified": "2026-04-20T00:02:00Z",
             "children": ["200", "950"],
         },
         "950": {
@@ -45,6 +51,8 @@ def _synthetic_pages() -> dict[str, dict[str, object]]:
             "title": "Exclusive Child",
             "source_url": "https://example.com/wiki/pages/950",
             "content": "Exclusive child content.",
+            "page_version": 10,
+            "last_modified": "2026-04-20T00:03:00Z",
             "children": [],
         },
     }
@@ -93,9 +101,33 @@ def _page_path(output_dir: Path, page_id: str) -> Path:
     return output_dir / "pages" / f"{page_id}.md"
 
 
+def _manifest_entry_for_page(
+    page_id: str,
+    *,
+    pages: dict[str, dict[str, object]] | None = None,
+    output_path: str | None = None,
+    source_url: str | None = None,
+    title: str | None = None,
+    include_metadata: bool = True,
+) -> dict[str, object]:
+    pages = pages or _synthetic_pages()
+    page = pages[page_id]
+    entry: dict[str, object] = {
+        "canonical_id": page_id,
+        "source_url": source_url or str(page["source_url"]),
+        "output_path": output_path or f"pages/{page_id}.md",
+    }
+    if title is not None:
+        entry["title"] = title
+    if include_metadata:
+        entry["page_version"] = page["page_version"]
+        entry["last_modified"] = page["last_modified"]
+    return entry
+
+
 def _write_previous_manifest(
     output_dir: Path,
-    files: list[dict[str, str]],
+    files: list[dict[str, object]],
     *,
     generated_at: str = "2026-04-19T00:00:00Z",
     root_page_id: str | None = None,
@@ -121,8 +153,8 @@ def _load_manifest(output_dir: Path) -> dict[str, object]:
     return cast(dict[str, object], payload)
 
 
-def _manifest_files(payload: dict[str, object]) -> list[dict[str, str]]:
-    return cast(list[dict[str, str]], payload["files"])
+def _manifest_files(payload: dict[str, object]) -> list[dict[str, object]]:
+    return cast(list[dict[str, object]], payload["files"])
 
 
 def test_incremental_dry_run_without_manifest_marks_all_pages_as_write(
@@ -152,6 +184,14 @@ def test_incremental_dry_run_without_manifest_marks_all_pages_as_write(
             ("write", _page_path(output_dir, "200")),
         ],
     )
+    assert_dry_run_summary(
+        captured.out,
+        would_write=2,
+        would_skip=0,
+        new_pages=2,
+        changed_pages=0,
+        unchanged_pages=0,
+    )
     assert f"would skip {_page_path(output_dir, '100')}" not in captured.out
     assert f"would skip {_page_path(output_dir, '200')}" not in captured.out
     assert not _page_path(output_dir, "100").exists()
@@ -163,11 +203,7 @@ def test_incremental_dry_run_without_manifest_marks_all_pages_as_write(
     ("manifest_entry", "materialize_file", "expected_phrase"),
     [
         (
-            {
-                "canonical_id": "100",
-                "source_url": "https://example.com/wiki/pages/100",
-                "output_path": "pages/100.md",
-            },
+            _manifest_entry_for_page("100"),
             True,
             "would skip",
         ),
@@ -204,7 +240,7 @@ def test_incremental_dry_run_uses_manifest_identity_and_file_existence_for_skip(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
     capsys: CaptureFixture[str],
-    manifest_entry: dict[str, str],
+    manifest_entry: dict[str, object],
     materialize_file: bool,
     expected_phrase: str,
 ) -> None:
@@ -216,7 +252,7 @@ def test_incremental_dry_run_uses_manifest_identity_and_file_existence_for_skip(
     )
 
     if materialize_file:
-        prior_path = output_dir / manifest_entry["output_path"]
+        prior_path = output_dir / str(manifest_entry["output_path"])
         prior_path.parent.mkdir(parents=True, exist_ok=True)
         prior_path.write_text("existing artifact\n", encoding="utf-8")
 
@@ -256,13 +292,7 @@ def test_incremental_dry_run_reports_both_would_write_and_would_skip_without_wri
     output_dir = tmp_path / "out"
     original_manifest = _write_previous_manifest(
         output_dir,
-        [
-            {
-                "canonical_id": "100",
-                "source_url": "https://example.com/wiki/pages/100",
-                "output_path": "pages/100.md",
-            }
-        ],
+        [_manifest_entry_for_page("100")],
         root_page_id="100",
     )
     existing_page = _page_path(output_dir, "100")
@@ -280,7 +310,14 @@ def test_incremental_dry_run_reports_both_would_write_and_would_skip_without_wri
     captured = capsys.readouterr()
     assert f"would skip {existing_page}" in captured.out
     assert f"would write {_page_path(output_dir, '200')}" in captured.out
-    assert_dry_run_summary(captured.out, would_write=1, would_skip=1)
+    assert_dry_run_summary(
+        captured.out,
+        would_write=1,
+        would_skip=1,
+        new_pages=1,
+        changed_pages=0,
+        unchanged_pages=1,
+    )
     assert existing_page.read_text(encoding="utf-8") == "already written\n"
     assert not _page_path(output_dir, "200").exists()
     assert _manifest_path(output_dir).read_text(encoding="utf-8") == original_manifest
@@ -293,13 +330,7 @@ def test_incremental_normal_run_manifest_includes_written_and_skipped_pages(
     output_dir = tmp_path / "out"
     _write_previous_manifest(
         output_dir,
-        [
-            {
-                "canonical_id": "100",
-                "source_url": "https://example.com/wiki/pages/100",
-                "output_path": "pages/100.md",
-            }
-        ],
+        [_manifest_entry_for_page("100")],
         root_page_id="100",
     )
     existing_page = _page_path(output_dir, "100")
@@ -318,6 +349,58 @@ def test_incremental_normal_run_manifest_includes_written_and_skipped_pages(
 
     payload = _load_manifest(output_dir)
     assert [entry["canonical_id"] for entry in _manifest_files(payload)] == ["100", "200"]
+    assert _manifest_files(payload)[0]["page_version"] == 1
+    assert _manifest_files(payload)[0]["last_modified"] == "2026-04-20T00:00:00Z"
+    assert _manifest_files(payload)[1]["page_version"] == 2
+    assert _manifest_files(payload)[1]["last_modified"] == "2026-04-20T00:01:00Z"
+
+
+def test_incremental_normal_run_rewrites_pages_when_source_metadata_changes(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    output_dir = tmp_path / "out"
+    _write_previous_manifest(
+        output_dir,
+        [
+            {
+                "canonical_id": "100",
+                "source_url": "https://example.com/wiki/pages/100?old=1",
+                "output_path": "pages/100.md",
+                "page_version": 0,
+                "last_modified": "2026-04-19T23:59:59Z",
+            }
+        ],
+        root_page_id="100",
+    )
+    existing_page = _page_path(output_dir, "100")
+    existing_page.parent.mkdir(parents=True, exist_ok=True)
+    existing_page.write_text("stale root\n", encoding="utf-8")
+
+    exit_code, _ = _run_recursive_cli(
+        tmp_path,
+        monkeypatch,
+        dry_run=False,
+    )
+
+    assert exit_code == 0
+    assert existing_page.read_text(encoding="utf-8") != "stale root\n"
+
+    captured = capsys.readouterr()
+    assert f"Wrote: {_page_path(output_dir, '100')} (changed)" in captured.out
+    assert_write_summary(
+        captured.out,
+        wrote=2,
+        skipped=0,
+        new_pages=1,
+        changed_pages=1,
+        unchanged_pages=0,
+    )
+
+    payload = _load_manifest(output_dir)
+    assert _manifest_files(payload)[0]["page_version"] == 1
+    assert _manifest_files(payload)[0]["last_modified"] == "2026-04-20T00:00:00Z"
 
 
 def test_incremental_output_directory_reuse_skips_overlapping_pages_without_target_validation(
@@ -327,13 +410,7 @@ def test_incremental_output_directory_reuse_skips_overlapping_pages_without_targ
     output_dir = tmp_path / "out"
     _write_previous_manifest(
         output_dir,
-        [
-            {
-                "canonical_id": "200",
-                "source_url": "https://example.com/wiki/pages/200",
-                "output_path": "pages/200.md",
-            }
-        ],
+        [_manifest_entry_for_page("200")],
         root_page_id="100",
     )
     overlapping_page = _page_path(output_dir, "200")
@@ -417,6 +494,8 @@ def test_incremental_normal_run_handles_larger_mixed_write_and_skip_set(
             "title": "Root",
             "source_url": "https://example.com/wiki/pages/100",
             "content": "Root content.",
+            "page_version": 1,
+            "last_modified": "2026-04-20T00:00:00Z",
             "children": ["200", "300", "400"],
         },
         "200": {
@@ -424,6 +503,8 @@ def test_incremental_normal_run_handles_larger_mixed_write_and_skip_set(
             "title": "Write Child A",
             "source_url": "https://example.com/wiki/pages/200",
             "content": "Child A content.",
+            "page_version": 22,
+            "last_modified": "2026-04-20T00:01:00Z",
             "children": [],
         },
         "300": {
@@ -431,6 +512,8 @@ def test_incremental_normal_run_handles_larger_mixed_write_and_skip_set(
             "title": "Skip Child",
             "source_url": "https://example.com/wiki/pages/300",
             "content": "Child B content.",
+            "page_version": 3,
+            "last_modified": "2026-04-20T00:02:00Z",
             "children": [],
         },
         "400": {
@@ -438,6 +521,8 @@ def test_incremental_normal_run_handles_larger_mixed_write_and_skip_set(
             "title": "Write Child B",
             "source_url": "https://example.com/wiki/pages/400",
             "content": "Child C content.",
+            "page_version": 44,
+            "last_modified": "2026-04-20T00:03:00Z",
             "children": [],
         },
     }
@@ -445,18 +530,18 @@ def test_incremental_normal_run_handles_larger_mixed_write_and_skip_set(
     _write_previous_manifest(
         output_dir,
         [
-            {
-                "canonical_id": "100",
-                "source_url": "https://example.com/wiki/pages/100?old=1",
-                "output_path": "pages/100.md",
-                "title": "Old Root",
-            },
-            {
-                "canonical_id": "300",
-                "source_url": "https://example.com/wiki/pages/300?old=1",
-                "output_path": "pages/300.md",
-                "title": "Old Child",
-            },
+            _manifest_entry_for_page(
+                "100",
+                pages=pages,
+                source_url="https://example.com/wiki/pages/100?old=1",
+                title="Old Root",
+            ),
+            _manifest_entry_for_page(
+                "300",
+                pages=pages,
+                source_url="https://example.com/wiki/pages/300?old=1",
+                title="Old Child",
+            ),
             {
                 "canonical_id": "999",
                 "source_url": "https://example.com/wiki/pages/999",
@@ -505,10 +590,17 @@ def test_incremental_normal_run_handles_larger_mixed_write_and_skip_set(
     assert f"Skipped: {_page_path(output_dir, '300')}" in captured.out
     assert f"Wrote: {_page_path(output_dir, '200')}" in captured.out
     assert f"Wrote: {_page_path(output_dir, '400')}" in captured.out
-    assert_write_summary(captured.out, wrote=2, skipped=2)
+    assert_write_summary(
+        captured.out,
+        wrote=2,
+        skipped=2,
+        new_pages=2,
+        changed_pages=0,
+        unchanged_pages=2,
+    )
 
 
-def test_incremental_dry_run_ignores_non_identity_manifest_fields_for_skip(
+def test_incremental_dry_run_rewrites_pages_from_older_manifests_without_source_metadata(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
     capsys: CaptureFixture[str],
@@ -541,8 +633,15 @@ def test_incremental_dry_run_ignores_non_identity_manifest_fields_for_skip(
     assert exit_code == 0
 
     captured = capsys.readouterr()
-    assert f"would skip {existing_page}" in captured.out
-    assert_dry_run_summary(captured.out, would_write=1, would_skip=1)
+    assert f"would write {existing_page} (changed)" in captured.out
+    assert_dry_run_summary(
+        captured.out,
+        would_write=2,
+        would_skip=0,
+        new_pages=1,
+        changed_pages=1,
+        unchanged_pages=0,
+    )
 
 
 def test_incremental_run_fails_fast_for_duplicate_output_paths_in_prior_manifest(
@@ -592,11 +691,10 @@ def test_incremental_output_directory_reuse_handles_overlapping_and_new_pages(
     _write_previous_manifest(
         output_dir,
         [
-            {
-                "canonical_id": "200",
-                "source_url": "https://example.com/wiki/pages/200?old=1",
-                "output_path": "pages/200.md",
-            },
+            _manifest_entry_for_page(
+                "200",
+                source_url="https://example.com/wiki/pages/200?old=1",
+            ),
             {
                 "canonical_id": "777",
                 "source_url": "https://example.com/wiki/pages/777",
@@ -638,7 +736,14 @@ def test_incremental_output_directory_reuse_handles_overlapping_and_new_pages(
     ]
 
     captured = capsys.readouterr()
-    assert_write_summary(captured.out, wrote=2, skipped=1)
+    assert_write_summary(
+        captured.out,
+        wrote=2,
+        skipped=1,
+        new_pages=2,
+        changed_pages=0,
+        unchanged_pages=1,
+    )
 
 
 def test_incremental_dry_run_summary_reports_mixed_write_and_skip_counts(
@@ -652,6 +757,8 @@ def test_incremental_dry_run_summary_reports_mixed_write_and_skip_counts(
             "title": "Root",
             "source_url": "https://example.com/wiki/pages/100",
             "content": "Root content.",
+            "page_version": 1,
+            "last_modified": "2026-04-20T00:00:00Z",
             "children": ["200", "300", "400"],
         },
         "200": {
@@ -659,6 +766,8 @@ def test_incremental_dry_run_summary_reports_mixed_write_and_skip_counts(
             "title": "Skip Child",
             "source_url": "https://example.com/wiki/pages/200",
             "content": "Skip child content.",
+            "page_version": 2,
+            "last_modified": "2026-04-20T00:01:00Z",
             "children": [],
         },
         "300": {
@@ -666,6 +775,8 @@ def test_incremental_dry_run_summary_reports_mixed_write_and_skip_counts(
             "title": "Write Child A",
             "source_url": "https://example.com/wiki/pages/300",
             "content": "Write child A content.",
+            "page_version": 33,
+            "last_modified": "2026-04-20T00:02:00Z",
             "children": [],
         },
         "400": {
@@ -673,6 +784,8 @@ def test_incremental_dry_run_summary_reports_mixed_write_and_skip_counts(
             "title": "Write Child B",
             "source_url": "https://example.com/wiki/pages/400",
             "content": "Write child B content.",
+            "page_version": 44,
+            "last_modified": "2026-04-20T00:03:00Z",
             "children": [],
         },
     }
@@ -680,16 +793,8 @@ def test_incremental_dry_run_summary_reports_mixed_write_and_skip_counts(
     _write_previous_manifest(
         output_dir,
         [
-            {
-                "canonical_id": "100",
-                "source_url": "https://example.com/wiki/pages/100",
-                "output_path": "pages/100.md",
-            },
-            {
-                "canonical_id": "200",
-                "source_url": "https://example.com/wiki/pages/200",
-                "output_path": "pages/200.md",
-            },
+            _manifest_entry_for_page("100", pages=pages),
+            _manifest_entry_for_page("200", pages=pages),
         ],
         root_page_id="100",
     )
@@ -710,5 +815,12 @@ def test_incremental_dry_run_summary_reports_mixed_write_and_skip_counts(
     assert not _page_path(output_dir, "400").exists()
 
     captured = capsys.readouterr()
-    assert_dry_run_summary(captured.out, would_write=2, would_skip=2)
+    assert_dry_run_summary(
+        captured.out,
+        would_write=2,
+        would_skip=2,
+        new_pages=2,
+        changed_pages=0,
+        unchanged_pages=2,
+    )
     assert_tree_plan_page_count(captured.out, count=4)

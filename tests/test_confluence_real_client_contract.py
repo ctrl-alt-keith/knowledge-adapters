@@ -119,6 +119,10 @@ def _valid_confluence_payload(
             "base": "https://example.com/wiki",
             "webui": f"/spaces/ENG/pages/{page_id}",
         },
+        "version": {
+            "number": 7,
+            "when": "2026-04-20T12:34:56Z",
+        },
     }
 
 
@@ -183,6 +187,8 @@ Stub content for page 12345.
             "source_url": "https://example.com/wiki/pages/viewpage.action?pageId=12345",
             "output_path": "pages/12345.md",
             "title": "stub-page-12345",
+            "page_version": 1,
+            "last_modified": "1970-01-01T00:00:00Z",
         }
     ]
 
@@ -199,6 +205,8 @@ def test_explicit_real_client_mode_selects_real_fetch_path(
             "title": "Real Page",
             "content": "<p>Hello from Confluence.</p>",
             "source_url": "https://example.com/wiki/spaces/ENG/pages/12345",
+            "page_version": 7,
+            "last_modified": "2026-04-20T12:34:56Z",
         }
 
     def fail_if_stub_used(target: ResolvedTarget) -> dict[str, object]:
@@ -251,6 +259,8 @@ def test_stub_and_real_single_page_write_runs_share_the_same_cli_shape(
             "title": "Real Page",
             "content": "<p>Hello from Confluence.</p>",
             "source_url": "https://example.com/wiki/spaces/ENG/pages/12345",
+            "page_version": 7,
+            "last_modified": "2026-04-20T12:34:56Z",
         }
 
     def fail_if_stub_used(target: ResolvedTarget) -> dict[str, object]:
@@ -309,6 +319,8 @@ def test_stub_and_real_single_page_dry_runs_share_the_same_plan_shape(
             "title": "Real Page",
             "content": "<p>Hello from Confluence.</p>",
             "source_url": "https://example.com/wiki/spaces/ENG/pages/12345",
+            "page_version": 7,
+            "last_modified": "2026-04-20T12:34:56Z",
         }
 
     def fail_if_stub_used(target: ResolvedTarget) -> dict[str, object]:
@@ -389,6 +401,8 @@ def test_real_fetch_maps_valid_confluence_response_into_adapter_payload(
         "title": "Real Page",
         "content": "<p>Hello from Confluence.</p>",
         "source_url": "https://example.com/wiki/spaces/ENG/pages/12345",
+        "page_version": 7,
+        "last_modified": "2026-04-20T12:34:56Z",
     }
     assert str(page["source_url"]).startswith("https://")
 
@@ -652,7 +666,7 @@ def test_real_fetch_ignores_extra_irrelevant_fields_in_valid_response(
     monkeypatch: MonkeyPatch,
 ) -> None:
     payload = _valid_confluence_payload()
-    payload["version"] = {"number": 7}
+    payload["version"] = {"number": 7, "when": "2026-04-20T12:34:56Z"}
     payload["space"] = {"key": "ENG"}
     payload["ignored"] = ["extra", "fields"]
 
@@ -669,6 +683,8 @@ def test_real_fetch_ignores_extra_irrelevant_fields_in_valid_response(
         "title": "Real Page",
         "content": "<p>Hello from Confluence.</p>",
         "source_url": "https://example.com/wiki/spaces/ENG/pages/12345",
+        "page_version": 7,
+        "last_modified": "2026-04-20T12:34:56Z",
     }
 
 
@@ -1123,7 +1139,7 @@ def test_real_client_cli_debug_mode_surfaces_request_context_for_request_failure
         == "knowledge-adapters confluence: error: Confluence request failed. "
         "Verify --base-url and try again.\n"
         "  debug request_url: https://example.com/wiki/rest/api/content/12345"
-        "?expand=body.storage,_links\n"
+        "?expand=body.storage,_links,version\n"
         "  debug client_mode: real\n"
         "  debug auth_method: bearer-env\n"
         "  debug exception: synthetic transport failure\n"
