@@ -183,6 +183,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Directory where pages/ and manifest.json are written.",
     )
     confluence_parser.add_argument(
+        "--ca-bundle",
+        metavar="FILE",
+        help=(
+            "PEM bundle to trust for TLS verification in --client-mode real. "
+            "When set, this overrides default certificate discovery for "
+            "Confluence HTTPS requests."
+        ),
+    )
+    confluence_parser.add_argument(
         "--client-mode",
         choices=("stub", "real"),
         default="stub",
@@ -343,6 +352,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             base_url=args.base_url,
             target=args.target,
             output_dir=args.output_dir,
+            ca_bundle=args.ca_bundle,
             client_mode=args.client_mode,
             auth_method=args.auth_method,
             debug=args.debug,
@@ -387,6 +397,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     resolved_target,
                     base_url=confluence_config.base_url,
                     auth_method=confluence_config.auth_method,
+                    ca_bundle=confluence_config.ca_bundle,
                 )
 
             def selected_fetch_page_summary(
@@ -396,6 +407,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     resolved_target,
                     base_url=confluence_config.base_url,
                     auth_method=confluence_config.auth_method,
+                    ca_bundle=confluence_config.ca_bundle,
                 )
 
             def selected_list_child_page_ids(
@@ -405,6 +417,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     resolved_target,
                     base_url=confluence_config.base_url,
                     auth_method=confluence_config.auth_method,
+                    ca_bundle=confluence_config.ca_bundle,
                 )
         else:
             selected_fetch_page = fetch_page

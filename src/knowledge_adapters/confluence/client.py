@@ -267,8 +267,13 @@ def _request_failure_message(exc: HTTPError | URLError, *, auth_method: str) -> 
     return "Confluence request failed. Verify --base-url and try again."
 
 
-def _request_json(api_url: str, *, auth_method: str) -> dict[str, object]:
-    request_auth = build_request_auth(auth_method)
+def _request_json(
+    api_url: str,
+    *,
+    auth_method: str,
+    ca_bundle: str | None = None,
+) -> dict[str, object]:
+    request_auth = build_request_auth(auth_method, ca_bundle=ca_bundle)
     api_request = request.Request(
         api_url,
         headers=dict(request_auth.headers),
@@ -298,6 +303,7 @@ def fetch_real_page(
     *,
     base_url: str,
     auth_method: str,
+    ca_bundle: str | None = None,
 ) -> dict[str, object]:
     """Fetch one Confluence page through the opt-in real client path."""
     page_id = target.page_id
@@ -307,6 +313,7 @@ def fetch_real_page(
     raw_payload = _request_json(
         _content_api_url(base_url, page_id, expand="body.storage,_links,version"),
         auth_method=auth_method,
+        ca_bundle=ca_bundle,
     )
     return _map_real_page(raw_payload, page_id)
 
@@ -316,6 +323,7 @@ def fetch_real_page_summary(
     *,
     base_url: str,
     auth_method: str,
+    ca_bundle: str | None = None,
 ) -> dict[str, object]:
     """Fetch Confluence page metadata used for incremental sync decisions."""
     page_id = target.page_id
@@ -325,6 +333,7 @@ def fetch_real_page_summary(
     raw_payload = _request_json(
         _content_api_url(base_url, page_id, expand="version,_links"),
         auth_method=auth_method,
+        ca_bundle=ca_bundle,
     )
     return _map_real_page_summary(raw_payload, page_id)
 
@@ -334,6 +343,7 @@ def list_real_child_page_ids(
     *,
     base_url: str,
     auth_method: str,
+    ca_bundle: str | None = None,
 ) -> list[str]:
     """List direct child page IDs for one Confluence page in real mode."""
     page_id = target.page_id
@@ -343,5 +353,6 @@ def list_real_child_page_ids(
     raw_payload = _request_json(
         _child_page_api_url(base_url, page_id),
         auth_method=auth_method,
+        ca_bundle=ca_bundle,
     )
     return _map_child_page_ids(raw_payload)
