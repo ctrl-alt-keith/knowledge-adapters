@@ -49,6 +49,8 @@ def _fetch_real_page(
     base_url: str = "https://example.com/wiki",
     auth_method: str = "bearer-env",
     ca_bundle: str | None = None,
+    client_cert_file: str | None = None,
+    client_key_file: str | None = None,
 ) -> dict[str, object]:
     from knowledge_adapters.confluence import client as client_module
 
@@ -58,6 +60,8 @@ def _fetch_real_page(
         base_url=base_url,
         auth_method=auth_method,
         ca_bundle=ca_bundle,
+        client_cert_file=client_cert_file,
+        client_key_file=client_key_file,
     )
     return cast(dict[str, object], page)
 
@@ -68,6 +72,8 @@ def _fetch_real_page_summary(
     base_url: str = "https://example.com/wiki",
     auth_method: str = "bearer-env",
     ca_bundle: str | None = None,
+    client_cert_file: str | None = None,
+    client_key_file: str | None = None,
 ) -> dict[str, object]:
     from knowledge_adapters.confluence import client as client_module
 
@@ -77,6 +83,8 @@ def _fetch_real_page_summary(
         base_url=base_url,
         auth_method=auth_method,
         ca_bundle=ca_bundle,
+        client_cert_file=client_cert_file,
+        client_key_file=client_key_file,
     )
     return cast(dict[str, object], page)
 
@@ -87,6 +95,8 @@ def _list_real_child_page_ids(
     base_url: str = "https://example.com/wiki",
     auth_method: str = "bearer-env",
     ca_bundle: str | None = None,
+    client_cert_file: str | None = None,
+    client_key_file: str | None = None,
 ) -> list[str]:
     from knowledge_adapters.confluence import client as client_module
 
@@ -96,6 +106,8 @@ def _list_real_child_page_ids(
         base_url=base_url,
         auth_method=auth_method,
         ca_bundle=ca_bundle,
+        client_cert_file=client_cert_file,
+        client_key_file=client_key_file,
     )
     return cast(list[str], child_page_ids)
 
@@ -481,6 +493,90 @@ def test_real_fetch_uses_ca_bundle_for_tls_verification(
     assert observed_contexts == [ssl_context]
 
 
+def test_real_fetch_prefers_explicit_ca_bundle_over_env_fallback(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    ssl_context = _FakeSSLContext()
+    observed_cafiles: list[str | None] = []
+
+    def fake_create_default_context(*, cafile: str | None = None) -> _FakeSSLContext:
+        observed_cafiles.append(cafile)
+        return ssl_context
+
+    monkeypatch.setattr(
+        "knowledge_adapters.confluence.auth.ssl.create_default_context",
+        fake_create_default_context,
+    )
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", "/tmp/env-requests-ca.pem")
+    monkeypatch.setenv("SSL_CERT_FILE", "/tmp/env-ssl-ca.pem")
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda *args, **kwargs: _FakeHTTPResponse(_valid_confluence_payload()),
+    )
+
+    page = _fetch_real_page(_real_target(), ca_bundle="/tmp/config-ca.pem")
+
+    assert page["canonical_id"] == "12345"
+    assert observed_cafiles == ["/tmp/config-ca.pem"]
+
+
+def test_real_fetch_uses_requests_ca_bundle_env_when_explicit_ca_bundle_omitted(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    ssl_context = _FakeSSLContext()
+    observed_cafiles: list[str | None] = []
+
+    def fake_create_default_context(*, cafile: str | None = None) -> _FakeSSLContext:
+        observed_cafiles.append(cafile)
+        return ssl_context
+
+    monkeypatch.setattr(
+        "knowledge_adapters.confluence.auth.ssl.create_default_context",
+        fake_create_default_context,
+    )
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", "/tmp/env-requests-ca.pem")
+    monkeypatch.setenv("SSL_CERT_FILE", "/tmp/env-ssl-ca.pem")
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda *args, **kwargs: _FakeHTTPResponse(_valid_confluence_payload()),
+    )
+
+    page = _fetch_real_page(_real_target())
+
+    assert page["canonical_id"] == "12345"
+    assert observed_cafiles == ["/tmp/env-requests-ca.pem"]
+
+
+def test_real_fetch_uses_ssl_cert_file_env_when_requests_ca_bundle_is_absent(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    ssl_context = _FakeSSLContext()
+    observed_cafiles: list[str | None] = []
+
+    def fake_create_default_context(*, cafile: str | None = None) -> _FakeSSLContext:
+        observed_cafiles.append(cafile)
+        return ssl_context
+
+    monkeypatch.setattr(
+        "knowledge_adapters.confluence.auth.ssl.create_default_context",
+        fake_create_default_context,
+    )
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.delenv("REQUESTS_CA_BUNDLE", raising=False)
+    monkeypatch.setenv("SSL_CERT_FILE", "/tmp/env-ssl-ca.pem")
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda *args, **kwargs: _FakeHTTPResponse(_valid_confluence_payload()),
+    )
+
+    page = _fetch_real_page(_real_target())
+
+    assert page["canonical_id"] == "12345"
+    assert observed_cafiles == ["/tmp/env-ssl-ca.pem"]
+
+
 def test_real_fetch_summary_uses_ca_bundle_for_tls_verification(
     monkeypatch: MonkeyPatch,
 ) -> None:
@@ -603,6 +699,40 @@ def test_real_fetch_uses_split_client_cert_and_key_with_bearer_auth(
     )
     assert observed_contexts == [ssl_context]
     assert observed_request_headers == [{"Authorization": "Bearer test-token"}]
+
+
+def test_real_fetch_prefers_explicit_client_cert_and_key_over_env_fallback(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    ssl_context = _FakeSSLContext()
+    observed_contexts: list[object | None] = []
+
+    def fake_urlopen(*args: object, **kwargs: object) -> _FakeHTTPResponse:
+        del args
+        observed_contexts.append(kwargs.get("context"))
+        return _FakeHTTPResponse(_valid_confluence_payload())
+
+    monkeypatch.setattr(
+        "knowledge_adapters.confluence.auth.ssl.create_default_context",
+        lambda *, cafile=None: ssl_context,
+    )
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setenv("CONFLUENCE_CLIENT_CERT_FILE", "/tmp/env-client.crt")
+    monkeypatch.setenv("CONFLUENCE_CLIENT_KEY_FILE", "/tmp/env-client.key")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    page = _fetch_real_page(
+        _real_target(),
+        client_cert_file="/tmp/config-client.crt",
+        client_key_file="/tmp/config-client.key",
+    )
+
+    assert page["canonical_id"] == "12345"
+    assert ssl_context.loaded_cert_chain == (
+        "/tmp/config-client.crt",
+        "/tmp/config-client.key",
+    )
+    assert observed_contexts == [ssl_context]
 
 
 def test_real_fetch_treats_empty_client_key_env_as_omitted_for_combined_pem(
