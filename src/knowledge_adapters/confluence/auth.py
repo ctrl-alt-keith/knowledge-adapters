@@ -17,7 +17,11 @@ class RequestAuth:
     ssl_context: ssl.SSLContext | None
 
 
-def build_request_auth(auth_method: str) -> RequestAuth:
+def build_request_auth(
+    auth_method: str,
+    *,
+    ca_bundle: str | None = None,
+) -> RequestAuth:
     """Build auth material for a supported auth method."""
     if auth_method == "bearer-env":
         headers = _bearer_env_headers()
@@ -31,7 +35,7 @@ def build_request_auth(auth_method: str) -> RequestAuth:
 
     return RequestAuth(
         headers=headers,
-        ssl_context=_client_cert_ssl_context(auth_method),
+        ssl_context=_client_cert_ssl_context(auth_method, ca_bundle=ca_bundle),
     )
 
 
@@ -46,7 +50,11 @@ def _bearer_env_headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _client_cert_ssl_context(auth_method: str) -> ssl.SSLContext | None:
+def _client_cert_ssl_context(
+    auth_method: str,
+    *,
+    ca_bundle: str | None = None,
+) -> ssl.SSLContext | None:
     cert_file = os.getenv("CONFLUENCE_CLIENT_CERT_FILE", "").strip()
     key_file = os.getenv("CONFLUENCE_CLIENT_KEY_FILE", "").strip()
 
@@ -62,10 +70,17 @@ def _client_cert_ssl_context(auth_method: str) -> ssl.SSLContext | None:
             "CONFLUENCE_CLIENT_CERT_FILE for --client-mode real --auth-method "
             "client-cert-env."
         )
-    if not cert_file:
+    if not cert_file and not ca_bundle:
         return None
 
-    ssl_context = ssl.create_default_context()
+    try:
+        ssl_context = ssl.create_default_context(cafile=ca_bundle)
+    except (OSError, ssl.SSLError, ValueError) as exc:
+        raise ValueError("Invalid Confluence CA bundle. Check --ca-bundle.") from exc
+
+    if not cert_file:
+        return ssl_context
+
     try:
         ssl_context.load_cert_chain(
             certfile=cert_file,

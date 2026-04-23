@@ -243,6 +243,8 @@ def test_confluence_help_lists_supported_auth_methods_and_examples(
     assert "CONFLUENCE_BEARER_TOKEN" in stdout
     assert "CONFLUENCE_CLIENT_CERT_FILE" in stdout
     assert "client-cert-env" in stdout
+    assert "--ca-bundle FILE" in stdout
+    assert "overrides default certificate discovery" in stdout
     assert "--debug" in stdout
     assert "request debug details" in stdout
     assert "artifact layout and reporting" in stdout
