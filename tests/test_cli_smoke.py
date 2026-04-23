@@ -183,6 +183,37 @@ runs:
     assert "Hello from config run." in local_output_path.read_text(encoding="utf-8")
 
 
+def test_run_cli_smoke_rejects_invalid_confluence_config_before_execution(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: docs-home
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home
+    client_mode: preview
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_cli(tmp_path, "run", "./runs.yaml")
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert "Config-driven run invoked" not in result.stdout
+    assert "Run 1/1:" not in result.stdout
+    assert (
+        "knowledge-adapters run: error: Run 'docs-home' in "
+        f"{config_path.resolve()} has unsupported 'client_mode' value 'preview'. "
+        "Use 'real' or 'stub'.\n"
+    ) == result.stderr
+
+
 def test_confluence_cli_smoke_uses_installed_entrypoint_with_default_stub_client(
     tmp_path: Path,
 ) -> None:
