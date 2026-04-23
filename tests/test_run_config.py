@@ -1,0 +1,193 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+from pytest import CaptureFixture
+
+from knowledge_adapters.cli import main
+from knowledge_adapters.run_config import ConfiguredRun, load_run_config
+
+
+def test_load_run_config_resolves_relative_paths_from_config_location(tmp_path: Path) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: docs-home
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home
+  - name: team-notes
+    type: local_files
+    file_path: ./inputs/team-notes.txt
+    output_dir: ./artifacts/local/team-notes
+    dry_run: true
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    run_config = load_run_config(config_path)
+
+    assert run_config.config_path == config_path.resolve()
+    assert run_config.runs == (
+        ConfiguredRun(
+            name="docs-home",
+            run_type="confluence",
+            argv=(
+                "confluence",
+                "--base-url",
+                "https://example.com/wiki",
+                "--target",
+                "12345",
+                "--output-dir",
+                str((tmp_path / "artifacts" / "confluence" / "docs-home").resolve()),
+            ),
+            dry_run=False,
+        ),
+        ConfiguredRun(
+            name="team-notes",
+            run_type="local_files",
+            argv=(
+                "local_files",
+                "--file-path",
+                str((tmp_path / "inputs" / "team-notes.txt").resolve()),
+                "--output-dir",
+                str((tmp_path / "artifacts" / "local" / "team-notes").resolve()),
+                "--dry-run",
+            ),
+            dry_run=True,
+        ),
+    )
+
+
+def test_load_run_config_rejects_unsupported_keys(tmp_path: Path) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: team-notes
+    type: local_files
+    file_path: ./notes.txt
+    output_dir: ./artifacts
+    unexpected: true
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="unsupported keys"):
+        load_run_config(config_path)
+
+
+def test_run_command_executes_multiple_runs_in_sequence(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    source_file = tmp_path / "inputs" / "team-notes.txt"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text("Ship it.\n", encoding="utf-8")
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: team-notes
+    type: local_files
+    file_path: ./inputs/team-notes.txt
+    output_dir: ./artifacts/local/team-notes
+  - name: docs-home
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(["run", str(config_path)])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "Config-driven run invoked" in captured.out
+    assert "Run 1/2: team-notes (local_files)" in captured.out
+    assert "Run 2/2: docs-home (confluence)" in captured.out
+    assert captured.out.index("Run 1/2: team-notes (local_files)") < captured.out.index(
+        "Run 2/2: docs-home (confluence)"
+    )
+    assert "Run summary: wrote 1, skipped 0" in captured.out
+    assert "Aggregate summary:" in captured.out
+    assert "runs_completed: 2" in captured.out
+    assert "write_runs: 2" in captured.out
+    assert "dry_run_runs: 0" in captured.out
+    assert "wrote: 2" in captured.out
+    assert "skipped: 0" in captured.out
+
+    local_output_dir = tmp_path / "artifacts" / "local" / "team-notes"
+    local_output_path = local_output_dir / "pages" / "team-notes.md"
+    assert local_output_path.exists()
+    assert "Ship it." in local_output_path.read_text(encoding="utf-8")
+    local_manifest = json.loads((local_output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert local_manifest["files"] == [
+        {
+            "canonical_id": str(source_file.resolve()),
+            "source_url": source_file.resolve().as_uri(),
+            "output_path": "pages/team-notes.md",
+            "title": "team-notes.txt",
+        }
+    ]
+
+    confluence_output_dir = tmp_path / "artifacts" / "confluence" / "docs-home"
+    confluence_output_path = confluence_output_dir / "pages" / "12345.md"
+    assert confluence_output_path.exists()
+    assert "Stub content for page 12345." in confluence_output_path.read_text(encoding="utf-8")
+    confluence_manifest = json.loads(
+        (confluence_output_dir / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert confluence_manifest["files"] == [
+        {
+            "canonical_id": "12345",
+            "source_url": "https://example.com/wiki/pages/viewpage.action?pageId=12345",
+            "output_path": "pages/12345.md",
+            "title": "stub-page-12345",
+            "page_version": 1,
+            "last_modified": "1970-01-01T00:00:00Z",
+        }
+    ]
+
+
+def test_run_command_reports_dry_run_counts(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: docs-tree
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-tree
+    tree: true
+    max_depth: 1
+    dry_run: true
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(["run", str(config_path)])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "Run summary: would write 1, would skip 0" in captured.out
+    assert "Aggregate summary:" in captured.out
+    assert "write_runs: 0" in captured.out
+    assert "dry_run_runs: 1" in captured.out
+    assert "would_write: 1" in captured.out
+    assert "would_skip: 0" in captured.out
+    assert not (tmp_path / "artifacts").exists()

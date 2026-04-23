@@ -3,14 +3,20 @@
 from __future__ import annotations
 
 import argparse
+import io
+import re
+import shlex
 import sys
 from collections.abc import Callable, Sequence
+from contextlib import redirect_stdout
+from dataclasses import dataclass
 from pathlib import Path
 
 from knowledge_adapters.confluence.auth import SUPPORTED_AUTH_METHODS
 
 TOP_LEVEL_HELP_EXAMPLES = """First steps:
   knowledge-adapters --help
+  knowledge-adapters run runs.yaml
   knowledge-adapters local_files --help
   knowledge-adapters confluence --help
 
@@ -21,6 +27,7 @@ Typical flow:
      and action.
   3. Re-run without --dry-run to write the same artifact layout under
      ./artifacts.
+  4. Use knowledge-adapters run runs.yaml to refresh multiple sources in order.
 """
 
 CONFLUENCE_HELP_EXAMPLES = """Examples:
@@ -57,6 +64,27 @@ LOCAL_FILES_HELP_EXAMPLES = """Examples:
     --file-path ./notes/today.txt \\
     --output-dir ./artifacts
 """
+
+RUN_HELP_EXAMPLES = """Examples:
+  knowledge-adapters run runs.yaml
+  knowledge-adapters run ./configs/runs.yaml
+"""
+
+_WRITE_SUMMARY_RE = re.compile(r"Summary: wrote (?P<wrote>\d+), skipped (?P<skipped>\d+)")
+_DRY_RUN_SUMMARY_RE = re.compile(
+    r"Summary: would write (?P<wrote>\d+), would skip (?P<skipped>\d+)"
+)
+_DRY_RUN_BLOCK_WRITE_RE = re.compile(r"would_write: (?P<wrote>\d+)")
+_DRY_RUN_BLOCK_SKIP_RE = re.compile(r"would_skip: (?P<skipped>\d+)")
+
+
+@dataclass(frozen=True)
+class MultiRunSummary:
+    """Summary parsed from one adapter CLI execution."""
+
+    dry_run: bool
+    wrote: int
+    skipped: int
 
 
 def _parse_confluence_auth_method(value: str) -> str:
@@ -286,6 +314,24 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    run_parser = subparsers.add_parser(
+        "run",
+        help="Execute multiple configured adapter runs from one YAML file.",
+        description=(
+            "Load a YAML config with a top-level runs: list and execute each "
+            "configured adapter run sequentially in file order. Each run reuses "
+            "the existing adapter CLI behavior, output directory, and manifest "
+            "handling."
+        ),
+        epilog=RUN_HELP_EXAMPLES,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    run_parser.add_argument(
+        "config_path",
+        metavar="RUNS_YAML",
+        help="Path to a YAML config file containing a top-level runs: list.",
+    )
+
     return parser
 
 
@@ -318,10 +364,130 @@ def print_write_complete(output_dir: Path) -> None:
     print(f"\nWrite complete. Artifacts created under {render_user_path(output_dir)}")
 
 
+def _parse_multi_run_summary(output: str) -> MultiRunSummary:
+    """Parse the existing adapter summary lines into one normalized shape."""
+    if match := _WRITE_SUMMARY_RE.search(output):
+        return MultiRunSummary(
+            dry_run=False,
+            wrote=int(match.group("wrote")),
+            skipped=int(match.group("skipped")),
+        )
+
+    if match := _DRY_RUN_SUMMARY_RE.search(output):
+        return MultiRunSummary(
+            dry_run=True,
+            wrote=int(match.group("wrote")),
+            skipped=int(match.group("skipped")),
+        )
+
+    dry_run_write_match = _DRY_RUN_BLOCK_WRITE_RE.search(output)
+    dry_run_skip_match = _DRY_RUN_BLOCK_SKIP_RE.search(output)
+    if dry_run_write_match and dry_run_skip_match:
+        return MultiRunSummary(
+            dry_run=True,
+            wrote=int(dry_run_write_match.group("wrote")),
+            skipped=int(dry_run_skip_match.group("skipped")),
+        )
+
+    raise RuntimeError(f"Could not parse adapter summary from output:\n{output}")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI."""
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.command == "run":
+        from knowledge_adapters.run_config import load_run_config
+
+        try:
+            run_config = load_run_config(args.config_path)
+        except ValueError as exc:
+            exit_with_cli_error(str(exc), command="run")
+
+        print("Config-driven run invoked")
+        print(f"  config_path: {render_user_path(run_config.config_path)}")
+        print(f"  runs_in_config: {len(run_config.runs)}")
+
+        completed_runs = 0
+        write_runs = 0
+        dry_run_runs = 0
+        total_wrote = 0
+        total_skipped = 0
+        total_would_write = 0
+        total_would_skip = 0
+
+        for index, configured_run in enumerate(run_config.runs, start=1):
+            display_command = shlex.join(("knowledge-adapters", *configured_run.argv))
+            print(
+                f"\nRun {index}/{len(run_config.runs)}: "
+                f"{configured_run.name} ({configured_run.run_type})"
+            )
+            print(f"  command: {display_command}")
+
+            captured_stdout = io.StringIO()
+            try:
+                with redirect_stdout(captured_stdout):
+                    exit_code = main(configured_run.argv)
+            except SystemExit:
+                output = captured_stdout.getvalue()
+                if output:
+                    print(output, end="" if output.endswith("\n") else "\n")
+                exit_with_cli_error(
+                    (
+                        f"Run {configured_run.name!r} ({configured_run.run_type}) failed "
+                        f"while executing {display_command}."
+                    ),
+                    command="run",
+                )
+
+            if exit_code != 0:
+                exit_with_cli_error(
+                    (
+                        f"Run {configured_run.name!r} ({configured_run.run_type}) returned "
+                        f"exit code {exit_code} while executing {display_command}."
+                    ),
+                    command="run",
+                )
+
+            output = captured_stdout.getvalue()
+            if output:
+                print(output, end="" if output.endswith("\n") else "\n")
+
+            try:
+                summary = _parse_multi_run_summary(output)
+            except RuntimeError as exc:
+                exit_with_cli_error(str(exc), command="run")
+
+            completed_runs += 1
+            if summary.dry_run:
+                dry_run_runs += 1
+                total_would_write += summary.wrote
+                total_would_skip += summary.skipped
+                print(
+                    f"Run summary: would write {summary.wrote}, "
+                    f"would skip {summary.skipped}"
+                )
+            else:
+                write_runs += 1
+                total_wrote += summary.wrote
+                total_skipped += summary.skipped
+                print(f"Run summary: wrote {summary.wrote}, skipped {summary.skipped}")
+
+        print("\nAggregate summary:")
+        print(f"  runs_completed: {completed_runs}")
+        print(f"  write_runs: {write_runs}")
+        print(f"  dry_run_runs: {dry_run_runs}")
+        print(f"  wrote: {total_wrote}")
+        print(f"  skipped: {total_skipped}")
+        if dry_run_runs > 0:
+            print(f"  would_write: {total_would_write}")
+            print(f"  would_skip: {total_would_skip}")
+        print(
+            "Config run complete. "
+            f"Processed {completed_runs} run(s) from {render_user_path(run_config.config_path)}"
+        )
+        return 0
 
     if args.command == "confluence":
         from knowledge_adapters.confluence.client import (

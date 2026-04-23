@@ -1,0 +1,25 @@
+# Copy this file to runs.yaml, then replace the sample values with your own.
+# Relative file paths and output directories resolve from this config file.
+
+runs:
+  # Minimal local file example.
+  - name: team-notes
+    type: local_files
+    file_path: ./example-inputs/team-notes.txt
+    output_dir: ./artifacts/local/team-notes
+
+  # Minimal Confluence example using the default stub client.
+  - name: docs-home
+    type: confluence
+    base_url: https://example.atlassian.net/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home
+
+  # Tree mode example. Switch to client_mode: real and set auth when ready.
+  - name: eng-space-tree
+    type: confluence
+    base_url: https://example.atlassian.net/wiki
+    target: "67890"
+    output_dir: ./artifacts/confluence/eng-space-tree
+    tree: true
+    max_depth: 1
