@@ -25,6 +25,15 @@ The task is only complete once the pull request exists.
 
 ## Git Conventions
 
+### Start State
+
+For same-repo arcs:
+
+- start from fresh `origin/main`
+- do not reuse an old feature branch unless intentionally continuing that PR
+- use isolated worktrees or directories for same-repo parallel arcs
+- treat repository identity and execution-container identity as separate checks
+
 ### Branch Naming
 
 Use the following patterns:
@@ -105,6 +114,12 @@ Pull requests must:
 - target `main`
 - include a clear summary of changes
 - include a testing/verification section
+
+PR scope integrity:
+- a PR is not complete unless its diff contains only the intended arc
+
+Issue auto-close:
+- issue-driven PRs must include `Closes #<issue number>` before merge
 
 GitHub enforcement on `main` is intentionally minimal:
 
