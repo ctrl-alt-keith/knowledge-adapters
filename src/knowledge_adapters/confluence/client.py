@@ -42,13 +42,15 @@ def fetch_page(target: ResolvedTarget) -> dict[str, object]:
         "canonical_id": canonical_id,
         "source_url": target.page_url or "",
         "content": f"Stub content for page {canonical_id}.",
+        "page_version": 1,
+        "last_modified": "1970-01-01T00:00:00Z",
     }
 
 
-def _content_api_url(base_url: str, page_id: str) -> str:
+def _content_api_url(base_url: str, page_id: str, *, expand: str) -> str:
     normalized_base = base_url.rstrip("/")
     encoded_page_id = parse.quote(page_id, safe="")
-    return f"{normalized_base}/rest/api/content/{encoded_page_id}?expand=body.storage,_links"
+    return f"{normalized_base}/rest/api/content/{encoded_page_id}?expand={expand}"
 
 
 def _child_page_api_url(base_url: str, page_id: str) -> str:
@@ -62,6 +64,24 @@ def _require_string(payload: dict[str, object], key: str) -> str:
     if not isinstance(value, str) or not value:
         raise ValueError(f"Response error: missing or invalid {key}.")
     return value
+
+
+def _optional_string(payload: dict[str, object], key: str) -> str | None:
+    value = payload.get(key)
+    if isinstance(value, str) and value:
+        return value
+    return None
+
+
+def _source_metadata(payload: dict[str, object]) -> tuple[int | None, str | None]:
+    version = payload.get("version")
+    if not isinstance(version, dict):
+        return None, None
+
+    number = version.get("number")
+    page_version = number if isinstance(number, int) and not isinstance(number, bool) else None
+    last_modified = _optional_string(version, "when")
+    return page_version, last_modified
 
 
 def _storage_content(payload: dict[str, object]) -> str:
@@ -111,12 +131,33 @@ def _map_real_page(payload: dict[str, object], requested_page_id: str) -> dict[s
     title = _require_string(payload, "title")
     content = _storage_content(payload)
     source_url = _absolute_source_url(payload)
+    page_version, last_modified = _source_metadata(payload)
 
     return {
         "canonical_id": canonical_id,
         "title": title,
         "content": content,
         "source_url": source_url,
+        "page_version": page_version,
+        "last_modified": last_modified,
+    }
+
+
+def _map_real_page_summary(payload: dict[str, object], requested_page_id: str) -> dict[str, object]:
+    canonical_id = _require_string(payload, "id")
+    if canonical_id != requested_page_id:
+        raise ValueError("Response error: canonical_id mismatch.")
+
+    title = _require_string(payload, "title")
+    source_url = _absolute_source_url(payload)
+    page_version, last_modified = _source_metadata(payload)
+
+    return {
+        "canonical_id": canonical_id,
+        "title": title,
+        "source_url": source_url,
+        "page_version": page_version,
+        "last_modified": last_modified,
     }
 
 
@@ -264,10 +305,28 @@ def fetch_real_page(
         raise ValueError("Response error: canonical_id mismatch.")
 
     raw_payload = _request_json(
-        _content_api_url(base_url, page_id),
+        _content_api_url(base_url, page_id, expand="body.storage,_links,version"),
         auth_method=auth_method,
     )
     return _map_real_page(raw_payload, page_id)
+
+
+def fetch_real_page_summary(
+    target: ResolvedTarget,
+    *,
+    base_url: str,
+    auth_method: str,
+) -> dict[str, object]:
+    """Fetch Confluence page metadata used for incremental sync decisions."""
+    page_id = target.page_id
+    if not page_id:
+        raise ValueError("Response error: canonical_id mismatch.")
+
+    raw_payload = _request_json(
+        _content_api_url(base_url, page_id, expand="version,_links"),
+        auth_method=auth_method,
+    )
+    return _map_real_page_summary(raw_payload, page_id)
 
 
 def list_real_child_page_ids(

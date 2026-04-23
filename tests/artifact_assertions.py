@@ -26,14 +26,20 @@ def manifest_file(
     source_url: str,
     output_path: str,
     title: str | None = None,
-) -> dict[str, str]:
-    entry = {
+    page_version: int | str | None = None,
+    last_modified: str | None = None,
+) -> dict[str, object]:
+    entry: dict[str, object] = {
         "canonical_id": canonical_id,
         "source_url": source_url,
         "output_path": output_path,
     }
     if title is not None:
         entry["title"] = title
+    if page_version is not None:
+        entry["page_version"] = page_version
+    if last_modified is not None:
+        entry["last_modified"] = last_modified
     return entry
 
 
@@ -44,19 +50,23 @@ def assert_manifest_entry(
     source_url: str,
     output_path: str,
     title: str | None = None,
+    page_version: int | str | None = None,
+    last_modified: str | None = None,
 ) -> None:
     assert dict(entry) == manifest_file(
         canonical_id=canonical_id,
         source_url=source_url,
         output_path=output_path,
         title=title,
+        page_version=page_version,
+        last_modified=last_modified,
     )
 
 
 def assert_manifest_entries(
     manifest: Path | Mapping[str, object],
     *,
-    files: Sequence[Mapping[str, str]],
+    files: Sequence[Mapping[str, object]],
 ) -> None:
     payload = _load_manifest(manifest) if isinstance(manifest, Path) else dict(manifest)
 

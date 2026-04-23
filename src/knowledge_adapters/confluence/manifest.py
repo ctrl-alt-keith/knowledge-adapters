@@ -19,9 +19,11 @@ def build_manifest_entry(
     output_path: Path,
     output_dir: str,
     title: str | None = None,
-) -> dict[str, str]:
+    page_version: int | str | None = None,
+    last_modified: str | None = None,
+) -> dict[str, object]:
     """Build a minimal manifest entry for a generated file."""
-    entry = {
+    entry: dict[str, object] = {
         "canonical_id": canonical_id,
         "source_url": source_url,
         "output_path": output_path.relative_to(Path(output_dir)).as_posix(),
@@ -29,18 +31,22 @@ def build_manifest_entry(
 
     if title:
         entry["title"] = title
+    if page_version is not None:
+        entry["page_version"] = page_version
+    if last_modified:
+        entry["last_modified"] = last_modified
 
     return entry
 
 
-def write_manifest(output_dir: str, files: list[dict[str, str]]) -> Path:
+def write_manifest(output_dir: str, files: list[dict[str, object]]) -> Path:
     """Write a per-run manifest describing generated files."""
     return write_manifest_with_context(output_dir, files)
 
 
 def write_manifest_with_context(
     output_dir: str,
-    files: list[dict[str, str]],
+    files: list[dict[str, object]],
     *,
     root_page_id: str | None = None,
     max_depth: int | None = None,

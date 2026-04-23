@@ -319,11 +319,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             ConfluenceRequestError,
             fetch_page,
             fetch_real_page,
+            fetch_real_page_summary,
             list_real_child_page_ids,
         )
         from knowledge_adapters.confluence.config import ConfluenceConfig
         from knowledge_adapters.confluence.incremental import (
-            is_already_written,
+            classify_page_sync,
             load_previous_manifest_index,
         )
         from knowledge_adapters.confluence.manifest import (
@@ -377,11 +378,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
 
         selected_fetch_page: Callable[[ResolvedTarget], dict[str, object]]
+        selected_fetch_page_summary: Callable[[ResolvedTarget], dict[str, object]]
         selected_list_child_page_ids: Callable[[ResolvedTarget], list[str]] | None = None
         if confluence_config.client_mode == "real":
 
             def selected_fetch_page(resolved_target: ResolvedTarget) -> dict[str, object]:
                 return fetch_real_page(
+                    resolved_target,
+                    base_url=confluence_config.base_url,
+                    auth_method=confluence_config.auth_method,
+                )
+
+            def selected_fetch_page_summary(
+                resolved_target: ResolvedTarget,
+            ) -> dict[str, object]:
+                return fetch_real_page_summary(
                     resolved_target,
                     base_url=confluence_config.base_url,
                     auth_method=confluence_config.auth_method,
@@ -397,6 +408,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
         else:
             selected_fetch_page = fetch_page
+            selected_fetch_page_summary = fetch_page
 
         def _describe_tree_depth(max_depth: int) -> str:
             if max_depth == 0:
@@ -451,13 +463,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         def _build_manifest_entry_for_page(
             page: dict[str, object],
             output_path: Path,
-        ) -> dict[str, str]:
+        ) -> dict[str, object]:
+            page_version = page.get("page_version")
             return build_manifest_entry(
                 canonical_id=str(page.get("canonical_id") or ""),
                 source_url=str(page.get("source_url", "")),
                 output_path=output_path,
                 output_dir=confluence_config.output_dir,
                 title=str(page["title"]) if page.get("title") else None,
+                page_version=(
+                    page_version
+                    if isinstance(page_version, int) and not isinstance(page_version, bool)
+                    else None
+                ),
+                last_modified=(
+                    str(page["last_modified"]) if page.get("last_modified") else None
+                ),
             )
 
         def _display_output_path(path: Path) -> str:
@@ -470,6 +491,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             source_url: str,
             output_path: Path,
             manifest_output_path: Path,
+            page_status: str,
             action: str,
             dry_run: bool,
             markdown: str | None = None,
@@ -479,6 +501,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"  source_url: {source_url}")
             print(f"  Artifact: {_display_output_path(output_path)}")
             print(f"  Manifest: {_display_output_path(manifest_output_path)}")
+            print(f"  page_status: {page_status}")
             print(f"  planned_action: {'would ' if dry_run else ''}{action}")
             if dry_run:
                 write_count = 1 if action == "write" else 0
@@ -486,6 +509,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 _print_confluence_dry_run_summary(
                     mode="single",
                     total_pages=1,
+                    new_count=1 if page_status == "new" else 0,
+                    changed_count=1 if page_status == "changed" else 0,
+                    unchanged_count=1 if page_status == "unchanged" else 0,
                     write_count=write_count,
                     skip_count=skip_count,
                 )
@@ -497,6 +523,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             *,
             mode: str,
             total_pages: int,
+            new_count: int,
+            changed_count: int,
+            unchanged_count: int,
             write_count: int,
             skip_count: int,
         ) -> None:
@@ -505,12 +534,30 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"    mode: {mode}",
                 "    pages_in_plan: "
                 f"{total_pages} (root 1, descendants {descendant_count})",
+                f"    new_pages: {new_count}",
+                f"    changed_pages: {changed_count}",
+                f"    unchanged_pages: {unchanged_count}",
                 f"    would_write: {write_count}",
                 f"    would_skip: {skip_count}",
             )
             print("  Summary:")
             for line in summary_lines:
                 print(line)
+
+        def _print_confluence_write_summary(
+            *,
+            new_count: int,
+            changed_count: int,
+            unchanged_count: int,
+            write_count: int,
+            skip_count: int,
+        ) -> None:
+            print(f"\nSummary: wrote {write_count}, skipped {skip_count}")
+            print(f"  new_pages: {new_count}")
+            print(f"  changed_pages: {changed_count}")
+            print(f"  unchanged_pages: {unchanged_count}")
+            print(f"  pages_written: {write_count}")
+            print(f"  pages_skipped: {skip_count}")
 
         def _print_stub_tree_mode_note() -> None:
             if not (confluence_config.tree and confluence_config.client_mode == "stub"):
@@ -522,12 +569,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
 
         if confluence_config.tree:
+            previous_manifest_index = load_previous_manifest_index(confluence_config.output_dir)
+            tree_fetch_page = (
+                selected_fetch_page
+                if previous_manifest_index is None
+                else selected_fetch_page_summary
+            )
             if confluence_config.client_mode == "real":
                 try:
                     root_page_id, pages = walk_pages(
                         target,
                         max_depth=confluence_config.max_depth,
-                        fetch_page=selected_fetch_page,
+                        fetch_page=tree_fetch_page,
                         list_child_page_ids=selected_list_child_page_ids,
                     )
                 except (RuntimeError, ValueError) as exc:
@@ -540,31 +593,38 @@ def main(argv: Sequence[str] | None = None) -> int:
                 root_page_id, pages = walk_pages(
                     target,
                     max_depth=confluence_config.max_depth,
-                    fetch_page=selected_fetch_page,
+                    fetch_page=tree_fetch_page,
                     list_child_page_ids=selected_list_child_page_ids,
                 )
             _print_confluence_invocation()
-            previous_manifest_index = load_previous_manifest_index(confluence_config.output_dir)
-            page_records: list[tuple[dict[str, object], Path, str]] = []
+            page_records: list[tuple[dict[str, object], Path, str, str]] = []
             for page in pages:
                 canonical_id = str(page.get("canonical_id") or "")
                 output_path = markdown_path(confluence_config.output_dir, canonical_id)
-                action = (
-                    "skip"
-                    if is_already_written(
-                        confluence_config.output_dir,
-                        previous_manifest_index,
-                        canonical_id=canonical_id,
-                        output_path=output_path,
-                    )
-                    else "write"
+                page_status = classify_page_sync(
+                    confluence_config.output_dir,
+                    previous_manifest_index,
+                    page=page,
+                    output_path=output_path,
                 )
-                page_records.append((page, output_path, action))
+                action = "skip" if page_status == "unchanged" else "write"
+                page_records.append((page, output_path, page_status, action))
 
             write_count = sum(
-                1 for _page, _output_path, action in page_records if action == "write"
+                1 for _page, _output_path, _page_status, action in page_records if action == "write"
             )
             skip_count = len(page_records) - write_count
+            new_count = sum(
+                1
+                for _page, _output_path, page_status, _action in page_records
+                if page_status == "new"
+            )
+            changed_count = sum(
+                1
+                for _page, _output_path, page_status, _action in page_records
+                if page_status == "changed"
+            )
+            unchanged_count = len(page_records) - new_count - changed_count
             manifest_output_path = manifest_path(confluence_config.output_dir)
 
             print("\nPlan: Confluence run")
@@ -578,32 +638,63 @@ def main(argv: Sequence[str] | None = None) -> int:
                 _print_confluence_dry_run_summary(
                     mode="tree",
                     total_pages=len(page_records),
+                    new_count=new_count,
+                    changed_count=changed_count,
+                    unchanged_count=unchanged_count,
                     write_count=write_count,
                     skip_count=skip_count,
                 )
-                for _page, output_path, action in page_records:
-                    print(f"  would {action} {_display_output_path(output_path)}")
+                for _page, output_path, record_status, action in page_records:
+                    print(
+                        f"  would {action} {_display_output_path(output_path)} ({record_status})"
+                    )
                 print_dry_run_complete()
                 return 0
 
             files = [
                 _build_manifest_entry_for_page(page, output_path)
-                for page, output_path, _action in page_records
+                for page, output_path, _page_status, _action in page_records
             ]
 
+            pages_to_write: dict[str, dict[str, object]] = {}
             try:
-                for page, output_path, action in page_records:
+                for page, _output_path, _page_status, action in page_records:
                     if action == "skip":
-                        print(f"\nSkipped: {_display_output_path(output_path)}")
                         continue
 
-                    markdown = normalize_to_markdown(page)
+                    if page.get("content") is not None:
+                        pages_to_write[str(page.get("canonical_id") or "")] = page
+                        continue
+
+                    page_id = str(page.get("canonical_id") or "")
+                    pages_to_write[page_id] = selected_fetch_page(
+                        ResolvedTarget(
+                            raw_value=page_id,
+                            page_id=page_id,
+                            page_url=None,
+                        )
+                    )
+            except (RuntimeError, ValueError) as exc:
+                exit_with_cli_error(
+                    str(exc),
+                    command="confluence",
+                    debug_lines=_confluence_debug_lines(exc),
+                )
+
+            try:
+                for page, output_path, record_status, action in page_records:
+                    if action == "skip":
+                        print(f"\nSkipped: {_display_output_path(output_path)} ({record_status})")
+                        continue
+
+                    page_to_write = pages_to_write[str(page.get("canonical_id") or "")]
+                    markdown = normalize_to_markdown(page_to_write)
                     write_markdown(
                         confluence_config.output_dir,
-                        str(page.get("canonical_id") or ""),
+                        str(page_to_write.get("canonical_id") or ""),
                         markdown,
                     )
-                    print(f"\nWrote: {_display_output_path(output_path)}")
+                    print(f"\nWrote: {_display_output_path(output_path)} ({record_status})")
 
                 manifest = write_manifest_with_context(
                     confluence_config.output_dir,
@@ -617,13 +708,24 @@ def main(argv: Sequence[str] | None = None) -> int:
                     command="confluence",
                     exc=exc,
                 )
-            print(f"\nSummary: wrote {write_count}, skipped {skip_count}")
+            _print_confluence_write_summary(
+                new_count=new_count,
+                changed_count=changed_count,
+                unchanged_count=unchanged_count,
+                write_count=write_count,
+                skip_count=skip_count,
+            )
             print(f"Manifest: {_display_output_path(manifest)}")
             print_write_complete(output_dir)
             return 0
 
+        previous_manifest_index = load_previous_manifest_index(confluence_config.output_dir)
         try:
-            page = selected_fetch_page(target)
+            page = (
+                selected_fetch_page(target)
+                if previous_manifest_index is None
+                else selected_fetch_page_summary(target)
+            )
         except (RuntimeError, ValueError) as exc:
             exit_with_cli_error(
                 str(exc),
@@ -635,25 +737,32 @@ def main(argv: Sequence[str] | None = None) -> int:
         page_id = str(page["canonical_id"])
         output_path = markdown_path(confluence_config.output_dir, page_id)
         manifest_output_path = manifest_path(confluence_config.output_dir)
-        previous_manifest_index = load_previous_manifest_index(confluence_config.output_dir)
-        action = (
-            "skip"
-            if is_already_written(
-                confluence_config.output_dir,
-                previous_manifest_index,
-                canonical_id=page_id,
-                output_path=output_path,
-            )
-            else "write"
+        page_status = classify_page_sync(
+            confluence_config.output_dir,
+            previous_manifest_index,
+            page=page,
+            output_path=output_path,
         )
+        action = "skip" if page_status == "unchanged" else "write"
 
         if confluence_config.dry_run:
-            planned_markdown = normalize_to_markdown(page) if action == "write" else None
+            planned_page = page
+            if action == "write" and page.get("content") is None:
+                try:
+                    planned_page = selected_fetch_page(target)
+                except (RuntimeError, ValueError) as exc:
+                    exit_with_cli_error(
+                        str(exc),
+                        command="confluence",
+                        debug_lines=_confluence_debug_lines(exc),
+                    )
+            planned_markdown = normalize_to_markdown(planned_page) if action == "write" else None
             _print_single_page_plan(
                 page_id=page_id,
                 source_url=str(page.get("source_url", "")),
                 output_path=output_path,
                 manifest_output_path=manifest_output_path,
+                page_status=page_status,
                 action=action,
                 dry_run=True,
                 markdown=planned_markdown,
@@ -666,27 +775,37 @@ def main(argv: Sequence[str] | None = None) -> int:
             source_url=str(page.get("source_url", "")),
             output_path=output_path,
             manifest_output_path=manifest_output_path,
+            page_status=page_status,
             action=action,
             dry_run=False,
         )
 
         try:
             if action == "write":
-                markdown = normalize_to_markdown(page)
+                page_to_write = (
+                    page if page.get("content") is not None else selected_fetch_page(target)
+                )
+                markdown = normalize_to_markdown(page_to_write)
                 write_markdown(
                     confluence_config.output_dir,
                     page_id,
                     markdown,
                 )
-                print(f"\nWrote: {_display_output_path(output_path)}")
+                print(f"\nWrote: {_display_output_path(output_path)} ({page_status})")
             else:
-                print(f"\nSkipped: {_display_output_path(output_path)}")
+                print(f"\nSkipped: {_display_output_path(output_path)} ({page_status})")
 
             manifest = write_manifest(
                 confluence_config.output_dir,
                 [
                     _build_manifest_entry_for_page(page, output_path),
                 ],
+            )
+        except (RuntimeError, ValueError) as exc:
+            exit_with_cli_error(
+                str(exc),
+                command="confluence",
+                debug_lines=_confluence_debug_lines(exc),
             )
         except OSError as exc:
             exit_with_output_error(
@@ -696,7 +815,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         write_count = 1 if action == "write" else 0
         skip_count = 1 if action == "skip" else 0
-        print(f"\nSummary: wrote {write_count}, skipped {skip_count}")
+        _print_confluence_write_summary(
+            new_count=1 if page_status == "new" else 0,
+            changed_count=1 if page_status == "changed" else 0,
+            unchanged_count=1 if page_status == "unchanged" else 0,
+            write_count=write_count,
+            skip_count=skip_count,
+        )
         print(f"Manifest: {_display_output_path(manifest)}")
         print_write_complete(output_dir)
         return 0
