@@ -7,7 +7,11 @@ from pathlib import Path
 
 import yaml  # type: ignore[import-untyped]
 
+from knowledge_adapters.confluence.auth import SUPPORTED_AUTH_METHODS
+from knowledge_adapters.confluence.resolve import resolve_target_for_base_url, validate_base_url
+
 SUPPORTED_RUN_TYPES = frozenset({"confluence", "local_files"})
+_SUPPORTED_CONFLUENCE_CLIENT_MODES = frozenset({"real", "stub"})
 
 _COMMON_REQUIRED_KEYS = frozenset({"name", "type", "output_dir"})
 _CONFLUENCE_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
@@ -138,7 +142,21 @@ def _build_confluence_argv(
     )
     index = _run_index(name=name, config_path=config_path)
     base_url = _require_string(run_config, "base_url", index=index, config_path=config_path)
+    try:
+        validate_base_url(base_url)
+    except ValueError as exc:
+        raise ValueError(
+            f"Run {name!r} in {config_path} has invalid 'base_url': {exc}"
+        ) from exc
+
     target = _require_string(run_config, "target", index=index, config_path=config_path)
+    try:
+        resolve_target_for_base_url(target, base_url=base_url)
+    except ValueError as exc:
+        raise ValueError(
+            f"Run {name!r} in {config_path} has invalid 'target': {exc}"
+        ) from exc
+
     output_dir = _resolve_path_string(
         _require_string(run_config, "output_dir", index=index, config_path=config_path),
         config_path=config_path,
@@ -155,10 +173,24 @@ def _build_confluence_argv(
 
     client_mode = _optional_string(run_config, "client_mode", index=index, config_path=config_path)
     if client_mode is not None:
+        if client_mode not in _SUPPORTED_CONFLUENCE_CLIENT_MODES:
+            supported_values = " or ".join(
+                repr(mode) for mode in sorted(_SUPPORTED_CONFLUENCE_CLIENT_MODES)
+            )
+            raise ValueError(
+                f"Run {name!r} in {config_path} has unsupported 'client_mode' value "
+                f"{client_mode!r}. Use {supported_values}."
+            )
         argv.extend(["--client-mode", client_mode])
 
     auth_method = _optional_string(run_config, "auth_method", index=index, config_path=config_path)
     if auth_method is not None:
+        if auth_method not in SUPPORTED_AUTH_METHODS:
+            supported_values = " or ".join(repr(method) for method in SUPPORTED_AUTH_METHODS)
+            raise ValueError(
+                f"Run {name!r} in {config_path} has unsupported 'auth_method' value "
+                f"{auth_method!r}. Use {supported_values}."
+            )
         argv.extend(["--auth-method", auth_method])
 
     ca_bundle = _optional_string(run_config, "ca_bundle", index=index, config_path=config_path)
@@ -214,6 +246,11 @@ def _build_confluence_argv(
         if isinstance(max_depth, bool) or not isinstance(max_depth, int):
             raise ValueError(
                 f"Run {name!r} in {config_path} must set 'max_depth' to an integer."
+            )
+        if max_depth < 0:
+            raise ValueError(
+                f"Run {name!r} in {config_path} must set 'max_depth' to an integer "
+                "greater than or equal to 0."
             )
         argv.extend(["--max-depth", str(max_depth)])
 

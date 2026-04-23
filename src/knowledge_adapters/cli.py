@@ -8,7 +8,7 @@ import re
 import shlex
 import sys
 from collections.abc import Callable, Sequence
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -76,6 +76,7 @@ _DRY_RUN_SUMMARY_RE = re.compile(
 )
 _DRY_RUN_BLOCK_WRITE_RE = re.compile(r"would_write: (?P<wrote>\d+)")
 _DRY_RUN_BLOCK_SKIP_RE = re.compile(r"would_skip: (?P<skipped>\d+)")
+_CLI_ERROR_RE = re.compile(r"^knowledge-adapters (?P<command>\S+): error: (?P<message>.+)$")
 
 
 @dataclass(frozen=True)
@@ -400,6 +401,20 @@ def _parse_multi_run_summary(output: str) -> MultiRunSummary:
     raise RuntimeError(f"Could not parse adapter summary from output:\n{output}")
 
 
+def _parse_nested_cli_error(stderr_output: str) -> tuple[str | None, tuple[str, ...]]:
+    """Extract the actionable message from a nested CLI failure."""
+    lines = tuple(line for line in stderr_output.splitlines() if line.strip())
+    if not lines:
+        return None, ()
+
+    for index, line in enumerate(lines):
+        match = _CLI_ERROR_RE.match(line)
+        if match is not None:
+            return match.group("message"), lines[index + 1 :]
+
+    return lines[-1], ()
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI."""
     parser = build_parser()
@@ -434,28 +449,41 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"  command: {display_command}")
 
             captured_stdout = io.StringIO()
+            captured_stderr = io.StringIO()
             try:
-                with redirect_stdout(captured_stdout):
+                with redirect_stdout(captured_stdout), redirect_stderr(captured_stderr):
                     exit_code = main(configured_run.argv)
             except SystemExit:
                 output = captured_stdout.getvalue()
                 if output:
                     print(output, end="" if output.endswith("\n") else "\n")
+                nested_error, nested_details = _parse_nested_cli_error(
+                    captured_stderr.getvalue()
+                )
+                message = (
+                    f"Run {configured_run.name!r} ({configured_run.run_type}) failed "
+                    f"while executing {display_command}."
+                )
+                if nested_error is not None:
+                    message = f"{message} {nested_error}"
                 exit_with_cli_error(
-                    (
-                        f"Run {configured_run.name!r} ({configured_run.run_type}) failed "
-                        f"while executing {display_command}."
-                    ),
+                    message,
                     command="run",
+                    debug_lines=nested_details or None,
                 )
 
             if exit_code != 0:
+                nested_error, nested_details = _parse_nested_cli_error(captured_stderr.getvalue())
+                message = (
+                    f"Run {configured_run.name!r} ({configured_run.run_type}) returned "
+                    f"exit code {exit_code} while executing {display_command}."
+                )
+                if nested_error is not None:
+                    message = f"{message} {nested_error}"
                 exit_with_cli_error(
-                    (
-                        f"Run {configured_run.name!r} ({configured_run.run_type}) returned "
-                        f"exit code {exit_code} while executing {display_command}."
-                    ),
+                    message,
                     command="run",
+                    debug_lines=nested_details or None,
                 )
 
             output = captured_stdout.getvalue()

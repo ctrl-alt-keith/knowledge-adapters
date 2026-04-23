@@ -83,6 +83,89 @@ runs:
         load_run_config(config_path)
 
 
+@pytest.mark.parametrize(
+    ("field_name", "field_block", "expected_fragment"),
+    [
+        (
+            "client_mode",
+            "client_mode: preview",
+            "unsupported 'client_mode' value 'preview'",
+        ),
+        (
+            "auth_method",
+            "auth_method: oauth",
+            "unsupported 'auth_method' value 'oauth'",
+        ),
+    ],
+)
+def test_load_run_config_rejects_invalid_confluence_enum_values(
+    tmp_path: Path,
+    field_name: str,
+    field_block: str,
+    expected_fragment: str,
+) -> None:
+    del field_name
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        f"""
+runs:
+  - name: docs-home
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home
+    {field_block}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=expected_fragment):
+        load_run_config(config_path)
+
+
+def test_load_run_config_rejects_invalid_confluence_target_before_execution(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: docs-home
+    type: confluence
+    base_url: https://example.com/wiki
+    target: https://other.example.com/wiki/pages/viewpage.action?pageId=12345
+    output_dir: ./artifacts/confluence/docs-home
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="has invalid 'target'"):
+        load_run_config(config_path)
+
+
+def test_load_run_config_rejects_negative_confluence_max_depth(tmp_path: Path) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: docs-tree
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-tree
+    tree: true
+    max_depth: -1
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="'max_depth'"):
+        load_run_config(config_path)
+
+
 def test_run_command_executes_multiple_runs_in_sequence(
     tmp_path: Path,
     capsys: CaptureFixture[str],
@@ -191,6 +274,47 @@ runs:
     assert "would_write: 1" in captured.out
     assert "would_skip: 0" in captured.out
     assert not (tmp_path / "artifacts").exists()
+
+
+def test_run_command_preserves_nested_adapter_error_details(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    monkeypatch.delenv("CONFLUENCE_BEARER_TOKEN", raising=False)
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: docs-home
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home
+    client_mode: real
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["run", str(config_path)])
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert "Config-driven run invoked" in captured.out
+    assert f"config_path: {config_path.resolve()}" in captured.out
+    assert "runs_in_config: 1" in captured.out
+    assert "Run 1/1: docs-home (confluence)" in captured.out
+    assert (
+        "knowledge-adapters run: error: Run 'docs-home' (confluence) failed while "
+        "executing knowledge-adapters confluence --base-url https://example.com/wiki "
+        "--target 12345 --output-dir "
+    ) in captured.err
+    assert (
+        "Missing Confluence bearer token. Set CONFLUENCE_BEARER_TOKEN for "
+        "--client-mode real --auth-method bearer-env."
+    ) in captured.err
 
 
 def test_load_run_config_includes_confluence_tls_and_client_cert_paths(tmp_path: Path) -> None:
