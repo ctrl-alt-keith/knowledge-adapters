@@ -68,6 +68,7 @@ LOCAL_FILES_HELP_EXAMPLES = """Examples:
 RUN_HELP_EXAMPLES = """Examples:
   knowledge-adapters run runs.yaml
   knowledge-adapters run ./configs/runs.yaml
+  knowledge-adapters run runs.yaml --continue-on-error
 """
 
 _WRITE_SUMMARY_RE = re.compile(r"Summary: wrote (?P<wrote>\d+), skipped (?P<skipped>\d+)")
@@ -340,8 +341,29 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="RUNS_YAML",
         help="Path to a YAML config file containing a top-level runs: list.",
     )
+    run_parser.add_argument(
+        "--continue-on-error",
+        action="store_true",
+        help=(
+            "Keep executing later configured runs after one run fails. "
+            "Returns non-zero if any configured run fails."
+        ),
+    )
 
     return parser
+
+
+def print_cli_error(
+    message: str,
+    *,
+    command: str,
+    debug_lines: Sequence[str] | None = None,
+) -> None:
+    """Print a stable user-facing CLI error message."""
+    print(f"knowledge-adapters {command}: error: {message}", file=sys.stderr)
+    if debug_lines:
+        for line in debug_lines:
+            print(f"  {line}", file=sys.stderr)
 
 
 def exit_with_cli_error(
@@ -351,10 +373,7 @@ def exit_with_cli_error(
     debug_lines: Sequence[str] | None = None,
 ) -> None:
     """Exit the CLI with a stable user-facing error message."""
-    print(f"knowledge-adapters {command}: error: {message}", file=sys.stderr)
-    if debug_lines:
-        for line in debug_lines:
-            print(f"  {line}", file=sys.stderr)
+    print_cli_error(message, command=command, debug_lines=debug_lines)
     raise SystemExit(2)
 
 
@@ -415,6 +434,31 @@ def _parse_nested_cli_error(stderr_output: str) -> tuple[str | None, tuple[str, 
     return lines[-1], ()
 
 
+def _build_configured_run_failure(
+    *,
+    configured_run_name: str,
+    configured_run_type: str,
+    display_command: str,
+    stderr_output: str,
+    exit_code: int | None = None,
+) -> tuple[str, tuple[str, ...]]:
+    """Build one stable configured-run failure message."""
+    nested_error, nested_details = _parse_nested_cli_error(stderr_output)
+    if exit_code is None:
+        message = (
+            f"Run {configured_run_name!r} ({configured_run_type}) failed while "
+            f"executing {display_command}."
+        )
+    else:
+        message = (
+            f"Run {configured_run_name!r} ({configured_run_type}) returned "
+            f"exit code {exit_code} while executing {display_command}."
+        )
+    if nested_error is not None:
+        message = f"{message} {nested_error}"
+    return message, nested_details
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI."""
     parser = build_parser()
@@ -433,6 +477,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"  runs_in_config: {len(run_config.runs)}")
 
         completed_runs = 0
+        failed_runs = 0
         write_runs = 0
         dry_run_runs = 0
         total_wrote = 0
@@ -457,34 +502,39 @@ def main(argv: Sequence[str] | None = None) -> int:
                 output = captured_stdout.getvalue()
                 if output:
                     print(output, end="" if output.endswith("\n") else "\n")
-                nested_error, nested_details = _parse_nested_cli_error(
-                    captured_stderr.getvalue()
+                message, nested_details = _build_configured_run_failure(
+                    configured_run_name=configured_run.name,
+                    configured_run_type=configured_run.run_type,
+                    display_command=display_command,
+                    stderr_output=captured_stderr.getvalue(),
                 )
-                message = (
-                    f"Run {configured_run.name!r} ({configured_run.run_type}) failed "
-                    f"while executing {display_command}."
-                )
-                if nested_error is not None:
-                    message = f"{message} {nested_error}"
-                exit_with_cli_error(
-                    message,
-                    command="run",
-                    debug_lines=nested_details or None,
-                )
+                if not args.continue_on_error:
+                    exit_with_cli_error(
+                        message,
+                        command="run",
+                        debug_lines=nested_details or None,
+                    )
+                print_cli_error(message, command="run", debug_lines=nested_details or None)
+                failed_runs += 1
+                continue
 
             if exit_code != 0:
-                nested_error, nested_details = _parse_nested_cli_error(captured_stderr.getvalue())
-                message = (
-                    f"Run {configured_run.name!r} ({configured_run.run_type}) returned "
-                    f"exit code {exit_code} while executing {display_command}."
+                message, nested_details = _build_configured_run_failure(
+                    configured_run_name=configured_run.name,
+                    configured_run_type=configured_run.run_type,
+                    display_command=display_command,
+                    stderr_output=captured_stderr.getvalue(),
+                    exit_code=exit_code,
                 )
-                if nested_error is not None:
-                    message = f"{message} {nested_error}"
-                exit_with_cli_error(
-                    message,
-                    command="run",
-                    debug_lines=nested_details or None,
-                )
+                if not args.continue_on_error:
+                    exit_with_cli_error(
+                        message,
+                        command="run",
+                        debug_lines=nested_details or None,
+                    )
+                print_cli_error(message, command="run", debug_lines=nested_details or None)
+                failed_runs += 1
+                continue
 
             output = captured_stdout.getvalue()
             if output:
@@ -512,6 +562,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         print("\nAggregate summary:")
         print(f"  runs_completed: {completed_runs}")
+        print(f"  runs_failed: {failed_runs}")
         print(f"  write_runs: {write_runs}")
         print(f"  dry_run_runs: {dry_run_runs}")
         print(f"  wrote: {total_wrote}")
@@ -519,6 +570,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         if dry_run_runs > 0:
             print(f"  would_write: {total_would_write}")
             print(f"  would_skip: {total_would_skip}")
+        if failed_runs > 0:
+            print(
+                "Config run completed with failures. "
+                f"Processed {completed_runs} successful run(s) and {failed_runs} failed "
+                f"run(s) from {render_user_path(run_config.config_path)}"
+            )
+            return 1
+
         print(
             "Config run complete. "
             f"Processed {completed_runs} run(s) from {render_user_path(run_config.config_path)}"

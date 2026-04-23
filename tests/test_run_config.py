@@ -317,6 +317,101 @@ runs:
     ) in captured.err
 
 
+def test_run_command_stops_on_first_failed_run_by_default(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    monkeypatch.delenv("CONFLUENCE_BEARER_TOKEN", raising=False)
+    source_file = tmp_path / "inputs" / "team-notes.txt"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text("Ship it.\n", encoding="utf-8")
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: docs-home
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home
+    client_mode: real
+  - name: team-notes
+    type: local_files
+    file_path: ./inputs/team-notes.txt
+    output_dir: ./artifacts/local/team-notes
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["run", str(config_path)])
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert "Run 1/2: docs-home (confluence)" in captured.out
+    assert "Run 2/2: team-notes (local_files)" not in captured.out
+    assert "Aggregate summary:" not in captured.out
+    assert "knowledge-adapters run: error: Run 'docs-home' (confluence) failed while " in (
+        captured.err
+    )
+    assert "Missing Confluence bearer token." in captured.err
+    assert not (tmp_path / "artifacts" / "local" / "team-notes").exists()
+
+
+def test_run_command_continue_on_error_executes_later_runs_and_reports_failures(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    monkeypatch.delenv("CONFLUENCE_BEARER_TOKEN", raising=False)
+    source_file = tmp_path / "inputs" / "team-notes.txt"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text("Ship it.\n", encoding="utf-8")
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: docs-home
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home
+    client_mode: real
+  - name: team-notes
+    type: local_files
+    file_path: ./inputs/team-notes.txt
+    output_dir: ./artifacts/local/team-notes
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(["run", str(config_path), "--continue-on-error"])
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "Run 1/2: docs-home (confluence)" in captured.out
+    assert "Run 2/2: team-notes (local_files)" in captured.out
+    assert "Aggregate summary:" in captured.out
+    assert "runs_completed: 1" in captured.out
+    assert "runs_failed: 1" in captured.out
+    assert "write_runs: 1" in captured.out
+    assert "dry_run_runs: 0" in captured.out
+    assert "wrote: 1" in captured.out
+    assert "skipped: 0" in captured.out
+    assert "Config run completed with failures." in captured.out
+    assert "knowledge-adapters run: error: Run 'docs-home' (confluence) failed while " in (
+        captured.err
+    )
+    assert "Missing Confluence bearer token." in captured.err
+
+    local_output_path = tmp_path / "artifacts" / "local" / "team-notes" / "pages" / "team-notes.md"
+    assert local_output_path.exists()
+    assert "Ship it." in local_output_path.read_text(encoding="utf-8")
+
+
 def test_load_run_config_includes_confluence_tls_and_client_cert_paths(tmp_path: Path) -> None:
     config_path = tmp_path / "runs.yaml"
     config_path.write_text(
