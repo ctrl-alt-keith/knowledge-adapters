@@ -12,7 +12,9 @@ license = { text = "Apache-2.0" }
 authors = [
   { name = "Keith Minnig" }
 ]
-dependencies = []
+dependencies = [
+  "PyYAML>=6.0",
+]
 
 [project.optional-dependencies]
 dev = [

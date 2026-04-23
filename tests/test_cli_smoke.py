@@ -41,6 +41,7 @@ def test_top_level_help_introduces_shared_cli_flow(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert "Normalize knowledge sources into a shared local artifact layout." in stdout
     assert "plans a markdown artifact under pages/ plus manifest.json" in stdout
+    assert "Execute multiple configured adapter runs from one YAML file." in stdout
     assert "Normalize Confluence content into shared artifacts." in stdout
     assert "Normalize one local UTF-8 text file into shared artifacts." in stdout
     assert (
@@ -48,6 +49,7 @@ def test_top_level_help_introduces_shared_cli_flow(tmp_path: Path) -> None:
         in stdout
     )
     assert "Re-run without --dry-run to write the same artifact layout" in stdout
+    assert "knowledge-adapters run runs.yaml" in stdout
 
 
 def test_local_files_cli_smoke_uses_installed_entrypoint_with_readme_style_args(
@@ -138,6 +140,47 @@ def test_local_files_cli_help_includes_first_run_guidance(tmp_path: Path) -> Non
     assert "without writing files." in stdout
     assert "knowledge-adapters local_files" in stdout
     assert "--dry-run" in stdout
+
+
+def test_run_cli_smoke_executes_multiple_sources_from_yaml(tmp_path: Path) -> None:
+    inputs_dir = tmp_path / "inputs"
+    inputs_dir.mkdir()
+    source_file = inputs_dir / "today.txt"
+    source_file.write_text("Hello from config run.\n", encoding="utf-8")
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: team-notes
+    type: local_files
+    file_path: ./inputs/today.txt
+    output_dir: ./artifacts/local/team-notes
+  - name: docs-home
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_cli(tmp_path, "run", "./runs.yaml")
+
+    assert result.returncode == 0, result.stderr
+    assert "Config-driven run invoked" in result.stdout
+    assert "Run 1/2: team-notes (local_files)" in result.stdout
+    assert "Run 2/2: docs-home (confluence)" in result.stdout
+    assert "Aggregate summary:" in result.stdout
+    assert "runs_completed: 2" in result.stdout
+    assert "write_runs: 2" in result.stdout
+    assert "dry_run_runs: 0" in result.stdout
+    assert "wrote: 2" in result.stdout
+    assert "skipped: 0" in result.stdout
+
+    local_output_path = tmp_path / "artifacts" / "local" / "team-notes" / "pages" / "today.md"
+    assert local_output_path.exists()
+    assert "Hello from config run." in local_output_path.read_text(encoding="utf-8")
 
 
 def test_confluence_cli_smoke_uses_installed_entrypoint_with_default_stub_client(

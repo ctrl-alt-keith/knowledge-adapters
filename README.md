@@ -128,6 +128,26 @@ its dry runs and write runs may report `write` or `skip` for a page when an
 existing artifact already matches the planned output. `local_files` always plans
 one write.
 
+## Run Multiple Sources from One Config File
+
+For sequential multi-source refreshes, copy the committed example config and
+edit the local working file:
+
+```bash
+cp runs.example.yaml runs.yaml
+```
+
+Update `runs.yaml` with the sources and output directories you want, then run:
+
+```bash
+knowledge-adapters run runs.yaml
+```
+
+The config uses a top-level `runs:` list. Each run includes a `name`, a `type`,
+adapter-specific inputs such as `base_url`/`target` or `file_path`, and its own
+`output_dir`. `runs.example.yaml` is committed for reference, while `runs.yaml`
+is gitignored for local use.
+
 ---
 
 ## Repo-Local Development Setup

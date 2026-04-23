@@ -3,6 +3,7 @@
 
 # Local worktrees
 .worktrees/
+runs.yaml
 
 # Python
 __pycache__/
