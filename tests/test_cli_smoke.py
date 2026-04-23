@@ -214,6 +214,53 @@ runs:
     ) == result.stderr
 
 
+def test_run_cli_smoke_continue_on_error_executes_later_runs_and_returns_non_zero(
+    tmp_path: Path,
+) -> None:
+    inputs_dir = tmp_path / "inputs"
+    inputs_dir.mkdir()
+    source_file = inputs_dir / "today.txt"
+    source_file.write_text("Hello from config run.\n", encoding="utf-8")
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: docs-home
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home
+    client_mode: real
+  - name: team-notes
+    type: local_files
+    file_path: ./inputs/today.txt
+    output_dir: ./artifacts/local/team-notes
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_cli(tmp_path, "run", "./runs.yaml", "--continue-on-error")
+
+    assert result.returncode == 1
+    assert "Run 1/2: docs-home (confluence)" in result.stdout
+    assert "Run 2/2: team-notes (local_files)" in result.stdout
+    assert "Aggregate summary:" in result.stdout
+    assert "runs_completed: 1" in result.stdout
+    assert "runs_failed: 1" in result.stdout
+    assert "wrote: 1" in result.stdout
+    assert "skipped: 0" in result.stdout
+    assert "Config run completed with failures." in result.stdout
+    assert "knowledge-adapters run: error: Run 'docs-home' (confluence) failed while " in (
+        result.stderr
+    )
+    assert "Missing Confluence bearer token." in result.stderr
+
+    local_output_path = tmp_path / "artifacts" / "local" / "team-notes" / "pages" / "today.md"
+    assert local_output_path.exists()
+    assert "Hello from config run." in local_output_path.read_text(encoding="utf-8")
+
+
 def test_confluence_cli_smoke_uses_installed_entrypoint_with_default_stub_client(
     tmp_path: Path,
 ) -> None:
