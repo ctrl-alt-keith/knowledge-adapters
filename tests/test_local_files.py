@@ -7,6 +7,11 @@ from pytest import CaptureFixture
 from knowledge_adapters.cli import main
 from knowledge_adapters.local_files.client import fetch_file
 from knowledge_adapters.local_files.normalize import normalize_to_markdown
+from tests.artifact_assertions import (
+    assert_manifest_entries,
+    assert_markdown_document,
+    manifest_file,
+)
 
 
 def test_fetch_file_reads_local_path_into_adapter_payload(tmp_path: Path) -> None:
@@ -37,9 +42,20 @@ def test_local_files_reuses_shared_normalizer() -> None:
         }
     )
 
-    assert "- source: local_files\n" in markdown
-    assert "- adapter: local_files\n" in markdown
-    assert markdown.endswith("Hello from disk.\n")
+    assert_markdown_document(
+        markdown,
+        title="notes.txt",
+        metadata={
+            "source": "local_files",
+            "canonical_id": "/tmp/notes.txt",
+            "parent_id": "",
+            "source_url": "file:///tmp/notes.txt",
+            "fetched_at": "",
+            "updated_at": "",
+            "adapter": "local_files",
+        },
+        content="Hello from disk.",
+    )
 
 
 def test_local_files_cli_writes_normalized_markdown(
@@ -68,35 +84,32 @@ def test_local_files_cli_writes_normalized_markdown(
 
     output_path = output_dir / "pages" / "meeting-notes.md"
     assert output_path.exists()
-    assert output_path.read_text(encoding="utf-8") == (
-        f"""# meeting-notes.txt
-
-## Metadata
-- source: local_files
-- canonical_id: {source_file.resolve()}
-- parent_id:
-- source_url: {source_file.resolve().as_uri()}
-- fetched_at:
-- updated_at:
-- adapter: local_files
-
-## Content
-
-Line one.
-Line two.
-"""
+    assert_markdown_document(
+        output_path.read_text(encoding="utf-8"),
+        title="meeting-notes.txt",
+        metadata={
+            "source": "local_files",
+            "canonical_id": str(source_file.resolve()),
+            "parent_id": "",
+            "source_url": source_file.resolve().as_uri(),
+            "fetched_at": "",
+            "updated_at": "",
+            "adapter": "local_files",
+        },
+        content="Line one.\nLine two.",
     )
 
-    payload = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
-    assert payload["files"] == [
-        {
-            "canonical_id": str(source_file.resolve()),
-            "source_url": source_file.resolve().as_uri(),
-            "output_path": "pages/meeting-notes.md",
-            "title": "meeting-notes.txt",
-        }
-    ]
-    assert isinstance(payload["generated_at"], str)
+    assert_manifest_entries(
+        output_dir / "manifest.json",
+        files=[
+            manifest_file(
+                canonical_id=str(source_file.resolve()),
+                source_url=source_file.resolve().as_uri(),
+                output_path="pages/meeting-notes.md",
+                title="meeting-notes.txt",
+            )
+        ],
+    )
 
 
 def test_local_files_cli_dry_run_reports_output_without_writing(
@@ -368,22 +381,19 @@ def test_local_files_cli_writes_empty_utf8_file_with_empty_content_section(
     ) in captured.out
 
     output_path = output_dir / "pages" / "empty.md"
-    assert output_path.read_text(encoding="utf-8") == (
-        f"""# empty.txt
-
-## Metadata
-- source: local_files
-- canonical_id: {source_file.resolve()}
-- parent_id:
-- source_url: {source_file.resolve().as_uri()}
-- fetched_at:
-- updated_at:
-- adapter: local_files
-
-## Content
-
-
-"""
+    assert_markdown_document(
+        output_path.read_text(encoding="utf-8"),
+        title="empty.txt",
+        metadata={
+            "source": "local_files",
+            "canonical_id": str(source_file.resolve()),
+            "parent_id": "",
+            "source_url": source_file.resolve().as_uri(),
+            "fetched_at": "",
+            "updated_at": "",
+            "adapter": "local_files",
+        },
+        content="",
     )
 
 
