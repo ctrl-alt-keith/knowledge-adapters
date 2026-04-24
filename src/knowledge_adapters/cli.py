@@ -656,6 +656,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         from knowledge_adapters.confluence.incremental import (
             PageSyncDecision,
             classify_page_sync,
+            find_stale_artifacts,
             load_previous_manifest_index,
         )
         from knowledge_adapters.confluence.manifest import (
@@ -920,9 +921,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             unchanged_count: int,
             write_count: int,
             skip_count: int,
+            stale_count: int | None = None,
         ) -> None:
             descendant_count = max(total_pages - 1, 0)
-            summary_lines = (
+            summary_lines = [
                 f"    mode: {mode}",
                 "    pages_in_plan: "
                 f"{total_pages} (root 1, descendants {descendant_count})",
@@ -931,7 +933,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"    unchanged_pages: {unchanged_count}",
                 f"    would_write: {write_count}",
                 f"    would_skip: {skip_count}",
-            )
+            ]
+            if stale_count is not None:
+                summary_lines.append(f"    stale_artifacts: {stale_count}")
             print("  Summary:")
             for line in summary_lines:
                 print(line)
@@ -943,13 +947,34 @@ def main(argv: Sequence[str] | None = None) -> int:
             unchanged_count: int,
             write_count: int,
             skip_count: int,
+            stale_count: int | None = None,
         ) -> None:
             print(f"\nSummary: wrote {write_count}, skipped {skip_count}")
             print(f"  new_pages: {new_count}")
             print(f"  changed_pages: {changed_count}")
             print(f"  unchanged_pages: {unchanged_count}")
+            if stale_count is not None:
+                print(f"  stale_artifacts: {stale_count}")
             print(f"  pages_written: {write_count}")
             print(f"  pages_skipped: {skip_count}")
+
+        def _print_stale_artifacts(
+            stale_artifacts: list[tuple[str, str]],
+        ) -> None:
+            if not stale_artifacts:
+                return
+
+            stale_preview_limit = 5
+            print("  Stale artifacts:")
+            for canonical_id, relative_output_path in stale_artifacts[:stale_preview_limit]:
+                print(
+                    "    "
+                    f"{_display_output_path(output_dir / relative_output_path)} "
+                    f"(canonical_id: {canonical_id})"
+                )
+            remaining_count = len(stale_artifacts) - stale_preview_limit
+            if remaining_count > 0:
+                print(f"    ... and {remaining_count} more")
 
         def _print_stub_tree_mode_note() -> None:
             if not (confluence_config.tree and confluence_config.client_mode == "stub"):
@@ -1001,6 +1026,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 action = "skip" if page_decision.status == "unchanged" else "write"
                 page_records.append((page, output_path, page_decision, action))
+            stale_artifacts = [
+                (artifact.canonical_id, artifact.output_path)
+                for artifact in find_stale_artifacts(
+                    confluence_config.output_dir,
+                    previous_manifest_index,
+                    current_page_ids=[
+                        str(page.get("canonical_id") or "")
+                        for page, _output_path, _page_decision, _action in page_records
+                    ],
+                    current_output_paths=[
+                        output_path.relative_to(Path(confluence_config.output_dir)).as_posix()
+                        for _page, output_path, _page_decision, _action in page_records
+                    ],
+                )
+            ]
 
             write_count = sum(
                 1
@@ -1037,7 +1077,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     unchanged_count=unchanged_count,
                     write_count=write_count,
                     skip_count=skip_count,
+                    stale_count=len(stale_artifacts),
                 )
+                _print_stale_artifacts(stale_artifacts)
                 for _page, output_path, page_decision, action in page_records:
                     print(
                         "  would "
@@ -1118,7 +1160,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 unchanged_count=unchanged_count,
                 write_count=write_count,
                 skip_count=skip_count,
+                stale_count=len(stale_artifacts),
             )
+            _print_stale_artifacts(stale_artifacts)
             print(f"Manifest: {_display_output_path(manifest)}")
             print_write_complete(output_dir)
             return 0

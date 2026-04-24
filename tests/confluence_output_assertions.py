@@ -6,6 +6,7 @@ from pathlib import Path
 from tests.cli_output_assertions import (
     assert_contains_normalized,
     assert_dry_run_summary,
+    assert_stale_artifacts,
     assert_tree_plan_page_count,
 )
 
@@ -58,6 +59,8 @@ def assert_tree_confluence_dry_run_summary(
     content_source: str = "scaffolded page content",
     auth_method: str | None = None,
     planned_actions: Iterable[tuple[str, Path]] = (),
+    stale_count: int = 0,
+    stale_artifact_paths: Iterable[Path] = (),
 ) -> None:
     assert "Confluence adapter invoked" in output
     assert f"client_mode: {client_mode}" in output
@@ -75,6 +78,11 @@ def assert_tree_confluence_dry_run_summary(
     assert_contains_normalized(output, f"Manifest: {manifest_path}")
     assert_tree_plan_page_count(output, count=unique_pages)
     assert_dry_run_summary(output, would_write=write_count, would_skip=skip_count)
+    assert_stale_artifacts(
+        output,
+        count=stale_count,
+        artifact_paths=stale_artifact_paths,
+    )
     for action, path in planned_actions:
         assert_contains_normalized(output, f"would {action} {path}")
     assert "Dry run complete. No files written." in output
