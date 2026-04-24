@@ -11,8 +11,11 @@ from knowledge_adapters.bundle import (
     ORDERING_RULE,
     describe_bundle_order,
     load_bundle_plan,
+    plan_split_bundle,
     render_bundle_markdown,
+    render_bundle_sections,
     write_bundle,
+    write_split_bundle,
 )
 
 
@@ -623,6 +626,129 @@ def test_render_bundle_markdown_rejects_missing_artifact_file(tmp_path: Path) ->
 
     with pytest.raises(ValueError, match="Could not read artifact for canonical_id 'alpha'"):
         render_bundle_markdown(plan.artifacts)
+
+
+def test_plan_split_bundle_writes_deterministic_numbered_files_between_sections(
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "artifacts"
+    _write_output_dir(
+        output_dir,
+        files=[
+            {
+                "canonical_id": "draft",
+                "source_url": "https://example.com/draft",
+                "output_path": "pages/draft.md",
+                "title": "Draft",
+            },
+            {
+                "canonical_id": "gamma",
+                "source_url": "https://example.com/gamma",
+                "output_path": "pages/gamma.md",
+                "title": "Gamma",
+            },
+            {
+                "canonical_id": "alpha",
+                "source_url": "https://example.com/alpha",
+                "output_path": "pages/alpha.md",
+                "title": "Alpha",
+            },
+            {
+                "canonical_id": "beta",
+                "source_url": "https://example.com/beta",
+                "output_path": "pages/beta.md",
+                "title": "Beta",
+            },
+        ],
+        artifact_contents={
+            "pages/draft.md": "# Draft\n\nDraft content.\n",
+            "pages/gamma.md": "# Gamma\n\nGamma content.\n",
+            "pages/alpha.md": "# Alpha\n\nAlpha content.\n",
+            "pages/beta.md": "# Beta\n\nBeta content.\n",
+        },
+    )
+
+    bundle_plan = load_bundle_plan((output_dir,), order="input", exclude_patterns=("draft",))
+    split_plan = plan_split_bundle(
+        tmp_path / "bundles" / "llm.md",
+        render_bundle_sections(bundle_plan.artifacts, header_mode="minimal"),
+        max_bytes=95,
+    )
+
+    assert [output_file.path.name for output_file in split_plan.output_files] == [
+        "llm-001.md",
+        "llm-002.md",
+        "llm-003.md",
+    ]
+    assert [output_file.artifact_count for output_file in split_plan.output_files] == [1, 1, 1]
+    assert bundle_plan.filtered_out_count == 1
+    assert split_plan.oversized_sections == ()
+
+    write_split_bundle(split_plan)
+
+    assert (tmp_path / "bundles" / "llm.md").exists() is False
+    assert (tmp_path / "bundles" / "llm-001.md").read_text(encoding="utf-8") == (
+        """## Gamma
+source_url: https://example.com/gamma
+
+# Gamma
+
+Gamma content.
+"""
+    )
+    assert "canonical_id:" not in (tmp_path / "bundles" / "llm-001.md").read_text(encoding="utf-8")
+    assert (
+        (tmp_path / "bundles" / "llm-002.md").read_text(encoding="utf-8").startswith("## Alpha\n")
+    )
+    assert (tmp_path / "bundles" / "llm-003.md").read_text(encoding="utf-8").startswith("## Beta\n")
+
+
+def test_plan_split_bundle_writes_oversized_single_artifact_as_own_file(
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "artifacts"
+    _write_output_dir(
+        output_dir,
+        files=[
+            {
+                "canonical_id": "alpha",
+                "source_url": "https://example.com/alpha",
+                "output_path": "pages/alpha.md",
+                "title": "Alpha",
+            },
+            {
+                "canonical_id": "beta",
+                "source_url": "https://example.com/beta",
+                "output_path": "pages/beta.md",
+                "title": "Beta",
+            },
+        ],
+        artifact_contents={
+            "pages/alpha.md": "# Alpha\n\n" + ("A" * 180) + "\n",
+            "pages/beta.md": "# Beta\n\nBeta content.\n",
+        },
+    )
+
+    bundle_plan = load_bundle_plan((output_dir,))
+    split_plan = plan_split_bundle(
+        tmp_path / "bundle.md",
+        render_bundle_sections(bundle_plan.artifacts),
+        max_bytes=120,
+    )
+
+    assert [output_file.path.name for output_file in split_plan.output_files] == [
+        "bundle-001.md",
+        "bundle-002.md",
+    ]
+    assert [output_file.artifact_count for output_file in split_plan.output_files] == [1, 1]
+    assert [section.canonical_id for section in split_plan.oversized_sections] == ["alpha"]
+    assert split_plan.oversized_sections[0].byte_count > 120
+
+    write_split_bundle(split_plan)
+
+    assert (tmp_path / "bundle-001.md").stat().st_size > 120
+    assert (tmp_path / "bundle-001.md").read_text(encoding="utf-8").startswith("## Alpha\n")
+    assert (tmp_path / "bundle-002.md").stat().st_size <= 120
 
 
 def test_write_bundle_creates_parent_directories(tmp_path: Path) -> None:

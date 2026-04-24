@@ -90,6 +90,7 @@ BUNDLE_HELP_EXAMPLES = """Examples:
   knowledge-adapters bundle ./artifacts/manifest.json --output ./bundle.md
   knowledge-adapters bundle ./artifacts --header-mode minimal --output ./bundle.md
   knowledge-adapters bundle ./artifacts --include "team-*" --exclude "*draft*" --output ./bundle.md
+  knowledge-adapters bundle ./artifacts --max-bytes 250000 --output ./bundle.md
   knowledge-adapters bundle ./artifacts --changed-only \\
     --baseline-manifest ./prior/manifest.json --output ./bundle.md
 """
@@ -161,6 +162,19 @@ def _parse_only_run_names(value: str) -> tuple[str, ...]:
         )
 
     return tuple(parsed_names)
+
+
+def _parse_positive_int(value: str) -> int:
+    """Parse a strictly positive integer CLI value."""
+    try:
+        parsed_value = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("expected a positive integer.") from exc
+
+    if parsed_value < 1:
+        raise argparse.ArgumentTypeError("expected a positive integer.")
+
+    return parsed_value
 
 
 def exit_with_output_error(
@@ -439,7 +453,9 @@ def build_parser() -> argparse.ArgumentParser:
             "output_path, and source_url. If no --include filters are provided, all "
             "artifacts start included. Exclude filters apply after include matching and "
             "win on conflicts. With --changed-only, a baseline manifest is used to keep "
-            "only artifacts with new canonical_id values or changed content_hash values."
+            "only artifacts with new canonical_id values or changed content_hash values. "
+            "With --max-bytes, bundle output is split into deterministic numbered "
+            "markdown files and sections are kept intact when possible."
         ),
         epilog=BUNDLE_HELP_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -455,6 +471,16 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         metavar="FILE",
         help="Markdown file to write with the bundled artifact content.",
+    )
+    bundle_parser.add_argument(
+        "--max-bytes",
+        type=_parse_positive_int,
+        metavar="N",
+        help=(
+            "Split bundle output into numbered markdown files when possible, each at "
+            "or below N UTF-8 bytes. Splits happen only between artifact sections; a "
+            "single oversized artifact is written to its own file and reported."
+        ),
     )
     bundle_parser.add_argument(
         "--order",
@@ -1524,9 +1550,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "bundle":
         from knowledge_adapters.bundle import (
+            SplitBundlePlan,
             load_bundle_plan,
+            plan_split_bundle,
             render_bundle_markdown,
+            render_bundle_sections,
             write_bundle,
+            write_split_bundle,
         )
 
         output_path_input = Path(args.output).expanduser()
@@ -1549,16 +1579,31 @@ def main(argv: Sequence[str] | None = None) -> int:
                 changed_only=args.changed_only,
                 baseline_manifest=args.baseline_manifest,
             )
-            markdown = render_bundle_markdown(
-                bundle_plan.artifacts,
-                header_mode=args.header_mode,
-            )
+            split_bundle_plan: SplitBundlePlan | None = None
+            bundle_markdown: str | None = None
+            if args.max_bytes is None:
+                bundle_markdown = render_bundle_markdown(
+                    bundle_plan.artifacts,
+                    header_mode=args.header_mode,
+                )
+            else:
+                sections = render_bundle_sections(
+                    bundle_plan.artifacts,
+                    header_mode=args.header_mode,
+                )
+                split_bundle_plan = plan_split_bundle(
+                    args.output,
+                    sections,
+                    max_bytes=args.max_bytes,
+                )
         except ValueError as exc:
             exit_with_cli_error(str(exc), command="bundle")
 
         print("Bundle command invoked")
         print(f"  inputs: {len(args.inputs)}")
         print(f"  output: {render_user_path(args.output)}")
+        if args.max_bytes is not None:
+            print(f"  max_bytes: {args.max_bytes}")
         print(f"  ordering: {describe_bundle_order(args.order)}")
         print(f"  header_mode: {describe_header_mode(args.header_mode)}")
         if args.include:
@@ -1588,14 +1633,40 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(f"  exclude: {pattern}")
         if args.include or args.exclude:
             print(f"  artifacts_filtered_out: {bundle_plan.filtered_out_count}")
+        if split_bundle_plan is not None:
+            print(f"  output_files: {len(split_bundle_plan.output_files)}")
+            if split_bundle_plan.oversized_sections:
+                print(f"  oversized_sections: {len(split_bundle_plan.oversized_sections)}")
+                for oversized_section in split_bundle_plan.oversized_sections:
+                    print(
+                        "  oversized: "
+                        f"{oversized_section.canonical_id} "
+                        f"({oversized_section.byte_count} bytes > {args.max_bytes} max)"
+                    )
         print("  action: write")
 
         try:
-            written_bundle = write_bundle(args.output, markdown)
+            if split_bundle_plan is None:
+                assert bundle_markdown is not None
+                written_bundle = write_bundle(args.output, bundle_markdown)
+                written_split_bundle = None
+            else:
+                written_split_bundle = write_split_bundle(split_bundle_plan)
+                written_bundle = None
         except OSError as exc:
             exit_with_bundle_output_error(args.output, exc=exc)
 
-        print(f"\nWrote bundle: {render_user_path(written_bundle)}")
+        if written_split_bundle is None:
+            assert written_bundle is not None
+            print(f"\nWrote bundle: {render_user_path(written_bundle)}")
+        else:
+            print(f"\nWrote split bundle files: {len(written_split_bundle.output_files)}")
+            for output_file in written_split_bundle.output_files:
+                print(
+                    "  file: "
+                    f"{render_user_path(output_file.path)} "
+                    f"({output_file.artifact_count} artifacts, {output_file.byte_count} bytes)"
+                )
         if args.changed_only:
             print(
                 "\nSummary: bundled "
@@ -1616,8 +1687,25 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"{len(bundle_plan.artifacts)}, skipped "
                 f"{len(bundle_plan.duplicate_canonical_ids)} duplicates"
             )
-        print(f"Output path: {render_user_path(written_bundle)}")
-        print(f"\nWrite complete. Bundle created at {render_user_path(written_bundle)}")
+        if written_split_bundle is not None:
+            print(
+                "Summary: wrote "
+                f"{len(written_split_bundle.output_files)} files, "
+                f"{len(written_split_bundle.oversized_sections)} oversized sections"
+            )
+        if written_split_bundle is None:
+            assert written_bundle is not None
+            print(f"Output path: {render_user_path(written_bundle)}")
+            print(f"\nWrite complete. Bundle created at {render_user_path(written_bundle)}")
+        else:
+            first_output_file = written_split_bundle.output_files[0]
+            print(f"Output files: {len(written_split_bundle.output_files)}")
+            print(f"First output path: {render_user_path(first_output_file.path)}")
+            print(
+                "\nWrite complete. Bundle split into "
+                f"{len(written_split_bundle.output_files)} files under "
+                f"{render_user_path(first_output_file.path.parent)}"
+            )
         return 0
 
     if args.command == "local_files":

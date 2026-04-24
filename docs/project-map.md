@@ -11,15 +11,13 @@ grouping them into meaningful lanes.
 - Bundle command:
   - v1 complete (#147)
   - ordering controls added (#153)
-  - changed-only bundle comparison in review (#157)
+  - changed-only bundle comparison complete (#157)
+  - size-aware bundle splitting complete (#154)
 - CLI, config-driven runs, and test coverage are stable
 
 ## Active Arc
 
-### Bundle advanced behavior
-
-- #154 Add size-aware splitting to the bundle command
-- #157 Add changed-only bundle mode based on a prior manifest
+Pending selection.
 
 ## Next Arcs
 

@@ -29,6 +29,7 @@ HEADER_MODE_LABELS: dict[HeaderMode, str] = {
     "minimal": "title plus source URL",
     "full": "title, source URL, canonical_id, and optional manifest metadata",
 }
+BUNDLE_SECTION_SEPARATOR = "\n\n---\n\n"
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,40 @@ class BundlePlan:
     filtered_out_count: int = 0
     unchanged_count: int = 0
     baseline_manifest: Path | None = None
+
+
+@dataclass(frozen=True)
+class BundleSection:
+    """One rendered artifact section ready for bundle output."""
+
+    canonical_id: str
+    markdown: str
+
+
+@dataclass(frozen=True)
+class OversizedBundleSection:
+    """A rendered section that exceeds the requested split size."""
+
+    canonical_id: str
+    byte_count: int
+
+
+@dataclass(frozen=True)
+class SplitBundleFile:
+    """One planned split bundle output file."""
+
+    path: Path
+    markdown: str
+    artifact_count: int
+    byte_count: int
+
+
+@dataclass(frozen=True)
+class SplitBundlePlan:
+    """A deterministic split bundle write plan."""
+
+    output_files: tuple[SplitBundleFile, ...]
+    oversized_sections: tuple[OversizedBundleSection, ...]
 
 
 @dataclass(frozen=True)
@@ -164,29 +199,38 @@ def render_bundle_markdown(
     header_mode: HeaderMode = DEFAULT_HEADER_MODE,
 ) -> str:
     """Render bundle output with stable separators and metadata lines."""
+    return _render_bundle_sections_markdown(
+        render_bundle_sections(artifacts, header_mode=header_mode)
+    )
+
+
+def render_bundle_sections(
+    artifacts: Sequence[BundleArtifact],
+    *,
+    header_mode: HeaderMode = DEFAULT_HEADER_MODE,
+) -> tuple[BundleSection, ...]:
+    """Render bundle output as stable artifact-level sections."""
     if header_mode not in HEADER_MODE_CHOICES:
         raise ValueError(
             f"Unsupported bundle header mode {header_mode!r}. "
             f"Choose one of: {', '.join(HEADER_MODE_CHOICES)}."
         )
 
-    sections: list[str] = []
+    sections: list[BundleSection] = []
     for artifact in artifacts:
         content = _read_artifact_text(artifact)
         sections.append(
-            "\n".join(
-                (
-                    *_render_bundle_header_lines(artifact, header_mode=header_mode),
-                    "",
-                    content.rstrip("\n"),
-                )
-            ).rstrip()
+            BundleSection(
+                canonical_id=artifact.canonical_id,
+                markdown=_render_bundle_section_markdown(
+                    artifact,
+                    content=content,
+                    header_mode=header_mode,
+                ),
+            )
         )
 
-    if not sections:
-        return ""
-
-    return "\n\n---\n\n".join(sections) + "\n"
+    return tuple(sections)
 
 
 def write_bundle(output_path: str | Path, markdown: str) -> Path:
@@ -195,6 +239,45 @@ def write_bundle(output_path: str | Path, markdown: str) -> Path:
     resolved_output_path.parent.mkdir(parents=True, exist_ok=True)
     resolved_output_path.write_text(markdown, encoding="utf-8")
     return resolved_output_path
+
+
+def plan_split_bundle(
+    output_path: str | Path,
+    sections: Sequence[BundleSection],
+    *,
+    max_bytes: int,
+) -> SplitBundlePlan:
+    """Plan deterministic numbered bundle files split between artifact sections."""
+    if max_bytes < 1:
+        raise ValueError("--max-bytes must be greater than 0.")
+
+    resolved_output_path = Path(output_path).expanduser().resolve()
+    chunks, oversized_sections = _split_bundle_sections(sections, max_bytes=max_bytes)
+    output_files: list[SplitBundleFile] = []
+    for index, chunk in enumerate(chunks, start=1):
+        markdown = _render_bundle_sections_markdown(chunk)
+        output_files.append(
+            SplitBundleFile(
+                path=_split_bundle_output_path(resolved_output_path, index),
+                markdown=markdown,
+                artifact_count=len(chunk),
+                byte_count=_bundle_byte_count(markdown),
+            )
+        )
+
+    return SplitBundlePlan(
+        output_files=tuple(output_files),
+        oversized_sections=oversized_sections,
+    )
+
+
+def write_split_bundle(plan: SplitBundlePlan) -> SplitBundlePlan:
+    """Write a split bundle plan, creating parent directories when needed."""
+    for output_file in plan.output_files:
+        output_file.path.parent.mkdir(parents=True, exist_ok=True)
+        output_file.path.write_text(output_file.markdown, encoding="utf-8")
+
+    return plan
 
 
 def _resolve_manifest_input(raw_input: str | Path) -> Path:
@@ -419,6 +502,77 @@ def _render_bundle_header_lines(
         f"Unsupported bundle header mode {header_mode!r}. "
         f"Choose one of: {', '.join(HEADER_MODE_CHOICES)}."
     )
+
+
+def _render_bundle_section_markdown(
+    artifact: BundleArtifact,
+    *,
+    content: str,
+    header_mode: HeaderMode,
+) -> str:
+    return "\n".join(
+        (
+            *_render_bundle_header_lines(artifact, header_mode=header_mode),
+            "",
+            content.rstrip("\n"),
+        )
+    ).rstrip()
+
+
+def _render_bundle_sections_markdown(sections: Sequence[BundleSection]) -> str:
+    if not sections:
+        return ""
+
+    return BUNDLE_SECTION_SEPARATOR.join(section.markdown for section in sections) + "\n"
+
+
+def _split_bundle_sections(
+    sections: Sequence[BundleSection],
+    *,
+    max_bytes: int,
+) -> tuple[tuple[tuple[BundleSection, ...], ...], tuple[OversizedBundleSection, ...]]:
+    chunks: list[tuple[BundleSection, ...]] = []
+    oversized_sections: list[OversizedBundleSection] = []
+    current_chunk: list[BundleSection] = []
+
+    for section in sections:
+        single_section_markdown = _render_bundle_sections_markdown((section,))
+        single_section_bytes = _bundle_byte_count(single_section_markdown)
+        if single_section_bytes > max_bytes:
+            oversized_sections.append(
+                OversizedBundleSection(
+                    canonical_id=section.canonical_id,
+                    byte_count=single_section_bytes,
+                )
+            )
+
+        if not current_chunk:
+            current_chunk.append(section)
+            continue
+
+        candidate_chunk = (*current_chunk, section)
+        candidate_markdown = _render_bundle_sections_markdown(candidate_chunk)
+        if _bundle_byte_count(candidate_markdown) <= max_bytes:
+            current_chunk.append(section)
+            continue
+
+        chunks.append(tuple(current_chunk))
+        current_chunk = [section]
+
+    if current_chunk:
+        chunks.append(tuple(current_chunk))
+    if not chunks:
+        chunks.append(())
+
+    return tuple(chunks), tuple(oversized_sections)
+
+
+def _split_bundle_output_path(output_path: Path, index: int) -> Path:
+    return output_path.with_name(f"{output_path.stem}-{index:03d}{output_path.suffix}")
+
+
+def _bundle_byte_count(markdown: str) -> int:
+    return len(markdown.encode("utf-8"))
 
 
 def _order_bundle_artifacts(
