@@ -8,6 +8,7 @@ from pathlib import Path
 import yaml  # type: ignore[import-untyped]
 
 from knowledge_adapters.confluence.auth import SUPPORTED_AUTH_METHODS
+from knowledge_adapters.confluence.config import validate_explicit_tls_paths
 from knowledge_adapters.confluence.resolve import resolve_target_for_base_url, validate_base_url
 
 SUPPORTED_RUN_TYPES = frozenset({"confluence", "local_files"})
@@ -251,19 +252,19 @@ def _build_confluence_argv(
         argv.extend(["--auth-method", auth_method])
 
     ca_bundle = _optional_string(run_config, "ca_bundle", index=index, config_path=config_path)
-    if ca_bundle is not None:
-        argv.extend(
-            [
-                "--ca-bundle",
-                _resolve_path_string(ca_bundle, config_path=config_path),
-            ]
-        )
-
+    resolved_ca_bundle = (
+        _resolve_path_string(ca_bundle, config_path=config_path) if ca_bundle is not None else None
+    )
     client_cert_file = _optional_string(
         run_config,
         "client_cert_file",
         index=index,
         config_path=config_path,
+    )
+    resolved_client_cert_file = (
+        _resolve_path_string(client_cert_file, config_path=config_path)
+        if client_cert_file is not None
+        else None
     )
     client_key_file = _optional_string(
         run_config,
@@ -271,23 +272,44 @@ def _build_confluence_argv(
         index=index,
         config_path=config_path,
     )
+    resolved_client_key_file = (
+        _resolve_path_string(client_key_file, config_path=config_path)
+        if client_key_file is not None
+        else None
+    )
     if client_key_file is not None and client_cert_file is None:
         raise ValueError(
             f"Run {name!r} in {config_path} must set 'client_cert_file' when "
             "'client_key_file' is provided."
         )
-    if client_cert_file is not None:
+    try:
+        validate_explicit_tls_paths(
+            ca_bundle=resolved_ca_bundle,
+            client_cert_file=resolved_client_cert_file,
+            client_key_file=resolved_client_key_file,
+        )
+    except ValueError as exc:
+        raise ValueError(f"Run {name!r} in {config_path}: {exc}") from exc
+
+    if resolved_ca_bundle is not None:
+        argv.extend(
+            [
+                "--ca-bundle",
+                resolved_ca_bundle,
+            ]
+        )
+    if resolved_client_cert_file is not None:
         argv.extend(
             [
                 "--client-cert-file",
-                _resolve_path_string(client_cert_file, config_path=config_path),
+                resolved_client_cert_file,
             ]
         )
-    if client_key_file is not None:
+    if resolved_client_key_file is not None:
         argv.extend(
             [
                 "--client-key-file",
-                _resolve_path_string(client_key_file, config_path=config_path),
+                resolved_client_key_file,
             ]
         )
 

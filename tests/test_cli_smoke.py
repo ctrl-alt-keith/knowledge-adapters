@@ -347,6 +347,7 @@ def test_confluence_cli_smoke_uses_installed_entrypoint_with_default_stub_client
     assert "content_source: scaffolded page content" in result.stdout
     assert "fetch_scope: page" in result.stdout
     assert "run_mode: write" in result.stdout
+    assert "warning: stub mode ignores real-mode Confluence inputs:" not in result.stdout
     assert "Plan: Confluence run" in result.stdout
     assert "resolved_page_id: 12345" in result.stdout
     assert "Artifact:" in result.stdout
@@ -413,6 +414,89 @@ def test_confluence_cli_tree_dry_run_with_stub_client_reports_discovery_limit(
         "note: stub mode does not support descendant discovery; use --client-mode real "
         "to discover descendants from Confluence."
     ) in result.stdout
+
+
+def test_confluence_cli_stub_mode_warns_when_real_only_inputs_are_ignored(
+    tmp_path: Path,
+) -> None:
+    ca_bundle = tmp_path / "internal-ca.pem"
+    ca_bundle.write_text("ca\n", encoding="utf-8")
+
+    result = _run_cli(
+        tmp_path,
+        "confluence",
+        "--base-url",
+        "https://example.com/wiki",
+        "--target",
+        "12345",
+        "--output-dir",
+        "./artifacts",
+        "--auth-method",
+        "client-cert-env",
+        "--ca-bundle",
+        str(ca_bundle),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (
+        "warning: stub mode ignores real-mode Confluence inputs: --auth-method, "
+        "--ca-bundle. Use --client-mode real to apply them."
+    ) in result.stdout
+
+
+def test_run_cli_smoke_surfaces_stub_mode_warning_for_ignored_confluence_real_inputs(
+    tmp_path: Path,
+) -> None:
+    certs_dir = tmp_path / "certs"
+    certs_dir.mkdir()
+    (certs_dir / "internal-ca.pem").write_text("ca\n", encoding="utf-8")
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: docs-home
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home
+    auth_method: client-cert-env
+    ca_bundle: ./certs/internal-ca.pem
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_cli(tmp_path, "run", "./runs.yaml")
+
+    assert result.returncode == 0, result.stderr
+    assert (
+        "warning: stub mode ignores real-mode Confluence inputs: --auth-method, "
+        "--ca-bundle. Use --client-mode real to apply them."
+    ) in result.stdout
+
+
+def test_confluence_cli_rejects_missing_tls_path_before_execution(
+    tmp_path: Path,
+) -> None:
+    missing_ca_bundle = tmp_path / "missing-ca.pem"
+
+    result = _run_cli(
+        tmp_path,
+        "confluence",
+        "--base-url",
+        "https://example.com/wiki",
+        "--target",
+        "12345",
+        "--output-dir",
+        "./artifacts",
+        "--ca-bundle",
+        str(missing_ca_bundle),
+    )
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert "does not exist" in result.stderr
+    assert str(missing_ca_bundle.resolve()) in result.stderr
 
 
 def test_confluence_help_lists_supported_auth_methods_and_examples(

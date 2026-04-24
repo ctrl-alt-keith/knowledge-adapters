@@ -633,6 +633,11 @@ runs:
 
 
 def test_load_run_config_includes_confluence_tls_and_client_cert_paths(tmp_path: Path) -> None:
+    certs_dir = tmp_path / "certs"
+    certs_dir.mkdir()
+    (certs_dir / "internal-ca.pem").write_text("ca\n", encoding="utf-8")
+    (certs_dir / "confluence-client.crt").write_text("cert\n", encoding="utf-8")
+    (certs_dir / "confluence-client.key").write_text("key\n", encoding="utf-8")
     config_path = tmp_path / "runs.yaml"
     config_path.write_text(
         """
@@ -698,6 +703,28 @@ runs:
         load_run_config(config_path)
 
 
+def test_load_run_config_rejects_missing_confluence_tls_path_before_execution(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: docs-home
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home
+    ca_bundle: ./certs/missing-ca.pem
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="ca_bundle"):
+        load_run_config(config_path)
+
+
 def test_run_command_passes_confluence_tls_config_to_real_client(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -719,6 +746,11 @@ def test_run_command_passes_confluence_tls_config_to_real_client(
         }
 
     monkeypatch.setattr(client_module, "fetch_real_page", stub_real_fetch, raising=False)
+    certs_dir = tmp_path / "certs"
+    certs_dir.mkdir()
+    (certs_dir / "internal-ca.pem").write_text("ca\n", encoding="utf-8")
+    (certs_dir / "confluence-client.crt").write_text("cert\n", encoding="utf-8")
+    (certs_dir / "confluence-client.key").write_text("key\n", encoding="utf-8")
     config_path = tmp_path / "runs.yaml"
     config_path.write_text(
         """

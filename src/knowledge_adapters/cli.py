@@ -79,6 +79,12 @@ _DRY_RUN_SUMMARY_RE = re.compile(
 _DRY_RUN_BLOCK_WRITE_RE = re.compile(r"would_write: (?P<wrote>\d+)")
 _DRY_RUN_BLOCK_SKIP_RE = re.compile(r"would_skip: (?P<skipped>\d+)")
 _CLI_ERROR_RE = re.compile(r"^knowledge-adapters (?P<command>\S+): error: (?P<message>.+)$")
+_CONFLUENCE_REAL_ONLY_INPUT_FLAGS = (
+    "--auth-method",
+    "--ca-bundle",
+    "--client-cert-file",
+    "--client-key-file",
+)
 
 
 @dataclass(frozen=True)
@@ -491,8 +497,9 @@ def _build_configured_run_failure(
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI."""
+    raw_argv = tuple(sys.argv[1:] if argv is None else argv)
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(raw_argv)
 
     if args.command == "run":
         from knowledge_adapters.run_config import load_run_config, select_runs
@@ -641,7 +648,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             fetch_real_page_summary,
             list_real_child_page_ids,
         )
-        from knowledge_adapters.confluence.config import ConfluenceConfig
+        from knowledge_adapters.confluence.config import (
+            ConfluenceConfig,
+            validate_explicit_tls_paths,
+            validate_selected_real_tls_paths,
+        )
         from knowledge_adapters.confluence.incremental import (
             PageSyncDecision,
             classify_page_sync,
@@ -688,6 +699,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "--max-depth must be greater than or equal to 0.",
                 command="confluence",
             )
+        try:
+            validate_explicit_tls_paths(
+                ca_bundle=confluence_config.ca_bundle,
+                client_cert_file=confluence_config.client_cert_file,
+                client_key_file=confluence_config.client_key_file,
+            )
+            if confluence_config.client_mode == "real":
+                validate_selected_real_tls_paths(confluence_config)
+        except ValueError as exc:
+            exit_with_cli_error(str(exc), command="confluence")
 
         try:
             target = resolve_target_for_base_url(
@@ -752,6 +773,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             return f"root + descendants through depth {max_depth}"
 
         def _print_confluence_invocation() -> None:
+            ignored_inputs = tuple(
+                flag for flag in _CONFLUENCE_REAL_ONLY_INPUT_FLAGS if flag in raw_argv
+            )
             content_source = (
                 "scaffolded page content"
                 if confluence_config.client_mode == "stub"
@@ -776,6 +800,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if confluence_config.dry_run:
                     max_depth = f"{max_depth} ({_describe_tree_depth(confluence_config.max_depth)})"
                 print(f"  max_depth: {max_depth}")
+            if confluence_config.client_mode == "stub" and ignored_inputs:
+                print(
+                    "  warning: stub mode ignores real-mode Confluence inputs: "
+                    f"{', '.join(ignored_inputs)}. Use --client-mode real to apply them."
+                )
             if confluence_config.client_mode == "real":
                 resolved_tls_inputs = resolve_tls_inputs(
                     ca_bundle=confluence_config.ca_bundle,

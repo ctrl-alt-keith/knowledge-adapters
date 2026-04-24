@@ -404,6 +404,12 @@ def test_real_single_page_dry_run_surfaces_active_tls_input_paths(
         }
 
     monkeypatch.setattr(client_module, "fetch_real_page", stub_real_fetch, raising=False)
+    ca_bundle = tmp_path / "internal-ca.pem"
+    client_cert = tmp_path / "confluence-client.crt"
+    client_key = tmp_path / "confluence-client.key"
+    ca_bundle.write_text("ca\n", encoding="utf-8")
+    client_cert.write_text("cert\n", encoding="utf-8")
+    client_key.write_text("key\n", encoding="utf-8")
 
     exit_code = main(
         _confluence_argv(
@@ -412,19 +418,19 @@ def test_real_single_page_dry_run_surfaces_active_tls_input_paths(
             "real",
             "--dry-run",
             "--ca-bundle",
-            "/tmp/internal-ca.pem",
+            str(ca_bundle),
             "--client-cert-file",
-            "/tmp/confluence-client.crt",
+            str(client_cert),
             "--client-key-file",
-            "/tmp/confluence-client.key",
+            str(client_key),
         )
     )
 
     assert exit_code == 0
     output = capsys.readouterr().out
-    expected_ca_bundle = str(Path("/tmp/internal-ca.pem").resolve())
-    expected_client_cert = str(Path("/tmp/confluence-client.crt").resolve())
-    expected_client_key = str(Path("/tmp/confluence-client.key").resolve())
+    expected_ca_bundle = str(ca_bundle.resolve())
+    expected_client_cert = str(client_cert.resolve())
+    expected_client_key = str(client_key.resolve())
     assert (
         f"tls_inputs: ca_bundle={expected_ca_bundle}, "
         f"client_cert_file={expected_client_cert}, "
@@ -451,22 +457,49 @@ def test_real_single_page_dry_run_surfaces_env_tls_input_paths(
         }
 
     monkeypatch.setattr(client_module, "fetch_real_page", stub_real_fetch, raising=False)
-    monkeypatch.setenv("REQUESTS_CA_BUNDLE", "/tmp/env-ca.pem")
-    monkeypatch.setenv("CONFLUENCE_CLIENT_CERT_FILE", "/tmp/env-client.crt")
-    monkeypatch.setenv("CONFLUENCE_CLIENT_KEY_FILE", "/tmp/env-client.key")
+    env_ca_bundle = tmp_path / "env-ca.pem"
+    env_client_cert = tmp_path / "env-client.crt"
+    env_client_key = tmp_path / "env-client.key"
+    env_ca_bundle.write_text("ca\n", encoding="utf-8")
+    env_client_cert.write_text("cert\n", encoding="utf-8")
+    env_client_key.write_text("key\n", encoding="utf-8")
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", str(env_ca_bundle))
+    monkeypatch.setenv("CONFLUENCE_CLIENT_CERT_FILE", str(env_client_cert))
+    monkeypatch.setenv("CONFLUENCE_CLIENT_KEY_FILE", str(env_client_key))
 
     exit_code = main(_confluence_argv(tmp_path / "out", "--client-mode", "real", "--dry-run"))
 
     assert exit_code == 0
     output = capsys.readouterr().out
-    expected_ca_bundle = str(Path("/tmp/env-ca.pem").resolve())
-    expected_client_cert = str(Path("/tmp/env-client.crt").resolve())
-    expected_client_key = str(Path("/tmp/env-client.key").resolve())
+    expected_ca_bundle = str(env_ca_bundle.resolve())
+    expected_client_cert = str(env_client_cert.resolve())
+    expected_client_key = str(env_client_key.resolve())
     assert (
         f"tls_inputs: ca_bundle={expected_ca_bundle}, "
         f"client_cert_file={expected_client_cert}, "
         f"client_key_file={expected_client_key}"
     ) in output
+
+
+def test_real_client_cli_rejects_missing_env_selected_ca_bundle_before_request(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    from knowledge_adapters.confluence import client as client_module
+
+    def fail_if_real_fetch_runs(*args: object, **kwargs: object) -> dict[str, object]:
+        raise AssertionError("real fetch should not run when the selected CA bundle is missing")
+
+    monkeypatch.setattr(client_module, "fetch_real_page", fail_if_real_fetch_runs, raising=False)
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", str(tmp_path / "missing-env-ca.pem"))
+
+    with pytest.raises(SystemExit, match="2"):
+        main(_confluence_argv(tmp_path / "out", "--client-mode", "real"))
+
+    captured = capsys.readouterr()
+    assert "does not exist" in captured.err
+    assert "REQUESTS_CA_BUNDLE or SSL_CERT_FILE" in captured.err
 
 
 @pytest.mark.parametrize(
@@ -1545,6 +1578,8 @@ def test_real_client_cli_passes_ca_bundle_to_real_fetch(
     from knowledge_adapters.confluence import client as client_module
 
     observed_ca_bundles: list[str | None] = []
+    ca_bundle = tmp_path / "internal-ca.pem"
+    ca_bundle.write_text("ca\n", encoding="utf-8")
 
     def stub_real_fetch(*args: object, **kwargs: object) -> dict[str, object]:
         del args
@@ -1566,9 +1601,9 @@ def test_real_client_cli_passes_ca_bundle_to_real_fetch(
             "--client-mode",
             "real",
             "--ca-bundle",
-            "/tmp/internal-ca.pem",
+            str(ca_bundle),
         )
     )
 
     assert exit_code == 0
-    assert observed_ca_bundles == ["/tmp/internal-ca.pem"]
+    assert observed_ca_bundles == [str(ca_bundle)]
