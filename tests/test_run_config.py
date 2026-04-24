@@ -2,12 +2,27 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any, Literal, cast
 
 import pytest
 from pytest import CaptureFixture, MonkeyPatch
 
 from knowledge_adapters.cli import main
 from knowledge_adapters.run_config import ConfiguredRun, load_run_config, select_runs
+
+
+class _FakeHTTPResponse:
+    def __init__(self, payload: dict[str, object]) -> None:
+        self._payload = payload
+
+    def __enter__(self) -> _FakeHTTPResponse:
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> Literal[False]:
+        return False
+
+    def read(self) -> bytes:
+        return json.dumps(self._payload).encode("utf-8")
 
 
 def test_load_run_config_resolves_relative_paths_from_config_location(tmp_path: Path) -> None:
@@ -781,3 +796,151 @@ runs:
             "client_key_file": str((tmp_path / "certs" / "confluence-client.key").resolve()),
         }
     ]
+
+
+def test_run_command_uses_same_real_client_ca_bundle_as_direct_cli(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    observed_cafiles: list[str | None] = []
+    observed_request_urls: list[str] = []
+    ca_bundle = tmp_path / "internal-ca.pem"
+    ca_bundle.write_text("ca\n", encoding="utf-8")
+
+    class FakeSSLContext:
+        def load_cert_chain(self, *, certfile: str, keyfile: str | None = None) -> None:
+            del certfile, keyfile
+
+    def fake_create_default_context(*, cafile: str | None = None) -> FakeSSLContext:
+        observed_cafiles.append(cafile)
+        return FakeSSLContext()
+
+    def fake_urlopen(api_request: object, context: object | None = None) -> _FakeHTTPResponse:
+        del context
+        observed_request_urls.append(str(cast(Any, api_request).full_url))
+        return _FakeHTTPResponse(
+            {
+                "id": "12345",
+                "title": "Real Page",
+                "body": {"storage": {"value": "<p>Hello from Confluence.</p>"}},
+                "_links": {
+                    "base": "https://example.com/wiki",
+                    "webui": "/spaces/ENG/pages/12345",
+                },
+                "version": {
+                    "number": 7,
+                    "when": "2026-04-20T12:34:56Z",
+                },
+            }
+        )
+
+    monkeypatch.setattr(
+        "knowledge_adapters.confluence.auth.ssl.create_default_context",
+        fake_create_default_context,
+    )
+    monkeypatch.setattr(
+        "knowledge_adapters.confluence.client.request.urlopen",
+        fake_urlopen,
+    )
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "token")
+
+    direct_exit_code = main(
+        [
+            "confluence",
+            "--base-url",
+            "https://example.com/wiki",
+            "--target",
+            "12345",
+            "--output-dir",
+            str(tmp_path / "direct-out"),
+            "--client-mode",
+            "real",
+            "--ca-bundle",
+            str(ca_bundle),
+        ]
+    )
+
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        f"""
+runs:
+  - name: docs-home
+    type: confluence
+    client_mode: real
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./run-out
+    ca_bundle: {ca_bundle}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    run_exit_code = main(["run", str(config_path)])
+
+    expected_api_url = (
+        "https://example.com/wiki/rest/api/content/12345?expand=body.storage,_links,version"
+    )
+    assert direct_exit_code == 0
+    assert run_exit_code == 0
+    assert observed_cafiles == [str(ca_bundle), str(ca_bundle)]
+    assert observed_request_urls == [expected_api_url, expected_api_url]
+
+
+def test_run_debug_flag_propagates_safe_confluence_debug_details(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    from knowledge_adapters.confluence import client as client_module
+    from knowledge_adapters.confluence.client import ConfluenceRequestError
+
+    ca_bundle = tmp_path / "internal-ca.pem"
+    ca_bundle.write_text("ca\n", encoding="utf-8")
+
+    def stub_real_fetch(*args: object, **kwargs: object) -> dict[str, object]:
+        del args, kwargs
+        raise ConfluenceRequestError(
+            "Confluence TLS handshake failed. Check --ca-bundle or client certificate settings.",
+            request_url="https://example.com/wiki/rest/api/content/12345",
+            auth_method="bearer-env",
+            underlying_error="[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed",
+        )
+
+    monkeypatch.setattr(client_module, "fetch_real_page", stub_real_fetch, raising=False)
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "token")
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        f"""
+runs:
+  - name: docs-home
+    type: confluence
+    client_mode: real
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home
+    ca_bundle: {ca_bundle}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        main(["run", "--debug", str(config_path)])
+
+    captured = capsys.readouterr()
+    assert (
+        "command: knowledge-adapters confluence --base-url https://example.com/wiki "
+        "--target 12345 --output-dir "
+    ) in captured.out
+    assert "--client-mode real --ca-bundle " in captured.out
+    assert "--debug" in captured.out
+    assert (
+        "knowledge-adapters run: error: Run 'docs-home' (confluence) failed while executing "
+    ) in captured.err
+    assert "Confluence TLS handshake failed. Check --ca-bundle or client certificate settings." in (
+        captured.err
+    )
+    assert "debug request_url: https://example.com/wiki/rest/api/content/12345" in captured.err
+    assert "debug client_mode: real" in captured.err
+    assert "debug auth_method: bearer-env" in captured.err
