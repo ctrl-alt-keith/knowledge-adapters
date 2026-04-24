@@ -158,6 +158,8 @@ def test_bundle_cli_help_includes_ordering_and_input_guidance(tmp_path: Path) ->
     assert "--header-mode {minimal,full}" in stdout
     assert "--include PATTERN" in stdout
     assert "--exclude PATTERN" in stdout
+    assert "--changed-only" in stdout
+    assert "--baseline-manifest PATH" in stdout
     assert "canonical_id sorts lexically by canonical_id (default)" in stdout
     assert "manifest preserves manifest entry order" in stdout
     assert "input preserves bundle input order" in stdout
@@ -167,6 +169,8 @@ def test_bundle_cli_help_includes_ordering_and_input_guidance(tmp_path: Path) ->
     assert "glob-style include and exclude filters match canonical_id, title," in stdout
     assert "output_path, and source_url" in stdout
     assert "Exclude filters apply after include matching and win on conflicts." in stdout
+    assert "new or changed compared with --baseline-manifest" in stdout
+    assert "compare by canonical_id and content_hash" in stdout
     assert "knowledge-adapters bundle ./artifacts/confluence --output ./bundle.md" in stdout
     assert (
         "knowledge-adapters bundle ./artifacts --header-mode minimal --output ./bundle.md"
@@ -298,6 +302,108 @@ canonical_id: zeta
 # Zeta artifact
 
 Zeta content.
+"""
+    )
+
+
+def test_bundle_cli_smoke_supports_changed_only_against_baseline_manifest(
+    tmp_path: Path,
+) -> None:
+    baseline_dir = tmp_path / "baseline"
+    current_dir = tmp_path / "current"
+    (baseline_dir / "pages").mkdir(parents=True)
+    (current_dir / "pages").mkdir(parents=True)
+    (baseline_dir / "pages" / "alpha.md").write_text("# Alpha\n", encoding="utf-8")
+    (baseline_dir / "pages" / "beta.md").write_text("# Beta old\n", encoding="utf-8")
+    (current_dir / "pages" / "alpha.md").write_text("# Alpha\n", encoding="utf-8")
+    (current_dir / "pages" / "beta.md").write_text("# Beta new\n", encoding="utf-8")
+    (current_dir / "pages" / "gamma.md").write_text("# Gamma\n", encoding="utf-8")
+    (baseline_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-04-24T00:00:00Z",
+                "files": [
+                    {
+                        "canonical_id": "alpha",
+                        "source_url": "https://example.com/alpha",
+                        "output_path": "pages/alpha.md",
+                        "content_hash": "same-alpha",
+                    },
+                    {
+                        "canonical_id": "beta",
+                        "source_url": "https://example.com/beta",
+                        "output_path": "pages/beta.md",
+                        "content_hash": "old-beta",
+                    },
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (current_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-04-24T00:00:00Z",
+                "files": [
+                    {
+                        "canonical_id": "alpha",
+                        "source_url": "https://example.com/alpha",
+                        "output_path": "pages/alpha.md",
+                        "content_hash": "same-alpha",
+                    },
+                    {
+                        "canonical_id": "beta",
+                        "source_url": "https://example.com/beta",
+                        "output_path": "pages/beta.md",
+                        "content_hash": "new-beta",
+                    },
+                    {
+                        "canonical_id": "gamma",
+                        "source_url": "https://example.com/gamma",
+                        "output_path": "pages/gamma.md",
+                        "content_hash": "new-gamma",
+                    },
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_cli(
+        tmp_path,
+        "bundle",
+        "./current",
+        "--changed-only",
+        "--baseline-manifest",
+        "./baseline/manifest.json",
+        "--output",
+        "./bundles/changed.md",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "changed_only: true" in result.stdout
+    assert f"baseline_manifest: {baseline_dir / 'manifest.json'}" in result.stdout
+    assert "artifacts_selected: 2" in result.stdout
+    assert "unchanged_skipped: 1" in result.stdout
+    assert "Summary: bundled 2, skipped 1 unchanged, skipped 0 duplicates" in result.stdout
+    assert (tmp_path / "bundles" / "changed.md").read_text(encoding="utf-8") == (
+        """## beta
+source_url: https://example.com/beta
+canonical_id: beta
+
+# Beta new
+
+---
+
+## gamma
+source_url: https://example.com/gamma
+canonical_id: gamma
+
+# Gamma
 """
     )
 

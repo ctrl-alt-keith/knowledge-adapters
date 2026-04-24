@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fnmatch
+import hashlib
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -41,6 +42,7 @@ class BundleArtifact:
     fetched_at: str | None
     path: str | None
     ref: str | None
+    content_hash: str | None
     artifact_path: Path
 
 
@@ -52,6 +54,8 @@ class BundlePlan:
     artifacts: tuple[BundleArtifact, ...]
     duplicate_canonical_ids: tuple[str, ...]
     filtered_out_count: int = 0
+    unchanged_count: int = 0
+    baseline_manifest: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -61,6 +65,15 @@ class _BundleArtifactPosition:
     input_index: int
     manifest_index: int
     manifest_entry_index: int
+
+
+@dataclass(frozen=True)
+class _BaselineManifestEntry:
+    """Prior manifest entry used for changed-only bundle selection."""
+
+    canonical_id: str
+    content_hash: str | None
+    artifact_path: Path
 
 
 def describe_bundle_order(order: BundleOrder) -> str:
@@ -79,6 +92,8 @@ def load_bundle_plan(
     order: BundleOrder = DEFAULT_BUNDLE_ORDER,
     include_patterns: Sequence[str] = (),
     exclude_patterns: Sequence[str] = (),
+    changed_only: bool = False,
+    baseline_manifest: str | Path | None = None,
 ) -> BundlePlan:
     """Load artifacts from output directories or manifest files."""
     if order not in BUNDLE_ORDER_CHOICES:
@@ -86,6 +101,10 @@ def load_bundle_plan(
             f"Unsupported bundle order {order!r}. "
             f"Choose one of: {', '.join(BUNDLE_ORDER_CHOICES)}."
         )
+    if changed_only and baseline_manifest is None:
+        raise ValueError("Bundle --changed-only requires --baseline-manifest.")
+    if baseline_manifest is not None and not changed_only:
+        raise ValueError("Bundle --baseline-manifest requires --changed-only.")
 
     manifests: list[Path] = []
     artifacts_by_id: dict[str, BundleArtifact] = {}
@@ -107,6 +126,17 @@ def load_bundle_plan(
                 manifest_entry_index=manifest_entry_index,
             )
 
+    unchanged_count = 0
+    baseline_manifest_path = None
+    if changed_only:
+        assert baseline_manifest is not None
+        baseline_manifest_path = _resolve_manifest_input(baseline_manifest)
+        baseline_entries = _load_baseline_manifest_entries(baseline_manifest_path)
+        artifacts_by_id, unchanged_count = _select_changed_bundle_artifacts(
+            artifacts_by_id,
+            baseline_entries,
+        )
+
     ordered_artifacts = _order_bundle_artifacts(
         artifacts_by_id,
         artifact_positions,
@@ -123,6 +153,8 @@ def load_bundle_plan(
         artifacts=selected_artifacts,
         duplicate_canonical_ids=tuple(duplicate_canonical_ids),
         filtered_out_count=filtered_out_count,
+        unchanged_count=unchanged_count,
+        baseline_manifest=baseline_manifest_path,
     )
 
 
@@ -220,6 +252,7 @@ def _load_bundle_artifacts(manifest: Path) -> tuple[BundleArtifact, ...]:
         fetched_at = _optional_manifest_string(entry, "fetched_at", manifest=manifest)
         path = _optional_manifest_string(entry, "path", manifest=manifest)
         ref = _optional_manifest_string(entry, "ref", manifest=manifest)
+        content_hash = _optional_manifest_string(entry, "content_hash", manifest=manifest)
         if not isinstance(canonical_id, str) or not isinstance(source_url, str):
             raise ValueError(
                 f"Bundle manifest {manifest} is invalid: files entries must include "
@@ -255,11 +288,98 @@ def _load_bundle_artifacts(manifest: Path) -> tuple[BundleArtifact, ...]:
                 fetched_at=fetched_at,
                 path=path,
                 ref=ref,
+                content_hash=content_hash,
                 artifact_path=(manifest.parent / output_path).resolve(),
             )
         )
 
     return tuple(artifacts)
+
+
+def _load_baseline_manifest_entries(manifest: Path) -> dict[str, _BaselineManifestEntry]:
+    try:
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Could not read baseline manifest {manifest}.") from exc
+
+    files = payload.get("files") if isinstance(payload, dict) else None
+    if not isinstance(files, list):
+        raise ValueError(
+            f"Baseline manifest {manifest} is invalid: expected a files list."
+        )
+
+    entries_by_id: dict[str, _BaselineManifestEntry] = {}
+    for entry in files:
+        if not isinstance(entry, dict):
+            raise ValueError(
+                f"Baseline manifest {manifest} is invalid: each files entry must be an object."
+            )
+
+        canonical_id = entry.get("canonical_id")
+        output_path = entry.get("output_path")
+        content_hash = _optional_manifest_string(entry, "content_hash", manifest=manifest)
+        if not isinstance(canonical_id, str) or not isinstance(output_path, str):
+            raise ValueError(
+                f"Baseline manifest {manifest} is invalid: files entries must include "
+                "string canonical_id and output_path values."
+            )
+        if canonical_id in entries_by_id:
+            raise ValueError(
+                f"Baseline manifest {manifest} is invalid: duplicate canonical_id "
+                f"{canonical_id!r}."
+            )
+
+        entries_by_id[canonical_id] = _BaselineManifestEntry(
+            canonical_id=canonical_id,
+            content_hash=content_hash,
+            artifact_path=(manifest.parent / output_path).resolve(),
+        )
+
+    return entries_by_id
+
+
+def _select_changed_bundle_artifacts(
+    artifacts_by_id: dict[str, BundleArtifact],
+    baseline_entries: dict[str, _BaselineManifestEntry],
+) -> tuple[dict[str, BundleArtifact], int]:
+    selected_artifacts: dict[str, BundleArtifact] = {}
+    unchanged_count = 0
+    for canonical_id, artifact in artifacts_by_id.items():
+        baseline_entry = baseline_entries.get(canonical_id)
+        if baseline_entry is None or _artifact_changed_since_baseline(
+            artifact,
+            baseline_entry,
+        ):
+            selected_artifacts[canonical_id] = artifact
+        else:
+            unchanged_count += 1
+
+    return selected_artifacts, unchanged_count
+
+
+def _artifact_changed_since_baseline(
+    artifact: BundleArtifact,
+    baseline_entry: _BaselineManifestEntry,
+) -> bool:
+    if not baseline_entry.artifact_path.is_file():
+        return True
+
+    current_hash = artifact.content_hash or _hash_file(artifact.artifact_path)
+    baseline_hash = baseline_entry.content_hash
+    if baseline_hash is None:
+        try:
+            baseline_hash = _hash_file(baseline_entry.artifact_path)
+        except ValueError:
+            return True
+
+    return current_hash != baseline_hash
+
+
+def _hash_file(path: Path) -> str:
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError as exc:
+        raise ValueError(f"Could not read artifact while computing content hash: {path}.") from exc
 
 
 def _read_artifact_text(artifact: BundleArtifact) -> str:
