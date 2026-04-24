@@ -152,8 +152,12 @@ def test_bundle_cli_help_includes_ordering_and_input_guidance(tmp_path: Path) ->
     assert "Combine existing artifacts into one prompt-ready markdown file." in stdout
     assert "one or more output directories or manifest files" in stdout
     assert "keeps the original artifacts unchanged" in stdout
-    assert "lexical canonical_id order" in stdout
+    assert "selected deterministic ordering mode" in stdout
     assert "--output FILE" in stdout
+    assert "--order {canonical_id,manifest,input}" in stdout
+    assert "canonical_id sorts lexically by canonical_id (default)" in stdout
+    assert "manifest preserves manifest entry order" in stdout
+    assert "input preserves bundle input order" in stdout
     assert "knowledge-adapters bundle ./artifacts/confluence --output ./bundle.md" in stdout
 
 
@@ -276,6 +280,121 @@ canonical_id: zeta
 # Zeta artifact
 
 Zeta content.
+"""
+    )
+
+
+def test_bundle_cli_smoke_supports_input_ordering(tmp_path: Path) -> None:
+    output_a = tmp_path / "artifacts" / "a"
+    output_b = tmp_path / "artifacts" / "b"
+    (output_a / "pages").mkdir(parents=True)
+    (output_b / "pages").mkdir(parents=True)
+    (output_a / "pages" / "gamma.md").write_text(
+        "# Gamma artifact\n\nGamma content.\n",
+        encoding="utf-8",
+    )
+    (output_a / "pages" / "alpha.md").write_text(
+        "# Alpha artifact\n\nAlpha content from A.\n",
+        encoding="utf-8",
+    )
+    (output_b / "pages" / "alpha-copy.md").write_text(
+        "# Alpha duplicate\n\nAlpha content from B.\n",
+        encoding="utf-8",
+    )
+    (output_b / "pages" / "beta.md").write_text(
+        "# Beta artifact\n\nBeta content.\n",
+        encoding="utf-8",
+    )
+    (output_a / "manifest.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-04-24T00:00:00Z",
+                "files": [
+                    {
+                        "canonical_id": "gamma",
+                        "source_url": "https://example.com/gamma",
+                        "output_path": "pages/gamma.md",
+                        "title": "Gamma",
+                    },
+                    {
+                        "canonical_id": "alpha",
+                        "source_url": "https://example.com/alpha-a",
+                        "output_path": "pages/alpha.md",
+                        "title": "Alpha from A",
+                    },
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (output_b / "manifest.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-04-24T00:00:00Z",
+                "files": [
+                    {
+                        "canonical_id": "alpha",
+                        "source_url": "https://example.com/alpha-b",
+                        "output_path": "pages/alpha-copy.md",
+                        "title": "Alpha from B",
+                    },
+                    {
+                        "canonical_id": "beta",
+                        "source_url": "https://example.com/beta",
+                        "output_path": "pages/beta.md",
+                    },
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_cli(
+        tmp_path,
+        "bundle",
+        "./artifacts/a",
+        "./artifacts/b",
+        "--order",
+        "input",
+        "--output",
+        "./bundles/input-order.md",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "ordering: input order with manifest grouping" in result.stdout
+    assert "duplicates_skipped: 1" in result.stdout
+    assert (tmp_path / "bundles" / "input-order.md").read_text(encoding="utf-8") == (
+        """## Gamma
+source_url: https://example.com/gamma
+canonical_id: gamma
+
+# Gamma artifact
+
+Gamma content.
+
+---
+
+## Alpha from A
+source_url: https://example.com/alpha-a
+canonical_id: alpha
+
+# Alpha artifact
+
+Alpha content from A.
+
+---
+
+## beta
+source_url: https://example.com/beta
+canonical_id: beta
+
+# Beta artifact
+
+Beta content.
 """
     )
 
