@@ -9,6 +9,41 @@ Formal changelog coverage begins at `0.2.0`, when this repository started using
 `CHANGELOG.md` as part of the release flow. Earlier tagged releases `v0.1.0` and
 `v0.1.1` predate that practice and are not backfilled here.
 
+## 0.6.0
+
+This minor release expands config-driven automation and makes live Confluence
+runs more production-ready. It adds multi-run orchestration, source-aware
+incremental sync, broader TLS support, and clearer operator-facing output and
+examples.
+
+### Config-driven runs
+
+- Added config-driven multi-run execution so one runs file can coordinate
+  multiple adapter runs.
+- Added opt-in continue-on-error behavior for config runs.
+- Hardened config-run validation and error reporting so run failures stay
+  visible and easier to troubleshoot.
+
+### Confluence improvements
+
+- Added source-aware incremental sync so repeat runs can skip already-recorded
+  Confluence artifacts more predictably.
+- Added Confluence CA bundle support and TLS configuration parity for
+  config-driven runs.
+- Plan output now shows active TLS inputs more clearly, and incremental rewrites
+  explain why a page is being rewritten.
+- Base URL validation fails earlier, reducing avoidable live-run
+  misconfiguration.
+
+### CLI and docs
+
+- CLI path rendering is more consistent, improving dry-run and write output
+  readability.
+- local_files runs now fail fast on artifact collisions instead of risking
+  ambiguous output paths.
+- Docs and examples now cover release workflow, command contexts, and
+  Confluence auth setup more clearly.
+
 ## 0.5.1
 
 This patch release makes the CLI easier to understand and more predictable to

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "knowledge-adapters"
-version = "0.5.1"
+version = "0.6.0"
 description = "Generic adapters for acquiring and normalizing knowledge sources into local LLM-ready artifacts."
 readme = "README.md"
 requires-python = ">=3.13"
