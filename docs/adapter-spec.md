@@ -112,8 +112,8 @@ Allowed v1 inputs are:
 - `ca_bundle`: optional custom CA bundle path
 - `client_cert_file`: optional client certificate path
 - `client_key_file`: optional client key path
-- `content_selector`: optional selector for extracting a portion of an HTML
-  response
+- `content_selector`: optional CSS selector for extracting a portion of an HTML
+  response; XPath and advanced selector systems are out of scope for v1
 - `dry_run`: optional plan-only execution flag
 
 Secrets must not be supplied inline in committed config. Header and cookie
@@ -139,7 +139,7 @@ JSON is the primary v1 content type. For `application/json` and compatible
 structured JSON responses, the adapter should parse the body as JSON and
 normalize it into deterministic markdown or text. Object keys should be emitted
 in a stable order when the response format does not already provide an ordered
-representation.
+representation. Nested JSON structures should be preserved, not flattened.
 
 HTML is the secondary v1 content type. For `text/html` and compatible HTML
 responses, the adapter should extract readable text or markdown from the
@@ -160,8 +160,8 @@ existing adapter artifact layout.
 
 The manifest records one entry per resource with these fields:
 
-- `canonical_id`: required URL-based identifier derived from the normalized
-  final resource URL
+- `canonical_id`: required URL-based identifier derived from the final
+  normalized URL after redirects, if redirects are followed
 - `source_url`: required original configured URL
 - `title`: optional title from JSON metadata, an HTML `<title>`, or another
   generic response-level title when available
