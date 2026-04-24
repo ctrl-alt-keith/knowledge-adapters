@@ -12,7 +12,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
 
-from knowledge_adapters.confluence.auth import SUPPORTED_AUTH_METHODS
+from knowledge_adapters.confluence.auth import SUPPORTED_AUTH_METHODS, resolve_tls_inputs
 
 TOP_LEVEL_HELP_EXAMPLES = """First steps:
   knowledge-adapters --help
@@ -728,7 +728,31 @@ def main(argv: Sequence[str] | None = None) -> int:
                     max_depth = f"{max_depth} ({_describe_tree_depth(confluence_config.max_depth)})"
                 print(f"  max_depth: {max_depth}")
             if confluence_config.client_mode == "real":
+                resolved_tls_inputs = resolve_tls_inputs(
+                    ca_bundle=confluence_config.ca_bundle,
+                    client_cert_file=confluence_config.client_cert_file,
+                    client_key_file=confluence_config.client_key_file,
+                )
+                tls_inputs: list[str] = []
+                if resolved_tls_inputs.ca_bundle:
+                    tls_inputs.append(
+                        f"ca_bundle={render_user_path(resolved_tls_inputs.ca_bundle)}"
+                    )
+                if resolved_tls_inputs.client_cert_file:
+                    tls_inputs.append(
+                        "client_cert_file="
+                        f"{render_user_path(resolved_tls_inputs.client_cert_file)}"
+                    )
+                if resolved_tls_inputs.client_key_file:
+                    tls_inputs.append(
+                        "client_key_file="
+                        f"{render_user_path(resolved_tls_inputs.client_key_file)}"
+                    )
                 print(f"  auth_method: {confluence_config.auth_method}")
+                print(
+                    "  tls_inputs: "
+                    f"{', '.join(tls_inputs) if tls_inputs else 'defaults/environment'}"
+                )
 
         def _confluence_debug_lines(
             exc: RuntimeError | ValueError,
