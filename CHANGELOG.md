@@ -9,6 +9,33 @@ Formal changelog coverage begins at `0.2.0`, when this repository started using
 `CHANGELOG.md` as part of the release flow. Earlier tagged releases `v0.1.0` and
 `v0.1.1` predate that practice and are not backfilled here.
 
+## 0.7.0
+
+This minor release expands Confluence ingestion, rounds out the first bundle
+packaging flow, and makes config-driven runs easier to carry across
+environments.
+
+### Confluence ingestion
+
+- Added space-wide Confluence discovery through either a space key or a space
+  URL, making broader ingestion runs easier to start from operator-facing
+  inputs.
+
+### Bundle / LLM packaging
+
+- Shipped the bundle command as a first-class packaging flow for turning
+  adapter output into LLM-friendly bundles.
+- Added ordering controls, include/exclude filters, and header modes so bundle
+  output is easier to shape for different downstream consumers.
+- Added changed-only comparison and size-aware splitting so repeat bundle runs
+  can stay smaller, more targeted, and easier to transport.
+
+### Configuration / portability
+
+- Added Confluence CA bundle environment and CLI overrides for portable
+  `runs.yaml` workflows, improving TLS portability across environments without
+  rewriting shared config.
+
 ## 0.6.0
 
 This minor release expands config-driven automation and makes live Confluence
