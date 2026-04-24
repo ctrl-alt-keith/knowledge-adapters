@@ -79,6 +79,92 @@ runs:
     )
 
 
+@pytest.mark.parametrize(
+    ("space_block", "expected_arg"),
+    [
+        ("space_key: ENG", ("--space-key", "ENG")),
+        (
+            "space_url: https://example.com/wiki/spaces/ENG/overview",
+            ("--space-url", "https://example.com/wiki/spaces/ENG/overview"),
+        ),
+    ],
+)
+def test_load_run_config_supports_confluence_space_mode(
+    tmp_path: Path,
+    space_block: str,
+    expected_arg: tuple[str, str],
+) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        f"""
+runs:
+  - name: docs-space
+    type: confluence
+    base_url: https://example.com/wiki
+    {space_block}
+    output_dir: ./artifacts/confluence/docs-space
+    client_mode: real
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    run_config = load_run_config(config_path)
+
+    assert run_config.runs == (
+        ConfiguredRun(
+            name="docs-space",
+            run_type="confluence",
+            argv=(
+                "confluence",
+                "--base-url",
+                "https://example.com/wiki",
+                *expected_arg,
+                "--output-dir",
+                str((tmp_path / "artifacts" / "confluence" / "docs-space").resolve()),
+                "--client-mode",
+                "real",
+            ),
+            dry_run=False,
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("extra_block", "expected_fragment"),
+    [
+        ("target: '12345'", "cannot combine space mode with 'target'"),
+        ("tree: true", "cannot combine space mode with 'tree'"),
+        ("max_depth: 1", "cannot combine space mode with 'max_depth'"),
+        ("client_mode: stub", "space mode requires --client-mode real"),
+        ("space_url: https://example.com/wiki/spaces/ENG/overview", "only one"),
+    ],
+)
+def test_load_run_config_rejects_invalid_confluence_space_mode_combinations(
+    tmp_path: Path,
+    extra_block: str,
+    expected_fragment: str,
+) -> None:
+    config_path = tmp_path / "runs.yaml"
+    client_mode_block = "" if "client_mode" in extra_block else "    client_mode: real\n"
+    config_path.write_text(
+        f"""
+runs:
+  - name: docs-space
+    type: confluence
+    base_url: https://example.com/wiki
+    space_key: ENG
+    output_dir: ./artifacts/confluence/docs-space
+{client_mode_block}    {extra_block}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=expected_fragment):
+        load_run_config(config_path)
+
+
 def test_load_run_config_rejects_unsupported_keys(tmp_path: Path) -> None:
     config_path = tmp_path / "runs.yaml"
     config_path.write_text(

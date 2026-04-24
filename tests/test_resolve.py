@@ -3,7 +3,9 @@ import pytest
 from knowledge_adapters.confluence.resolve import (
     resolve_target,
     resolve_target_for_base_url,
+    space_key_from_url_for_base_url,
     validate_base_url,
+    validate_space_key,
 )
 
 
@@ -157,5 +159,27 @@ def test_resolve_target_for_base_url_rejects_base_url_mismatch() -> None:
     ):
         resolve_target_for_base_url(
             "https://other.example.com/wiki/spaces/ENG/pages/7890/Team+Runbook",
+            base_url="https://example.com/wiki",
+        )
+
+
+def test_validate_space_key_trims_valid_key() -> None:
+    assert validate_space_key(" ENG ") == "ENG"
+
+
+def test_space_key_from_url_for_base_url_extracts_overview_space_key() -> None:
+    assert (
+        space_key_from_url_for_base_url(
+            "https://example.com/wiki/spaces/ENG/overview",
+            base_url="https://example.com/wiki",
+        )
+        == "ENG"
+    )
+
+
+def test_space_key_from_url_for_base_url_rejects_invalid_shape() -> None:
+    with pytest.raises(ValueError, match="/spaces/\\{SPACE\\}/overview"):
+        space_key_from_url_for_base_url(
+            "https://example.com/wiki/spaces/ENG/pages",
             base_url="https://example.com/wiki",
         )

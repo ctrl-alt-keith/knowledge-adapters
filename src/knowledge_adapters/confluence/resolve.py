@@ -9,6 +9,7 @@ from knowledge_adapters.confluence.models import ResolvedTarget
 
 _PAGE_ID_RE = re.compile(r"^\d+$")
 _PAGE_ID_IN_PATH_RE = re.compile(r"/pages/(\d+)(?:/|$)")
+_SPACE_KEY_RE = re.compile(r"^[^\s/]+$")
 
 
 def _parse_absolute_http_url(value: str) -> parse.ParseResult | None:
@@ -28,6 +29,49 @@ def validate_base_url(base_url: str) -> str:
             "for example 'https://example.com/wiki'."
         )
     return normalized_base_url
+
+
+def validate_space_key(space_key: str) -> str:
+    """Validate and normalize a CLI-facing Confluence space key."""
+    normalized_space_key = space_key.strip()
+    if not normalized_space_key:
+        raise ValueError("--space-key cannot be empty.")
+    if _SPACE_KEY_RE.fullmatch(normalized_space_key) is None:
+        raise ValueError("--space-key must not contain whitespace or '/'.")
+    return normalized_space_key
+
+
+def space_key_from_url_for_base_url(space_url: str, *, base_url: str) -> str:
+    """Extract and validate a Confluence space key from a space overview URL."""
+    validated_base_url = validate_base_url(base_url)
+    cleaned = space_url.strip()
+    parsed_url = _parse_absolute_http_url(cleaned)
+    if parsed_url is None:
+        raise ValueError(
+            f"--space-url {space_url!r} is malformed. "
+            "Provide a full Confluence space overview URL."
+        )
+
+    if not _url_matches_base_url(page_url=cleaned, base_url=validated_base_url):
+        raise ValueError(
+            f"--space-url {space_url!r} does not match --base-url {validated_base_url!r}. "
+            "Use a URL under that base URL."
+        )
+
+    path_parts = [parse.unquote(part) for part in parsed_url.path.strip("/").split("/")]
+    for index, part in enumerate(path_parts):
+        if part != "spaces":
+            continue
+        if index + 2 >= len(path_parts):
+            break
+        space_key = path_parts[index + 1]
+        overview = path_parts[index + 2]
+        if overview == "overview" and index + 3 == len(path_parts):
+            return validate_space_key(space_key)
+
+    raise ValueError(
+        f"--space-url {space_url!r} must match /spaces/{{SPACE}}/overview."
+    )
 
 
 def _page_id_from_url(parsed_url: parse.ParseResult) -> str | None:

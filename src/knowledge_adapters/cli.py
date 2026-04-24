@@ -315,11 +315,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     confluence_parser.add_argument(
         "--target",
-        required=True,
         help=(
             "Confluence page ID or full page URL under --base-url. The CLI resolves "
             "either input into one canonical page ID and source URL for artifact "
             "and manifest reporting."
+        ),
+    )
+    confluence_parser.add_argument(
+        "--space-key",
+        help=(
+            "Confluence space key for bounded real-mode discovery of all pages "
+            "in one space."
+        ),
+    )
+    confluence_parser.add_argument(
+        "--space-url",
+        help=(
+            "Full Confluence space overview URL matching /spaces/{SPACE}/overview "
+            "for bounded real-mode discovery of all pages in one space."
         ),
     )
     confluence_parser.add_argument(
@@ -871,6 +884,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             fetch_real_page,
             fetch_real_page_summary,
             list_real_child_page_ids,
+            list_real_space_page_ids,
         )
         from knowledge_adapters.confluence.config import (
             ConfluenceConfig,
@@ -891,7 +905,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         from knowledge_adapters.confluence.models import ResolvedTarget
         from knowledge_adapters.confluence.normalize import normalize_to_markdown
-        from knowledge_adapters.confluence.resolve import resolve_target_for_base_url
+        from knowledge_adapters.confluence.resolve import (
+            resolve_target_for_base_url,
+            space_key_from_url_for_base_url,
+            validate_space_key,
+        )
         from knowledge_adapters.confluence.traversal import TreeWalkProgress, walk_pages
         from knowledge_adapters.confluence.writer import markdown_path, write_markdown
 
@@ -899,6 +917,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             base_url=args.base_url,
             target=args.target,
             output_dir=args.output_dir,
+            space_key=args.space_key,
+            space_url=args.space_url,
             ca_bundle=args.ca_bundle,
             client_cert_file=args.client_cert_file,
             client_key_file=args.client_key_file,
@@ -924,6 +944,54 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "--max-depth must be greater than or equal to 0.",
                 command="confluence",
             )
+        space_mode = (
+            confluence_config.space_key is not None
+            or confluence_config.space_url is not None
+        )
+        explicit_max_depth = "--max-depth" in raw_argv
+        resolved_space_key: str | None = None
+        if confluence_config.space_key is not None and confluence_config.space_url is not None:
+            exit_with_cli_error(
+                "--space-key and --space-url are mutually exclusive.",
+                command="confluence",
+            )
+        if space_mode:
+            if confluence_config.client_mode != "real":
+                exit_with_cli_error(
+                    "space mode requires --client-mode real",
+                    command="confluence",
+                )
+            if confluence_config.target is not None:
+                exit_with_cli_error(
+                    "space mode cannot be combined with --target.",
+                    command="confluence",
+                )
+            if confluence_config.tree:
+                exit_with_cli_error(
+                    "space mode cannot be combined with --tree.",
+                    command="confluence",
+                )
+            if explicit_max_depth:
+                exit_with_cli_error(
+                    "space mode cannot be combined with --max-depth.",
+                    command="confluence",
+                )
+            try:
+                resolved_space_key = (
+                    validate_space_key(confluence_config.space_key)
+                    if confluence_config.space_key is not None
+                    else space_key_from_url_for_base_url(
+                        confluence_config.space_url or "",
+                        base_url=confluence_config.base_url,
+                    )
+                )
+            except ValueError as exc:
+                exit_with_cli_error(str(exc), command="confluence")
+        elif confluence_config.target is None:
+            exit_with_cli_error(
+                "--target, --space-key, or --space-url is required.",
+                command="confluence",
+            )
         try:
             validate_explicit_tls_paths(
                 ca_bundle=confluence_config.ca_bundle,
@@ -935,20 +1003,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         except ValueError as exc:
             exit_with_cli_error(str(exc), command="confluence")
 
-        try:
-            target = resolve_target_for_base_url(
-                confluence_config.target,
-                base_url=confluence_config.base_url,
-            )
-        except ValueError as exc:
-            exit_with_cli_error(
-                str(exc),
-                command="confluence",
-            )
+        target: ResolvedTarget | None = None
+        if not space_mode:
+            try:
+                target = resolve_target_for_base_url(
+                    confluence_config.target or "",
+                    base_url=confluence_config.base_url,
+                )
+            except ValueError as exc:
+                exit_with_cli_error(
+                    str(exc),
+                    command="confluence",
+                )
 
         selected_fetch_page: Callable[[ResolvedTarget], dict[str, object]]
         selected_fetch_page_summary: Callable[[ResolvedTarget], dict[str, object]]
         selected_list_child_page_ids: Callable[[ResolvedTarget], list[str]] | None = None
+        selected_list_space_page_ids: Callable[[str], list[str]] | None = None
         if confluence_config.client_mode == "real":
 
             def selected_fetch_page(resolved_target: ResolvedTarget) -> dict[str, object]:
@@ -984,6 +1055,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                     client_cert_file=confluence_config.client_cert_file,
                     client_key_file=confluence_config.client_key_file,
                 )
+
+            def selected_list_space_page_ids(space_key: str) -> list[str]:
+                return list_real_space_page_ids(
+                    space_key,
+                    base_url=confluence_config.base_url,
+                    auth_method=confluence_config.auth_method,
+                    ca_bundle=confluence_config.ca_bundle,
+                    client_cert_file=confluence_config.client_cert_file,
+                    client_key_file=confluence_config.client_key_file,
+                )
         else:
             selected_fetch_page = fetch_page
             selected_fetch_page_summary = fetch_page
@@ -1009,15 +1090,22 @@ def main(argv: Sequence[str] | None = None) -> int:
             run_mode = "dry-run" if confluence_config.dry_run else "write"
             print("Confluence adapter invoked")
             print(f"  base_url: {confluence_config.base_url}")
-            print(f"  target: {target.raw_value}")
+            if space_mode:
+                print(f"  space_key: {resolved_space_key}")
+                if confluence_config.space_url is not None:
+                    print(f"  space_url: {confluence_config.space_url}")
+            elif target is not None:
+                print(f"  target: {target.raw_value}")
             print(f"  output_dir: {render_user_path(confluence_config.output_dir)}")
             print(f"  client_mode: {confluence_config.client_mode}")
             print(f"  content_source: {content_source}")
             if confluence_config.dry_run:
-                mode = "tree" if confluence_config.tree else "single"
+                mode = "space" if space_mode else "tree" if confluence_config.tree else "single"
                 print(f"  mode: {mode}")
             else:
-                fetch_scope = "tree" if confluence_config.tree else "page"
+                fetch_scope = (
+                    "space" if space_mode else "tree" if confluence_config.tree else "page"
+                )
                 print(f"  fetch_scope: {fetch_scope}")
             print(f"  run_mode: {run_mode}")
             if confluence_config.tree:
@@ -1146,18 +1234,31 @@ def main(argv: Sequence[str] | None = None) -> int:
             write_count: int,
             skip_count: int,
             stale_count: int | None = None,
+            space_key: str | None = None,
+            discovered_count: int | None = None,
         ) -> None:
             descendant_count = max(total_pages - 1, 0)
-            summary_lines = [
-                f"    mode: {mode}",
-                "    pages_in_plan: "
-                f"{total_pages} (root 1, descendants {descendant_count})",
-                f"    new_pages: {new_count}",
-                f"    changed_pages: {changed_count}",
-                f"    unchanged_pages: {unchanged_count}",
-                f"    would_write: {write_count}",
-                f"    would_skip: {skip_count}",
-            ]
+            summary_lines = [f"    mode: {mode}"]
+            if mode == "space":
+                if space_key is not None:
+                    summary_lines.append(f"    space_key: {space_key}")
+                if discovered_count is not None:
+                    summary_lines.append(f"    pages_discovered: {discovered_count}")
+                summary_lines.append(f"    pages_in_plan: {total_pages}")
+            else:
+                summary_lines.append(
+                    "    pages_in_plan: "
+                    f"{total_pages} (root 1, descendants {descendant_count})"
+                )
+            summary_lines.extend(
+                [
+                    f"    new_pages: {new_count}",
+                    f"    changed_pages: {changed_count}",
+                    f"    unchanged_pages: {unchanged_count}",
+                    f"    would_write: {write_count}",
+                    f"    would_skip: {skip_count}",
+                ]
+            )
             if stale_count is not None:
                 summary_lines.append(f"    stale_artifacts: {stale_count}")
             print("  Summary:")
@@ -1221,7 +1322,241 @@ def main(argv: Sequence[str] | None = None) -> int:
         def _should_report_fetch_progress(*, fetched_count: int, total_count: int) -> bool:
             return total_count <= 5 or fetched_count == total_count or fetched_count % 10 == 0
 
+        if space_mode:
+            previous_manifest_index = load_previous_manifest_index(confluence_config.output_dir)
+            space_fetch_page = (
+                selected_fetch_page
+                if previous_manifest_index is None
+                else selected_fetch_page_summary
+            )
+            if selected_list_space_page_ids is None or resolved_space_key is None:
+                exit_with_cli_error(
+                    "space mode requires --client-mode real",
+                    command="confluence",
+                )
+            assert selected_list_space_page_ids is not None
+            assert resolved_space_key is not None
+
+            print(f"Space progress: discovery started, space_key {resolved_space_key}")
+            try:
+                discovered_page_ids = sorted(set(selected_list_space_page_ids(resolved_space_key)))
+                print(
+                    "Space progress: "
+                    f"discovered {len(discovered_page_ids)} pages, "
+                    f"planned {len(discovered_page_ids)}"
+                )
+                pages: list[dict[str, object]] = []
+                for index, page_id in enumerate(discovered_page_ids, start=1):
+                    pages.append(
+                        space_fetch_page(
+                            ResolvedTarget(
+                                raw_value=page_id,
+                                page_id=page_id,
+                                page_url=None,
+                            )
+                        )
+                    )
+                    if _should_report_fetch_progress(
+                        fetched_count=index,
+                        total_count=len(discovered_page_ids),
+                    ):
+                        print(
+                            "Space fetch progress: "
+                            f"fetched {index}/{len(discovered_page_ids)}, "
+                            f"planned {len(discovered_page_ids)}"
+                        )
+            except (RuntimeError, ValueError) as exc:
+                exit_with_cli_error(
+                    str(exc),
+                    command="confluence",
+                    debug_lines=_confluence_debug_lines(exc),
+                )
+
+            _print_confluence_invocation()
+            space_page_records: list[
+                tuple[dict[str, object], Path, PageSyncDecision, str]
+            ] = []
+            for page in pages:
+                canonical_id = str(page.get("canonical_id") or "")
+                output_path = markdown_path(confluence_config.output_dir, canonical_id)
+                page_decision = classify_page_sync(
+                    confluence_config.output_dir,
+                    previous_manifest_index,
+                    page=page,
+                    output_path=output_path,
+                )
+                action = "skip" if page_decision.status == "unchanged" else "write"
+                space_page_records.append((page, output_path, page_decision, action))
+            stale_artifacts = [
+                (artifact.canonical_id, artifact.output_path)
+                for artifact in find_stale_artifacts(
+                    confluence_config.output_dir,
+                    previous_manifest_index,
+                    current_page_ids=[
+                        str(page.get("canonical_id") or "")
+                        for page, _output_path, _page_decision, _action in space_page_records
+                    ],
+                    current_output_paths=[
+                        output_path.relative_to(Path(confluence_config.output_dir)).as_posix()
+                        for _page, output_path, _page_decision, _action in space_page_records
+                    ],
+                )
+            ]
+
+            write_count = sum(
+                1
+                for _page, _output_path, _page_decision, action in space_page_records
+                if action == "write"
+            )
+            skip_count = len(space_page_records) - write_count
+            new_count = sum(
+                1
+                for _page, _output_path, page_decision, _action in space_page_records
+                if page_decision.status == "new"
+            )
+            changed_count = sum(
+                1
+                for _page, _output_path, page_decision, _action in space_page_records
+                if page_decision.status == "changed"
+            )
+            unchanged_count = len(space_page_records) - new_count - changed_count
+            manifest_output_path = manifest_path(confluence_config.output_dir)
+
+            print("\nPlan: Confluence run")
+            print(f"  space_key: {resolved_space_key}")
+            print(f"  Manifest: {_display_output_path(manifest_output_path)}")
+            print(f"  pages_discovered: {len(discovered_page_ids)}")
+            print(f"  pages_planned: {len(space_page_records)}")
+
+            if confluence_config.dry_run:
+                _print_confluence_dry_run_summary(
+                    mode="space",
+                    total_pages=len(space_page_records),
+                    new_count=new_count,
+                    changed_count=changed_count,
+                    unchanged_count=unchanged_count,
+                    write_count=write_count,
+                    skip_count=skip_count,
+                    stale_count=len(stale_artifacts),
+                    space_key=resolved_space_key,
+                    discovered_count=len(discovered_page_ids),
+                )
+                _print_stale_artifacts(stale_artifacts)
+                for _page, output_path, page_decision, action in space_page_records:
+                    print(
+                        "  would "
+                        f"{action} {_display_output_path(output_path)} "
+                        f"({_format_page_sync_decision(page_decision)})"
+                    )
+                print_dry_run_complete()
+                return 0
+
+            files = [
+                _build_manifest_entry_for_page(page, output_path)
+                for page, output_path, _page_decision, _action in space_page_records
+            ]
+
+            space_pages_to_write: dict[str, dict[str, object]] = {}
+            pages_needing_fetch = sum(
+                1
+                for page, _output_path, _page_decision, action in space_page_records
+                if action == "write" and page.get("content") is None
+            )
+            fetched_write_pages = 0
+            if pages_needing_fetch > 0:
+                print(
+                    "Space write fetch progress: "
+                    f"fetched 0/{pages_needing_fetch}, "
+                    f"skipped {skip_count}, "
+                    f"planned {len(space_page_records)}"
+                )
+            try:
+                for page, _output_path, _page_decision, action in space_page_records:
+                    if action == "skip":
+                        continue
+
+                    if page.get("content") is not None:
+                        space_pages_to_write[str(page.get("canonical_id") or "")] = page
+                        continue
+
+                    page_id = str(page.get("canonical_id") or "")
+                    space_pages_to_write[page_id] = selected_fetch_page(
+                        ResolvedTarget(
+                            raw_value=page_id,
+                            page_id=page_id,
+                            page_url=None,
+                        )
+                    )
+                    fetched_write_pages += 1
+                    if _should_report_fetch_progress(
+                        fetched_count=fetched_write_pages,
+                        total_count=pages_needing_fetch,
+                    ):
+                        print(
+                            "Space write fetch progress: "
+                            f"fetched {fetched_write_pages}/{pages_needing_fetch}, "
+                            f"skipped {skip_count}, "
+                            f"planned {len(space_page_records)}"
+                        )
+            except (RuntimeError, ValueError) as exc:
+                exit_with_cli_error(
+                    str(exc),
+                    command="confluence",
+                    debug_lines=_confluence_debug_lines(exc),
+                )
+
+            try:
+                for page, output_path, page_decision, action in space_page_records:
+                    if action == "skip":
+                        print(
+                            "\nSkipped: "
+                            f"{_display_output_path(output_path)} "
+                            f"({_format_page_sync_decision(page_decision)})"
+                        )
+                        continue
+
+                    page_to_write = space_pages_to_write[
+                        str(page.get("canonical_id") or "")
+                    ]
+                    markdown = normalize_to_markdown(page_to_write)
+                    write_markdown(
+                        confluence_config.output_dir,
+                        str(page_to_write.get("canonical_id") or ""),
+                        markdown,
+                    )
+                    print(
+                        "\nWrote: "
+                        f"{_display_output_path(output_path)} "
+                        f"({_format_page_sync_decision(page_decision)})"
+                    )
+
+                manifest = write_manifest(confluence_config.output_dir, files)
+            except OSError as exc:
+                exit_with_output_error(
+                    confluence_config.output_dir,
+                    command="confluence",
+                    exc=exc,
+                )
+            _print_confluence_write_summary(
+                new_count=new_count,
+                changed_count=changed_count,
+                unchanged_count=unchanged_count,
+                write_count=write_count,
+                skip_count=skip_count,
+                stale_count=len(stale_artifacts),
+            )
+            _print_stale_artifacts(stale_artifacts)
+            print(f"Manifest: {_display_output_path(manifest)}")
+            print_write_complete(output_dir)
+            return 0
+
         if confluence_config.tree:
+            if target is None:
+                exit_with_cli_error(
+                    "--target is required for tree mode.",
+                    command="confluence",
+                )
+            assert target is not None
             previous_manifest_index = load_previous_manifest_index(confluence_config.output_dir)
             tree_fetch_page = (
                 selected_fetch_page
@@ -1432,6 +1767,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"Manifest: {_display_output_path(manifest)}")
             print_write_complete(output_dir)
             return 0
+
+        if target is None:
+            exit_with_cli_error(
+                "--target is required for single-page mode.",
+                command="confluence",
+            )
+        assert target is not None
 
         previous_manifest_index = load_previous_manifest_index(confluence_config.output_dir)
         try:
