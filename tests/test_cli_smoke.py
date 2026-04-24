@@ -44,12 +44,14 @@ def test_top_level_help_introduces_shared_cli_flow(tmp_path: Path) -> None:
     assert "Execute multiple configured adapter runs from one YAML file." in stdout
     assert "Normalize Confluence content into shared artifacts." in stdout
     assert "Normalize one local UTF-8 text file into shared artifacts." in stdout
+    assert "Combine existing artifacts into one prompt-ready markdown file." in stdout
     assert (
         "Start with --dry-run to preview the source, artifact path, manifest path,"
         in stdout
     )
     assert "Re-run without --dry-run to write the same artifact layout" in stdout
     assert "knowledge-adapters run runs.yaml" in stdout
+    assert "knowledge-adapters bundle ./artifacts --output ./bundle.md" in stdout
 
 
 def test_local_files_cli_smoke_uses_installed_entrypoint_with_readme_style_args(
@@ -140,6 +142,142 @@ def test_local_files_cli_help_includes_first_run_guidance(tmp_path: Path) -> Non
     assert "without writing files." in stdout
     assert "knowledge-adapters local_files" in stdout
     assert "--dry-run" in stdout
+
+
+def test_bundle_cli_help_includes_ordering_and_input_guidance(tmp_path: Path) -> None:
+    result = _run_cli(tmp_path, "bundle", "--help")
+    stdout = normalize_whitespace(result.stdout)
+
+    assert result.returncode == 0, result.stderr
+    assert "Combine existing artifacts into one prompt-ready markdown file." in stdout
+    assert "one or more output directories or manifest files" in stdout
+    assert "keeps the original artifacts unchanged" in stdout
+    assert "lexical canonical_id order" in stdout
+    assert "--output FILE" in stdout
+    assert "knowledge-adapters bundle ./artifacts/confluence --output ./bundle.md" in stdout
+
+
+def test_bundle_cli_smoke_combines_multiple_inputs_in_deterministic_order(
+    tmp_path: Path,
+) -> None:
+    output_a = tmp_path / "artifacts" / "a"
+    output_b = tmp_path / "artifacts" / "b"
+    (output_a / "pages").mkdir(parents=True)
+    (output_b / "pages").mkdir(parents=True)
+    (output_a / "pages" / "zeta.md").write_text(
+        "# Zeta artifact\n\nZeta content.\n",
+        encoding="utf-8",
+    )
+    (output_a / "pages" / "alpha.md").write_text(
+        "# Alpha artifact\n\nAlpha content.\n",
+        encoding="utf-8",
+    )
+    (output_b / "pages" / "alpha-copy.md").write_text(
+        "# Alpha duplicate\n\nDuplicate content.\n",
+        encoding="utf-8",
+    )
+    (output_b / "pages" / "beta.md").write_text(
+        "# Beta artifact\n\nBeta content.\n",
+        encoding="utf-8",
+    )
+    (output_a / "manifest.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-04-24T00:00:00Z",
+                "files": [
+                    {
+                        "canonical_id": "zeta",
+                        "source_url": "https://example.com/zeta",
+                        "output_path": "pages/zeta.md",
+                        "title": "Zeta",
+                    },
+                    {
+                        "canonical_id": "alpha",
+                        "source_url": "https://example.com/alpha",
+                        "output_path": "pages/alpha.md",
+                        "title": "Alpha",
+                    },
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (output_b / "manifest.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-04-24T00:00:00Z",
+                "files": [
+                    {
+                        "canonical_id": "alpha",
+                        "source_url": "https://example.com/alpha-duplicate",
+                        "output_path": "pages/alpha-copy.md",
+                        "title": "Alpha duplicate",
+                    },
+                    {
+                        "canonical_id": "beta",
+                        "source_url": "https://example.com/beta",
+                        "output_path": "pages/beta.md",
+                    },
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_cli(
+        tmp_path,
+        "bundle",
+        "./artifacts/a",
+        "./artifacts/b/manifest.json",
+        "--output",
+        "./bundles/llm.md",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Bundle command invoked" in result.stdout
+    assert "ordering: lexical canonical_id order" in result.stdout
+    assert f"manifest: {output_a / 'manifest.json'}" in result.stdout
+    assert f"manifest: {output_b / 'manifest.json'}" in result.stdout
+    assert "artifacts_selected: 3" in result.stdout
+    assert "duplicates_skipped: 1" in result.stdout
+    assert f"Wrote bundle: {tmp_path / 'bundles' / 'llm.md'}" in result.stdout
+    assert "Summary: bundled 3, skipped 1 duplicates" in result.stdout
+    assert f"Write complete. Bundle created at {tmp_path / 'bundles' / 'llm.md'}" in result.stdout
+
+    assert (tmp_path / "bundles" / "llm.md").read_text(encoding="utf-8") == (
+        """## Alpha
+source_url: https://example.com/alpha
+canonical_id: alpha
+
+# Alpha artifact
+
+Alpha content.
+
+---
+
+## beta
+source_url: https://example.com/beta
+canonical_id: beta
+
+# Beta artifact
+
+Beta content.
+
+---
+
+## Zeta
+source_url: https://example.com/zeta
+canonical_id: zeta
+
+# Zeta artifact
+
+Zeta content.
+"""
+    )
 
 
 def test_run_cli_smoke_executes_multiple_sources_from_yaml(tmp_path: Path) -> None:

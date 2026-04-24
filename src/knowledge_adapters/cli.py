@@ -20,6 +20,7 @@ TOP_LEVEL_HELP_EXAMPLES = """First steps:
   knowledge-adapters run runs.yaml
   knowledge-adapters local_files --help
   knowledge-adapters confluence --help
+  knowledge-adapters bundle ./artifacts --output ./bundle.md
 
 Typical flow:
   1. Start with local_files to try the artifact layout with a text file you
@@ -29,6 +30,8 @@ Typical flow:
   3. Re-run without --dry-run to write the same artifact layout under
      ./artifacts.
   4. Use knowledge-adapters run runs.yaml to refresh multiple sources in order.
+  5. Use knowledge-adapters bundle ./artifacts --output ./bundle.md to combine
+     generated artifacts into one prompt-ready markdown file.
 """
 
 CONFLUENCE_HELP_EXAMPLES = """Examples:
@@ -71,6 +74,12 @@ RUN_HELP_EXAMPLES = """Examples:
   knowledge-adapters run ./configs/runs.yaml
   knowledge-adapters run runs.yaml --only team-notes,docs-home
   knowledge-adapters run runs.yaml --continue-on-error
+"""
+
+BUNDLE_HELP_EXAMPLES = """Examples:
+  knowledge-adapters bundle ./artifacts/confluence --output ./bundle.md
+  knowledge-adapters bundle ./artifacts/a ./artifacts/b --output ./bundle.md
+  knowledge-adapters bundle ./artifacts/manifest.json --output ./bundle.md
 """
 
 _WRITE_SUMMARY_RE = re.compile(r"Summary: wrote (?P<wrote>\d+), skipped (?P<skipped>\d+)")
@@ -173,6 +182,43 @@ def exit_with_output_error(
             "Verify --output-dir and try again."
         ),
         command=command,
+    )
+
+
+def exit_with_bundle_output_error(output_path: str | Path, *, exc: OSError) -> None:
+    """Exit with a consistent filesystem error for bundle output writes."""
+    resolved_output_path = Path(output_path).expanduser()
+    if isinstance(exc, PermissionError):
+        exit_with_cli_error(
+            (
+                f"Bundle output is not writable: {resolved_output_path}. "
+                "Verify --output and check the path permissions."
+            ),
+            command="bundle",
+        )
+    if isinstance(exc, IsADirectoryError):
+        exit_with_cli_error(
+            (
+                f"Bundle output path is a directory: {resolved_output_path}. "
+                "Verify --output and use a file path."
+            ),
+            command="bundle",
+        )
+    if isinstance(exc, NotADirectoryError):
+        exit_with_cli_error(
+            (
+                f"Bundle output path is invalid: {resolved_output_path}. "
+                "Verify --output and use a file path."
+            ),
+            command="bundle",
+        )
+
+    exit_with_cli_error(
+        (
+            f"Could not write bundle output {resolved_output_path}. "
+            "Verify --output and try again."
+        ),
+        command="bundle",
     )
 
 
@@ -365,6 +411,32 @@ def build_parser() -> argparse.ArgumentParser:
             "Preview the resolved file path, artifact path, manifest path, and "
             "normalized markdown without writing files."
         ),
+    )
+
+    bundle_parser = subparsers.add_parser(
+        "bundle",
+        help="Combine existing artifacts into one prompt-ready markdown file.",
+        description=(
+            "Combine existing artifacts into one prompt-ready markdown file. Accept one "
+            "or more output directories or manifest files as input. Bundle output keeps "
+            "the original artifacts unchanged, removes duplicate canonical_id entries by "
+            "keeping the first artifact discovered from the provided inputs, and orders "
+            "the final sections using lexical canonical_id order."
+        ),
+        epilog=BUNDLE_HELP_EXAMPLES,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    bundle_parser.add_argument(
+        "inputs",
+        nargs="+",
+        metavar="INPUT",
+        help="One or more adapter output directories or manifest files to bundle.",
+    )
+    bundle_parser.add_argument(
+        "--output",
+        required=True,
+        metavar="FILE",
+        help="Markdown file to write with the bundled artifact content.",
     )
 
     run_parser = subparsers.add_parser(
@@ -1374,6 +1446,58 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         print(f"Manifest: {_display_output_path(manifest)}")
         print_write_complete(output_dir)
+        return 0
+
+    if args.command == "bundle":
+        from knowledge_adapters.bundle import (
+            ORDERING_RULE,
+            load_bundle_plan,
+            render_bundle_markdown,
+            write_bundle,
+        )
+
+        output_path_input = Path(args.output).expanduser()
+        output_path = output_path_input.resolve()
+        if output_path_input.exists() and output_path_input.is_dir():
+            exit_with_cli_error(
+                (
+                    f"Bundle output path is a directory: {output_path}. "
+                    "Verify --output and use a file path."
+                ),
+                command="bundle",
+            )
+
+        try:
+            bundle_plan = load_bundle_plan(args.inputs)
+            markdown = render_bundle_markdown(bundle_plan.artifacts)
+        except ValueError as exc:
+            exit_with_cli_error(str(exc), command="bundle")
+
+        print("Bundle command invoked")
+        print(f"  inputs: {len(args.inputs)}")
+        print(f"  output: {render_user_path(args.output)}")
+        print(f"  ordering: {ORDERING_RULE}")
+
+        print("\nPlan: Bundle run")
+        for manifest in bundle_plan.manifests:
+            print(f"  manifest: {render_user_path(manifest)}")
+        print(f"  artifacts_selected: {len(bundle_plan.artifacts)}")
+        print(f"  duplicates_skipped: {len(bundle_plan.duplicate_canonical_ids)}")
+        print("  action: write")
+
+        try:
+            written_bundle = write_bundle(args.output, markdown)
+        except OSError as exc:
+            exit_with_bundle_output_error(args.output, exc=exc)
+
+        print(f"\nWrote bundle: {render_user_path(written_bundle)}")
+        print(
+            "\nSummary: bundled "
+            f"{len(bundle_plan.artifacts)}, skipped "
+            f"{len(bundle_plan.duplicate_canonical_ids)} duplicates"
+        )
+        print(f"Output path: {render_user_path(written_bundle)}")
+        print(f"\nWrite complete. Bundle created at {render_user_path(written_bundle)}")
         return 0
 
     if args.command == "local_files":
