@@ -187,6 +187,106 @@ def test_load_bundle_plan_preserves_input_grouping_and_first_wins_duplicates(
     assert plan.duplicate_canonical_ids == ("alpha",)
 
 
+def test_load_bundle_plan_supports_repeated_include_patterns_across_metadata_fields(
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "artifacts"
+    _write_output_dir(
+        output_dir,
+        files=[
+            {
+                "canonical_id": "alpha",
+                "source_url": "https://example.com/alpha",
+                "output_path": "pages/alpha.md",
+                "title": "Alpha",
+            },
+            {
+                "canonical_id": "bravo",
+                "source_url": "https://example.com/bravo",
+                "output_path": "pages/bravo.md",
+                "title": "Release notes",
+            },
+            {
+                "canonical_id": "charlie",
+                "source_url": "https://example.com/charlie",
+                "output_path": "pages/docs/charlie.md",
+                "title": "Charlie",
+            },
+            {
+                "canonical_id": "delta",
+                "source_url": "https://example.com/special/delta",
+                "output_path": "pages/delta.md",
+                "title": "Delta",
+            },
+        ],
+        artifact_contents={
+            "pages/alpha.md": "# Alpha\n",
+            "pages/bravo.md": "# Bravo\n",
+            "pages/docs/charlie.md": "# Charlie\n",
+            "pages/delta.md": "# Delta\n",
+        },
+    )
+
+    plan = load_bundle_plan(
+        (output_dir,),
+        include_patterns=(
+            "alpha",
+            "Release*",
+            "pages/docs/*",
+            "https://example.com/special/*",
+        ),
+    )
+
+    assert [artifact.canonical_id for artifact in plan.artifacts] == [
+        "alpha",
+        "bravo",
+        "charlie",
+        "delta",
+    ]
+    assert plan.filtered_out_count == 0
+
+
+def test_load_bundle_plan_applies_repeated_excludes_after_include_matching(tmp_path: Path) -> None:
+    output_dir = tmp_path / "artifacts"
+    _write_output_dir(
+        output_dir,
+        files=[
+            {
+                "canonical_id": "alpha",
+                "source_url": "https://example.com/alpha",
+                "output_path": "pages/alpha.md",
+                "title": "Alpha",
+            },
+            {
+                "canonical_id": "bravo",
+                "source_url": "https://example.com/bravo",
+                "output_path": "pages/bravo.md",
+                "title": "Bravo",
+            },
+            {
+                "canonical_id": "charlie",
+                "source_url": "https://example.com/charlie",
+                "output_path": "pages/docs/charlie.md",
+                "title": "Charlie",
+            },
+        ],
+        artifact_contents={
+            "pages/alpha.md": "# Alpha\n",
+            "pages/bravo.md": "# Bravo\n",
+            "pages/docs/charlie.md": "# Charlie\n",
+        },
+    )
+
+    plan = load_bundle_plan(
+        (output_dir,),
+        include_patterns=("alpha", "bravo", "pages/docs/*"),
+        exclude_patterns=("bravo", "pages/docs/*"),
+    )
+
+    assert [artifact.canonical_id for artifact in plan.artifacts] == ["alpha"]
+    assert plan.filtered_out_count == 2
+
+
 def test_render_bundle_markdown_reads_selected_artifacts_with_separators(tmp_path: Path) -> None:
     output_dir = tmp_path / "artifacts"
     _write_output_dir(
