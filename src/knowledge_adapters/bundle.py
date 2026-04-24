@@ -6,10 +6,20 @@ import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from knowledge_adapters.confluence.manifest import manifest_path
 
-ORDERING_RULE = "lexical canonical_id order"
+BundleOrder = Literal["canonical_id", "manifest", "input"]
+
+DEFAULT_BUNDLE_ORDER: BundleOrder = "canonical_id"
+BUNDLE_ORDER_CHOICES: tuple[BundleOrder, ...] = ("canonical_id", "manifest", "input")
+BUNDLE_ORDER_LABELS: dict[BundleOrder, str] = {
+    "canonical_id": "lexical canonical_id order",
+    "manifest": "manifest entry order",
+    "input": "input order with manifest grouping",
+}
+ORDERING_RULE = BUNDLE_ORDER_LABELS[DEFAULT_BUNDLE_ORDER]
 
 
 @dataclass(frozen=True)
@@ -31,26 +41,55 @@ class BundlePlan:
     duplicate_canonical_ids: tuple[str, ...]
 
 
-def load_bundle_plan(inputs: Sequence[str | Path]) -> BundlePlan:
+@dataclass(frozen=True)
+class _BundleArtifactPosition:
+    """Stable discovery metadata used to order selected artifacts."""
+
+    input_index: int
+    manifest_index: int
+    manifest_entry_index: int
+
+
+def describe_bundle_order(order: BundleOrder) -> str:
+    """Return the human-readable description for one bundle ordering mode."""
+    return BUNDLE_ORDER_LABELS[order]
+
+
+def load_bundle_plan(
+    inputs: Sequence[str | Path],
+    *,
+    order: BundleOrder = DEFAULT_BUNDLE_ORDER,
+) -> BundlePlan:
     """Load artifacts from output directories or manifest files."""
+    if order not in BUNDLE_ORDER_CHOICES:
+        raise ValueError(
+            f"Unsupported bundle order {order!r}. "
+            f"Choose one of: {', '.join(BUNDLE_ORDER_CHOICES)}."
+        )
+
     manifests: list[Path] = []
     artifacts_by_id: dict[str, BundleArtifact] = {}
+    artifact_positions: dict[str, _BundleArtifactPosition] = {}
     duplicate_canonical_ids: list[str] = []
 
-    for raw_input in inputs:
+    for input_index, raw_input in enumerate(inputs):
         manifest = _resolve_manifest_input(raw_input)
         manifests.append(manifest)
-        for artifact in _load_bundle_artifacts(manifest):
+        manifest_index = len(manifests) - 1
+        for manifest_entry_index, artifact in enumerate(_load_bundle_artifacts(manifest)):
             if artifact.canonical_id in artifacts_by_id:
                 duplicate_canonical_ids.append(artifact.canonical_id)
                 continue
             artifacts_by_id[artifact.canonical_id] = artifact
+            artifact_positions[artifact.canonical_id] = _BundleArtifactPosition(
+                input_index=input_index,
+                manifest_index=manifest_index,
+                manifest_entry_index=manifest_entry_index,
+            )
 
     return BundlePlan(
         manifests=tuple(manifests),
-        artifacts=tuple(
-            sorted(artifacts_by_id.values(), key=lambda artifact: artifact.canonical_id)
-        ),
+        artifacts=tuple(_order_bundle_artifacts(artifacts_by_id, artifact_positions, order=order)),
         duplicate_canonical_ids=tuple(duplicate_canonical_ids),
     )
 
@@ -185,3 +224,40 @@ def _read_artifact_text(artifact: BundleArtifact) -> str:
             f"Could not read artifact for canonical_id {artifact.canonical_id!r}: "
             f"{artifact.artifact_path}."
         ) from exc
+
+
+def _order_bundle_artifacts(
+    artifacts_by_id: dict[str, BundleArtifact],
+    artifact_positions: dict[str, _BundleArtifactPosition],
+    *,
+    order: BundleOrder,
+) -> tuple[BundleArtifact, ...]:
+    artifacts = tuple(artifacts_by_id.values())
+    if order == "canonical_id":
+        return tuple(sorted(artifacts, key=lambda artifact: artifact.canonical_id))
+    if order == "manifest":
+        return tuple(
+            sorted(
+                artifacts,
+                key=lambda artifact: (
+                    artifact_positions[artifact.canonical_id].manifest_index,
+                    artifact_positions[artifact.canonical_id].manifest_entry_index,
+                    artifact.canonical_id,
+                ),
+            )
+        )
+    if order == "input":
+        return tuple(
+            sorted(
+                artifacts,
+                key=lambda artifact: (
+                    artifact_positions[artifact.canonical_id].input_index,
+                    artifact_positions[artifact.canonical_id].manifest_entry_index,
+                    artifact.canonical_id,
+                ),
+            )
+        )
+    raise ValueError(
+        f"Unsupported bundle order {order!r}. "
+        f"Choose one of: {', '.join(BUNDLE_ORDER_CHOICES)}."
+    )

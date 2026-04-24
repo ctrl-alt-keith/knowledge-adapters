@@ -13,6 +13,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
 
+from knowledge_adapters.bundle import (
+    BUNDLE_ORDER_CHOICES,
+    DEFAULT_BUNDLE_ORDER,
+    describe_bundle_order,
+)
 from knowledge_adapters.confluence.auth import SUPPORTED_AUTH_METHODS, resolve_tls_inputs
 
 TOP_LEVEL_HELP_EXAMPLES = """First steps:
@@ -421,7 +426,7 @@ def build_parser() -> argparse.ArgumentParser:
             "or more output directories or manifest files as input. Bundle output keeps "
             "the original artifacts unchanged, removes duplicate canonical_id entries by "
             "keeping the first artifact discovered from the provided inputs, and orders "
-            "the final sections using lexical canonical_id order."
+            "the final sections using the selected deterministic ordering mode."
         ),
         epilog=BUNDLE_HELP_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -437,6 +442,16 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         metavar="FILE",
         help="Markdown file to write with the bundled artifact content.",
+    )
+    bundle_parser.add_argument(
+        "--order",
+        choices=BUNDLE_ORDER_CHOICES,
+        default=DEFAULT_BUNDLE_ORDER,
+        help=(
+            "Deterministic output ordering: canonical_id sorts lexically by canonical_id "
+            "(default); manifest preserves manifest entry order; input preserves bundle "
+            "input order, then manifest order within each input."
+        ),
     )
 
     run_parser = subparsers.add_parser(
@@ -1450,7 +1465,6 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "bundle":
         from knowledge_adapters.bundle import (
-            ORDERING_RULE,
             load_bundle_plan,
             render_bundle_markdown,
             write_bundle,
@@ -1468,7 +1482,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
 
         try:
-            bundle_plan = load_bundle_plan(args.inputs)
+            bundle_plan = load_bundle_plan(args.inputs, order=args.order)
             markdown = render_bundle_markdown(bundle_plan.artifacts)
         except ValueError as exc:
             exit_with_cli_error(str(exc), command="bundle")
@@ -1476,7 +1490,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("Bundle command invoked")
         print(f"  inputs: {len(args.inputs)}")
         print(f"  output: {render_user_path(args.output)}")
-        print(f"  ordering: {ORDERING_RULE}")
+        print(f"  ordering: {describe_bundle_order(args.order)}")
 
         print("\nPlan: Bundle run")
         for manifest in bundle_plan.manifests:
