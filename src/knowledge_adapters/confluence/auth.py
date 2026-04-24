@@ -17,6 +17,15 @@ class RequestAuth:
     ssl_context: ssl.SSLContext | None
 
 
+@dataclass(frozen=True)
+class ResolvedTLSInputs:
+    """Effective TLS/client-certificate inputs after env fallback resolution."""
+
+    ca_bundle: str | None
+    client_cert_file: str | None
+    client_key_file: str | None
+
+
 def build_request_auth(
     auth_method: str,
     *,
@@ -46,6 +55,30 @@ def build_request_auth(
     )
 
 
+def resolve_tls_inputs(
+    *,
+    ca_bundle: str | None = None,
+    client_cert_file: str | None = None,
+    client_key_file: str | None = None,
+) -> ResolvedTLSInputs:
+    """Resolve the effective TLS/client-certificate file inputs."""
+    return ResolvedTLSInputs(
+        ca_bundle=_first_non_empty(
+            ca_bundle,
+            os.getenv("REQUESTS_CA_BUNDLE"),
+            os.getenv("SSL_CERT_FILE"),
+        ),
+        client_cert_file=_first_non_empty(
+            client_cert_file,
+            os.getenv("CONFLUENCE_CLIENT_CERT_FILE"),
+        ),
+        client_key_file=_first_non_empty(
+            client_key_file,
+            os.getenv("CONFLUENCE_CLIENT_KEY_FILE"),
+        ),
+    )
+
+
 def _bearer_env_headers() -> dict[str, str]:
     token = os.getenv("CONFLUENCE_BEARER_TOKEN", "").strip()
     if not token:
@@ -64,13 +97,14 @@ def _client_cert_ssl_context(
     client_cert_file: str | None = None,
     client_key_file: str | None = None,
 ) -> ssl.SSLContext | None:
-    cert_file = _first_non_empty(client_cert_file, os.getenv("CONFLUENCE_CLIENT_CERT_FILE"))
-    key_file = _first_non_empty(client_key_file, os.getenv("CONFLUENCE_CLIENT_KEY_FILE"))
-    resolved_ca_bundle = _first_non_empty(
-        ca_bundle,
-        os.getenv("REQUESTS_CA_BUNDLE"),
-        os.getenv("SSL_CERT_FILE"),
+    resolved_tls_inputs = resolve_tls_inputs(
+        ca_bundle=ca_bundle,
+        client_cert_file=client_cert_file,
+        client_key_file=client_key_file,
     )
+    cert_file = resolved_tls_inputs.client_cert_file
+    key_file = resolved_tls_inputs.client_key_file
+    resolved_ca_bundle = resolved_tls_inputs.ca_bundle
 
     if key_file and not cert_file:
         raise ValueError(

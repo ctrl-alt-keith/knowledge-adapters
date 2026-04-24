@@ -320,6 +320,7 @@ def test_stub_and_real_single_page_write_runs_share_the_same_cli_shape(
     assert f"Manifest: {real_output_dir / 'manifest.json'}" in real_output
     assert "planned_action: write" in real_output
     assert "auth_method: bearer-env" in real_output
+    assert "tls_inputs: defaults/environment" in real_output
     assert f"Manifest: {real_output_dir / 'manifest.json'}" in real_output
     assert_write_summary(real_output, wrote=1, skipped=0)
 
@@ -374,6 +375,7 @@ def test_stub_and_real_single_page_dry_runs_share_the_same_plan_shape(
     assert "mode: single" in real_output
     assert "run_mode: dry-run" in real_output
     assert "auth_method: bearer-env" in real_output
+    assert "tls_inputs: defaults/environment" in real_output
     assert "Plan: Confluence run" in real_output
     assert "resolved_page_id: 12345" in real_output
     assert "source_url: https://example.com/wiki/spaces/ENG/pages/12345" in real_output
@@ -381,6 +383,90 @@ def test_stub_and_real_single_page_dry_runs_share_the_same_plan_shape(
     assert f"Manifest: {real_output_dir / 'manifest.json'}" in real_output
     assert "planned_action: would write" in real_output
     assert_dry_run_summary(real_output, would_write=1, would_skip=0)
+
+
+def test_real_single_page_dry_run_surfaces_active_tls_input_paths(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    from knowledge_adapters.confluence import client as client_module
+
+    def stub_real_fetch(*args: object, **kwargs: object) -> dict[str, object]:
+        del args, kwargs
+        return {
+            "canonical_id": "12345",
+            "title": "Real Page",
+            "content": "<p>Hello from Confluence.</p>",
+            "source_url": "https://example.com/wiki/spaces/ENG/pages/12345",
+            "page_version": 7,
+            "last_modified": "2026-04-20T12:34:56Z",
+        }
+
+    monkeypatch.setattr(client_module, "fetch_real_page", stub_real_fetch, raising=False)
+
+    exit_code = main(
+        _confluence_argv(
+            tmp_path / "out",
+            "--client-mode",
+            "real",
+            "--dry-run",
+            "--ca-bundle",
+            "/tmp/internal-ca.pem",
+            "--client-cert-file",
+            "/tmp/confluence-client.crt",
+            "--client-key-file",
+            "/tmp/confluence-client.key",
+        )
+    )
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    expected_ca_bundle = str(Path("/tmp/internal-ca.pem").resolve())
+    expected_client_cert = str(Path("/tmp/confluence-client.crt").resolve())
+    expected_client_key = str(Path("/tmp/confluence-client.key").resolve())
+    assert (
+        f"tls_inputs: ca_bundle={expected_ca_bundle}, "
+        f"client_cert_file={expected_client_cert}, "
+        f"client_key_file={expected_client_key}"
+    ) in output
+
+
+def test_real_single_page_dry_run_surfaces_env_tls_input_paths(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    from knowledge_adapters.confluence import client as client_module
+
+    def stub_real_fetch(*args: object, **kwargs: object) -> dict[str, object]:
+        del args, kwargs
+        return {
+            "canonical_id": "12345",
+            "title": "Real Page",
+            "content": "<p>Hello from Confluence.</p>",
+            "source_url": "https://example.com/wiki/spaces/ENG/pages/12345",
+            "page_version": 7,
+            "last_modified": "2026-04-20T12:34:56Z",
+        }
+
+    monkeypatch.setattr(client_module, "fetch_real_page", stub_real_fetch, raising=False)
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", "/tmp/env-ca.pem")
+    monkeypatch.setenv("CONFLUENCE_CLIENT_CERT_FILE", "/tmp/env-client.crt")
+    monkeypatch.setenv("CONFLUENCE_CLIENT_KEY_FILE", "/tmp/env-client.key")
+
+    exit_code = main(_confluence_argv(tmp_path / "out", "--client-mode", "real", "--dry-run"))
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    expected_ca_bundle = str(Path("/tmp/env-ca.pem").resolve())
+    expected_client_cert = str(Path("/tmp/env-client.crt").resolve())
+    expected_client_key = str(Path("/tmp/env-client.key").resolve())
+    assert (
+        f"tls_inputs: ca_bundle={expected_ca_bundle}, "
+        f"client_cert_file={expected_client_cert}, "
+        f"client_key_file={expected_client_key}"
+    ) in output
 
 
 @pytest.mark.parametrize(
