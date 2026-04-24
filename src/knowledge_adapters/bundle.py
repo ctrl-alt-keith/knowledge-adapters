@@ -1,0 +1,187 @@
+"""Bundle existing adapter artifacts into one prompt-ready markdown file."""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Sequence
+from dataclasses import dataclass
+from pathlib import Path
+
+from knowledge_adapters.confluence.manifest import manifest_path
+
+ORDERING_RULE = "lexical canonical_id order"
+
+
+@dataclass(frozen=True)
+class BundleArtifact:
+    """One manifest-backed artifact selected for bundle output."""
+
+    canonical_id: str
+    source_url: str
+    title: str | None
+    artifact_path: Path
+
+
+@dataclass(frozen=True)
+class BundlePlan:
+    """Resolved manifest inputs plus the unique artifacts chosen for output."""
+
+    manifests: tuple[Path, ...]
+    artifacts: tuple[BundleArtifact, ...]
+    duplicate_canonical_ids: tuple[str, ...]
+
+
+def load_bundle_plan(inputs: Sequence[str | Path]) -> BundlePlan:
+    """Load artifacts from output directories or manifest files."""
+    manifests: list[Path] = []
+    artifacts_by_id: dict[str, BundleArtifact] = {}
+    duplicate_canonical_ids: list[str] = []
+
+    for raw_input in inputs:
+        manifest = _resolve_manifest_input(raw_input)
+        manifests.append(manifest)
+        for artifact in _load_bundle_artifacts(manifest):
+            if artifact.canonical_id in artifacts_by_id:
+                duplicate_canonical_ids.append(artifact.canonical_id)
+                continue
+            artifacts_by_id[artifact.canonical_id] = artifact
+
+    return BundlePlan(
+        manifests=tuple(manifests),
+        artifacts=tuple(
+            sorted(artifacts_by_id.values(), key=lambda artifact: artifact.canonical_id)
+        ),
+        duplicate_canonical_ids=tuple(duplicate_canonical_ids),
+    )
+
+
+def render_bundle_markdown(artifacts: Sequence[BundleArtifact]) -> str:
+    """Render bundle output with stable separators and metadata lines."""
+    sections: list[str] = []
+    for artifact in artifacts:
+        title = artifact.title or artifact.canonical_id
+        content = _read_artifact_text(artifact)
+        sections.append(
+            "\n".join(
+                (
+                    f"## {title}",
+                    f"source_url: {artifact.source_url}",
+                    f"canonical_id: {artifact.canonical_id}",
+                    "",
+                    content.rstrip("\n"),
+                )
+            ).rstrip()
+        )
+
+    if not sections:
+        return ""
+
+    return "\n\n---\n\n".join(sections) + "\n"
+
+
+def write_bundle(output_path: str | Path, markdown: str) -> Path:
+    """Write bundle markdown, creating parent directories when needed."""
+    resolved_output_path = Path(output_path).expanduser().resolve()
+    resolved_output_path.parent.mkdir(parents=True, exist_ok=True)
+    resolved_output_path.write_text(markdown, encoding="utf-8")
+    return resolved_output_path
+
+
+def _resolve_manifest_input(raw_input: str | Path) -> Path:
+    path = Path(raw_input).expanduser()
+    resolved_path = path.resolve()
+    if not resolved_path.exists():
+        raise ValueError(
+            f"Bundle input not found: {resolved_path}. "
+            "Provide an existing output directory or manifest file."
+        )
+
+    if resolved_path.is_dir():
+        resolved_manifest_path = manifest_path(str(resolved_path)).resolve()
+        if not resolved_manifest_path.is_file():
+            raise ValueError(
+                f"Bundle input directory {resolved_path} does not contain manifest.json. "
+                "Provide an existing adapter output directory or manifest file."
+            )
+        return resolved_manifest_path
+
+    if not resolved_path.is_file():
+        raise ValueError(
+            f"Bundle input is not a file or directory: {resolved_path}. "
+            "Provide an existing output directory or manifest file."
+        )
+
+    return resolved_path
+
+
+def _load_bundle_artifacts(manifest: Path) -> tuple[BundleArtifact, ...]:
+    try:
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Could not read bundle manifest {manifest}.") from exc
+
+    files = payload.get("files") if isinstance(payload, dict) else None
+    if not isinstance(files, list):
+        raise ValueError(
+            f"Bundle manifest {manifest} is invalid: expected a files list."
+        )
+
+    artifacts: list[BundleArtifact] = []
+    manifest_ids: set[str] = set()
+    manifest_output_paths: set[str] = set()
+    for entry in files:
+        if not isinstance(entry, dict):
+            raise ValueError(
+                f"Bundle manifest {manifest} is invalid: each files entry must be an object."
+            )
+
+        canonical_id = entry.get("canonical_id")
+        source_url = entry.get("source_url")
+        output_path = entry.get("output_path")
+        title = entry.get("title")
+        if not isinstance(canonical_id, str) or not isinstance(source_url, str):
+            raise ValueError(
+                f"Bundle manifest {manifest} is invalid: files entries must include "
+                "string canonical_id and source_url values."
+            )
+        if not isinstance(output_path, str):
+            raise ValueError(
+                f"Bundle manifest {manifest} is invalid: files entries must include "
+                "a string output_path value."
+            )
+        if title is not None and not isinstance(title, str):
+            raise ValueError(
+                f"Bundle manifest {manifest} is invalid: title values must be strings."
+            )
+        if canonical_id in manifest_ids:
+            raise ValueError(
+                f"Bundle manifest {manifest} is invalid: duplicate canonical_id "
+                f"{canonical_id!r}."
+            )
+        if output_path in manifest_output_paths:
+            raise ValueError(
+                f"Bundle manifest {manifest} is invalid: duplicate output_path {output_path!r}."
+            )
+
+        manifest_ids.add(canonical_id)
+        manifest_output_paths.add(output_path)
+        artifacts.append(
+            BundleArtifact(
+                canonical_id=canonical_id,
+                source_url=source_url,
+                title=title,
+                artifact_path=(manifest.parent / output_path).resolve(),
+            )
+        )
+
+    return tuple(artifacts)
+
+
+def _read_artifact_text(artifact: BundleArtifact) -> str:
+    try:
+        return artifact.artifact_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ValueError(
+            f"Could not read artifact for canonical_id {artifact.canonical_id!r}: "
+            f"{artifact.artifact_path}."
+        ) from exc
