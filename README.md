@@ -123,6 +123,79 @@ CONFLUENCE_BEARER_TOKEN=... knowledge-adapters confluence \
 If that real-mode dry run looks right, rerun it without `--dry-run` to write
 the live-fetched artifact and manifest.
 
+## Confluence Authentication Examples
+
+Bearer token via `CONFLUENCE_BEARER_TOKEN`:
+
+```bash
+CONFLUENCE_BEARER_TOKEN=example-bearer-token knowledge-adapters confluence \
+  --client-mode real \
+  --auth-method bearer-env \
+  --base-url https://example.com/wiki \
+  --target 12345 \
+  --output-dir ./artifacts \
+  --dry-run
+```
+
+Client certificate auth with a separate key:
+
+```bash
+knowledge-adapters confluence \
+  --client-mode real \
+  --auth-method client-cert-env \
+  --client-cert-file ./certs/confluence-client.crt \
+  --client-key-file ./certs/confluence-client.key \
+  --base-url https://example.com/wiki \
+  --target 12345 \
+  --output-dir ./artifacts \
+  --dry-run
+```
+
+Optional custom CA bundle:
+
+```bash
+knowledge-adapters confluence \
+  --client-mode real \
+  --auth-method bearer-env \
+  --ca-bundle ./certs/internal-ca.pem \
+  --base-url https://example.com/wiki \
+  --target 12345 \
+  --output-dir ./artifacts \
+  --dry-run
+```
+
+The same settings work in `runs.yaml`:
+
+```yaml
+runs:
+  - name: docs-home-bearer
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home-bearer
+    client_mode: real
+    auth_method: bearer-env
+    dry_run: true
+
+  - name: docs-home-mtls
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home-mtls
+    client_mode: real
+    auth_method: client-cert-env
+    client_cert_file: ./certs/confluence-client.crt
+    client_key_file: ./certs/confluence-client.key
+    ca_bundle: ./certs/internal-ca.pem
+    dry_run: true
+```
+
+- `bearer-env` reads `CONFLUENCE_BEARER_TOKEN`.
+- Omit `ca_bundle` to fall back to `REQUESTS_CA_BUNDLE` or `SSL_CERT_FILE`.
+- Omit `client_cert_file` and `client_key_file` to fall back to
+  `CONFLUENCE_CLIENT_CERT_FILE` and `CONFLUENCE_CLIENT_KEY_FILE`.
+- Explicit CLI flags or `runs.yaml` values override those env fallbacks.
+
 Confluence is also the adapter that currently uses manifest-based skip logic, so
 its dry runs and write runs may report `write` or `skip` for a page when an
 existing artifact already matches the planned output. `local_files` always plans
