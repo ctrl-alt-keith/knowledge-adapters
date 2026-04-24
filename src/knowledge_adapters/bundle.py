@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -29,6 +30,7 @@ class BundleArtifact:
     canonical_id: str
     source_url: str
     title: str | None
+    output_path: str
     artifact_path: Path
 
 
@@ -39,6 +41,7 @@ class BundlePlan:
     manifests: tuple[Path, ...]
     artifacts: tuple[BundleArtifact, ...]
     duplicate_canonical_ids: tuple[str, ...]
+    filtered_out_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -59,6 +62,8 @@ def load_bundle_plan(
     inputs: Sequence[str | Path],
     *,
     order: BundleOrder = DEFAULT_BUNDLE_ORDER,
+    include_patterns: Sequence[str] = (),
+    exclude_patterns: Sequence[str] = (),
 ) -> BundlePlan:
     """Load artifacts from output directories or manifest files."""
     if order not in BUNDLE_ORDER_CHOICES:
@@ -87,10 +92,22 @@ def load_bundle_plan(
                 manifest_entry_index=manifest_entry_index,
             )
 
+    ordered_artifacts = _order_bundle_artifacts(
+        artifacts_by_id,
+        artifact_positions,
+        order=order,
+    )
+    selected_artifacts, filtered_out_count = _filter_bundle_artifacts(
+        ordered_artifacts,
+        include_patterns=include_patterns,
+        exclude_patterns=exclude_patterns,
+    )
+
     return BundlePlan(
         manifests=tuple(manifests),
-        artifacts=tuple(_order_bundle_artifacts(artifacts_by_id, artifact_positions, order=order)),
+        artifacts=selected_artifacts,
         duplicate_canonical_ids=tuple(duplicate_canonical_ids),
+        filtered_out_count=filtered_out_count,
     )
 
 
@@ -209,6 +226,7 @@ def _load_bundle_artifacts(manifest: Path) -> tuple[BundleArtifact, ...]:
                 canonical_id=canonical_id,
                 source_url=source_url,
                 title=title,
+                output_path=output_path,
                 artifact_path=(manifest.parent / output_path).resolve(),
             )
         )
@@ -260,4 +278,41 @@ def _order_bundle_artifacts(
     raise ValueError(
         f"Unsupported bundle order {order!r}. "
         f"Choose one of: {', '.join(BUNDLE_ORDER_CHOICES)}."
+    )
+
+
+def _filter_bundle_artifacts(
+    artifacts: Sequence[BundleArtifact],
+    *,
+    include_patterns: Sequence[str],
+    exclude_patterns: Sequence[str],
+) -> tuple[tuple[BundleArtifact, ...], int]:
+    selected_artifacts: list[BundleArtifact] = []
+    filtered_out_count = 0
+    for artifact in artifacts:
+        if include_patterns and not _artifact_matches_patterns(artifact, include_patterns):
+            filtered_out_count += 1
+            continue
+        if exclude_patterns and _artifact_matches_patterns(artifact, exclude_patterns):
+            filtered_out_count += 1
+            continue
+        selected_artifacts.append(artifact)
+
+    return tuple(selected_artifacts), filtered_out_count
+
+
+def _artifact_matches_patterns(
+    artifact: BundleArtifact,
+    patterns: Sequence[str],
+) -> bool:
+    artifact_values = (
+        artifact.canonical_id,
+        artifact.title,
+        artifact.output_path,
+        artifact.source_url,
+    )
+    return any(
+        value is not None and fnmatch.fnmatchcase(value, pattern)
+        for pattern in patterns
+        for value in artifact_values
     )

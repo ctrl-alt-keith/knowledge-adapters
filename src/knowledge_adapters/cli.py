@@ -85,6 +85,7 @@ BUNDLE_HELP_EXAMPLES = """Examples:
   knowledge-adapters bundle ./artifacts/confluence --output ./bundle.md
   knowledge-adapters bundle ./artifacts/a ./artifacts/b --output ./bundle.md
   knowledge-adapters bundle ./artifacts/manifest.json --output ./bundle.md
+  knowledge-adapters bundle ./artifacts --include "team-*" --exclude "*draft*" --output ./bundle.md
 """
 
 _WRITE_SUMMARY_RE = re.compile(r"Summary: wrote (?P<wrote>\d+), skipped (?P<skipped>\d+)")
@@ -426,7 +427,11 @@ def build_parser() -> argparse.ArgumentParser:
             "or more output directories or manifest files as input. Bundle output keeps "
             "the original artifacts unchanged, removes duplicate canonical_id entries by "
             "keeping the first artifact discovered from the provided inputs, and orders "
-            "the final sections using the selected deterministic ordering mode."
+            "the final sections using the selected deterministic ordering mode. Optional "
+            "glob-style include and exclude filters match canonical_id, title, "
+            "output_path, and source_url. If no --include filters are provided, all "
+            "artifacts start included. Exclude filters apply after include matching and "
+            "win on conflicts."
         ),
         epilog=BUNDLE_HELP_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -451,6 +456,26 @@ def build_parser() -> argparse.ArgumentParser:
             "Deterministic output ordering: canonical_id sorts lexically by canonical_id "
             "(default); manifest preserves manifest entry order; input preserves bundle "
             "input order, then manifest order within each input."
+        ),
+    )
+    bundle_parser.add_argument(
+        "--include",
+        action="append",
+        default=[],
+        metavar="PATTERN",
+        help=(
+            "Repeatable glob-style filter. When provided, keep only artifacts matching "
+            "at least one pattern across canonical_id, title, output_path, or source_url."
+        ),
+    )
+    bundle_parser.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        metavar="PATTERN",
+        help=(
+            "Repeatable glob-style filter applied after --include matching across "
+            "canonical_id, title, output_path, or source_url. Exclude wins on conflicts."
         ),
     )
 
@@ -1482,7 +1507,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
 
         try:
-            bundle_plan = load_bundle_plan(args.inputs, order=args.order)
+            bundle_plan = load_bundle_plan(
+                args.inputs,
+                order=args.order,
+                include_patterns=args.include,
+                exclude_patterns=args.exclude,
+            )
             markdown = render_bundle_markdown(bundle_plan.artifacts)
         except ValueError as exc:
             exit_with_cli_error(str(exc), command="bundle")
@@ -1491,12 +1521,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"  inputs: {len(args.inputs)}")
         print(f"  output: {render_user_path(args.output)}")
         print(f"  ordering: {describe_bundle_order(args.order)}")
+        if args.include:
+            print(f"  include_filters: {len(args.include)}")
+        if args.exclude:
+            print(f"  exclude_filters: {len(args.exclude)}")
 
         print("\nPlan: Bundle run")
         for manifest in bundle_plan.manifests:
             print(f"  manifest: {render_user_path(manifest)}")
         print(f"  artifacts_selected: {len(bundle_plan.artifacts)}")
         print(f"  duplicates_skipped: {len(bundle_plan.duplicate_canonical_ids)}")
+        if args.include:
+            for pattern in args.include:
+                print(f"  include: {pattern}")
+        if args.exclude:
+            for pattern in args.exclude:
+                print(f"  exclude: {pattern}")
+        if args.include or args.exclude:
+            print(f"  artifacts_filtered_out: {bundle_plan.filtered_out_count}")
         print("  action: write")
 
         try:
@@ -1505,11 +1547,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             exit_with_bundle_output_error(args.output, exc=exc)
 
         print(f"\nWrote bundle: {render_user_path(written_bundle)}")
-        print(
-            "\nSummary: bundled "
-            f"{len(bundle_plan.artifacts)}, skipped "
-            f"{len(bundle_plan.duplicate_canonical_ids)} duplicates"
-        )
+        if args.include or args.exclude:
+            print(
+                "\nSummary: bundled "
+                f"{len(bundle_plan.artifacts)}, filtered out "
+                f"{bundle_plan.filtered_out_count}, skipped "
+                f"{len(bundle_plan.duplicate_canonical_ids)} duplicates"
+            )
+        else:
+            print(
+                "\nSummary: bundled "
+                f"{len(bundle_plan.artifacts)}, skipped "
+                f"{len(bundle_plan.duplicate_canonical_ids)} duplicates"
+            )
         print(f"Output path: {render_user_path(written_bundle)}")
         print(f"\nWrite complete. Bundle created at {render_user_path(written_bundle)}")
         return 0

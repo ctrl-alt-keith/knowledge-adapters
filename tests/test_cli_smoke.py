@@ -155,10 +155,16 @@ def test_bundle_cli_help_includes_ordering_and_input_guidance(tmp_path: Path) ->
     assert "selected deterministic ordering mode" in stdout
     assert "--output FILE" in stdout
     assert "--order {canonical_id,manifest,input}" in stdout
+    assert "--include PATTERN" in stdout
+    assert "--exclude PATTERN" in stdout
     assert "canonical_id sorts lexically by canonical_id (default)" in stdout
     assert "manifest preserves manifest entry order" in stdout
     assert "input preserves bundle input order" in stdout
+    assert "glob-style include and exclude filters match canonical_id, title," in stdout
+    assert "output_path, and source_url" in stdout
+    assert "Exclude filters apply after include matching and win on conflicts." in stdout
     assert "knowledge-adapters bundle ./artifacts/confluence --output ./bundle.md" in stdout
+    assert '--include "team-*" --exclude "*draft*" --output ./bundle.md' in stdout
 
 
 def test_bundle_cli_smoke_combines_multiple_inputs_in_deterministic_order(
@@ -395,6 +401,110 @@ canonical_id: beta
 # Beta artifact
 
 Beta content.
+"""
+    )
+
+
+def test_bundle_cli_smoke_supports_include_and_exclude_filters(tmp_path: Path) -> None:
+    output_dir = tmp_path / "artifacts"
+    (output_dir / "pages" / "docs").mkdir(parents=True)
+    (output_dir / "pages" / "alpha.md").write_text(
+        "# Alpha artifact\n\nAlpha content.\n",
+        encoding="utf-8",
+    )
+    (output_dir / "pages" / "bravo.md").write_text(
+        "# Bravo artifact\n\nBravo content.\n",
+        encoding="utf-8",
+    )
+    (output_dir / "pages" / "docs" / "charlie.md").write_text(
+        "# Charlie artifact\n\nCharlie content.\n",
+        encoding="utf-8",
+    )
+    (output_dir / "pages" / "delta.md").write_text(
+        "# Delta artifact\n\nDelta content.\n",
+        encoding="utf-8",
+    )
+    (output_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-04-24T00:00:00Z",
+                "files": [
+                    {
+                        "canonical_id": "alpha",
+                        "source_url": "https://example.com/alpha",
+                        "output_path": "pages/alpha.md",
+                        "title": "Alpha",
+                    },
+                    {
+                        "canonical_id": "bravo",
+                        "source_url": "https://example.com/bravo",
+                        "output_path": "pages/bravo.md",
+                        "title": "Release notes",
+                    },
+                    {
+                        "canonical_id": "charlie",
+                        "source_url": "https://example.com/charlie",
+                        "output_path": "pages/docs/charlie.md",
+                        "title": "Charlie",
+                    },
+                    {
+                        "canonical_id": "delta",
+                        "source_url": "https://example.com/special/delta",
+                        "output_path": "pages/delta.md",
+                        "title": "Delta",
+                    },
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_cli(
+        tmp_path,
+        "bundle",
+        "./artifacts",
+        "--include",
+        "Release*",
+        "--include",
+        "pages/docs/*",
+        "--include",
+        "https://example.com/special/*",
+        "--exclude",
+        "pages/docs/*",
+        "--output",
+        "./bundles/filtered.md",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "include_filters: 3" in result.stdout
+    assert "exclude_filters: 1" in result.stdout
+    assert "include: Release*" in result.stdout
+    assert "include: pages/docs/*" in result.stdout
+    assert "include: https://example.com/special/*" in result.stdout
+    assert "exclude: pages/docs/*" in result.stdout
+    assert "artifacts_selected: 2" in result.stdout
+    assert "artifacts_filtered_out: 2" in result.stdout
+    assert "Summary: bundled 2, filtered out 2, skipped 0 duplicates" in result.stdout
+    assert (tmp_path / "bundles" / "filtered.md").read_text(encoding="utf-8") == (
+        """## Release notes
+source_url: https://example.com/bravo
+canonical_id: bravo
+
+# Bravo artifact
+
+Bravo content.
+
+---
+
+## Delta
+source_url: https://example.com/special/delta
+canonical_id: delta
+
+# Delta artifact
+
+Delta content.
 """
     )
 
