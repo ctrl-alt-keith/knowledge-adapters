@@ -16,7 +16,10 @@ from typing import TextIO
 from knowledge_adapters.bundle import (
     BUNDLE_ORDER_CHOICES,
     DEFAULT_BUNDLE_ORDER,
+    DEFAULT_HEADER_MODE,
+    HEADER_MODE_CHOICES,
     describe_bundle_order,
+    describe_header_mode,
 )
 from knowledge_adapters.confluence.auth import SUPPORTED_AUTH_METHODS, resolve_tls_inputs
 
@@ -85,6 +88,7 @@ BUNDLE_HELP_EXAMPLES = """Examples:
   knowledge-adapters bundle ./artifacts/confluence --output ./bundle.md
   knowledge-adapters bundle ./artifacts/a ./artifacts/b --output ./bundle.md
   knowledge-adapters bundle ./artifacts/manifest.json --output ./bundle.md
+  knowledge-adapters bundle ./artifacts --header-mode minimal --output ./bundle.md
   knowledge-adapters bundle ./artifacts --include "team-*" --exclude "*draft*" --output ./bundle.md
 """
 
@@ -427,7 +431,8 @@ def build_parser() -> argparse.ArgumentParser:
             "or more output directories or manifest files as input. Bundle output keeps "
             "the original artifacts unchanged, removes duplicate canonical_id entries by "
             "keeping the first artifact discovered from the provided inputs, and orders "
-            "the final sections using the selected deterministic ordering mode. Optional "
+            "the final sections using the selected deterministic ordering mode. Header "
+            "modes control how much manifest metadata appears above each document. Optional "
             "glob-style include and exclude filters match canonical_id, title, "
             "output_path, and source_url. If no --include filters are provided, all "
             "artifacts start included. Exclude filters apply after include matching and "
@@ -456,6 +461,16 @@ def build_parser() -> argparse.ArgumentParser:
             "Deterministic output ordering: canonical_id sorts lexically by canonical_id "
             "(default); manifest preserves manifest entry order; input preserves bundle "
             "input order, then manifest order within each input."
+        ),
+    )
+    bundle_parser.add_argument(
+        "--header-mode",
+        choices=HEADER_MODE_CHOICES,
+        default=DEFAULT_HEADER_MODE,
+        help=(
+            "Per-document header detail: full includes source_url, canonical_id, and "
+            "optional fetched_at, path, and ref metadata when present (default); "
+            "minimal includes only the title and source_url."
         ),
     )
     bundle_parser.add_argument(
@@ -1513,7 +1528,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 include_patterns=args.include,
                 exclude_patterns=args.exclude,
             )
-            markdown = render_bundle_markdown(bundle_plan.artifacts)
+            markdown = render_bundle_markdown(
+                bundle_plan.artifacts,
+                header_mode=args.header_mode,
+            )
         except ValueError as exc:
             exit_with_cli_error(str(exc), command="bundle")
 
@@ -1521,6 +1539,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"  inputs: {len(args.inputs)}")
         print(f"  output: {render_user_path(args.output)}")
         print(f"  ordering: {describe_bundle_order(args.order)}")
+        print(f"  header_mode: {describe_header_mode(args.header_mode)}")
         if args.include:
             print(f"  include_filters: {len(args.include)}")
         if args.exclude:

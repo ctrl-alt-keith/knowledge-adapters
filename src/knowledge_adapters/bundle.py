@@ -12,6 +12,7 @@ from typing import Literal
 from knowledge_adapters.confluence.manifest import manifest_path
 
 BundleOrder = Literal["canonical_id", "manifest", "input"]
+HeaderMode = Literal["minimal", "full"]
 
 DEFAULT_BUNDLE_ORDER: BundleOrder = "canonical_id"
 BUNDLE_ORDER_CHOICES: tuple[BundleOrder, ...] = ("canonical_id", "manifest", "input")
@@ -21,6 +22,12 @@ BUNDLE_ORDER_LABELS: dict[BundleOrder, str] = {
     "input": "input order with manifest grouping",
 }
 ORDERING_RULE = BUNDLE_ORDER_LABELS[DEFAULT_BUNDLE_ORDER]
+DEFAULT_HEADER_MODE: HeaderMode = "full"
+HEADER_MODE_CHOICES: tuple[HeaderMode, ...] = ("minimal", "full")
+HEADER_MODE_LABELS: dict[HeaderMode, str] = {
+    "minimal": "title plus source URL",
+    "full": "title, source URL, canonical_id, and optional manifest metadata",
+}
 
 
 @dataclass(frozen=True)
@@ -31,6 +38,9 @@ class BundleArtifact:
     source_url: str
     title: str | None
     output_path: str
+    fetched_at: str | None
+    path: str | None
+    ref: str | None
     artifact_path: Path
 
 
@@ -56,6 +66,11 @@ class _BundleArtifactPosition:
 def describe_bundle_order(order: BundleOrder) -> str:
     """Return the human-readable description for one bundle ordering mode."""
     return BUNDLE_ORDER_LABELS[order]
+
+
+def describe_header_mode(mode: HeaderMode) -> str:
+    """Return the human-readable description for one bundle header mode."""
+    return HEADER_MODE_LABELS[mode]
 
 
 def load_bundle_plan(
@@ -111,18 +126,25 @@ def load_bundle_plan(
     )
 
 
-def render_bundle_markdown(artifacts: Sequence[BundleArtifact]) -> str:
+def render_bundle_markdown(
+    artifacts: Sequence[BundleArtifact],
+    *,
+    header_mode: HeaderMode = DEFAULT_HEADER_MODE,
+) -> str:
     """Render bundle output with stable separators and metadata lines."""
+    if header_mode not in HEADER_MODE_CHOICES:
+        raise ValueError(
+            f"Unsupported bundle header mode {header_mode!r}. "
+            f"Choose one of: {', '.join(HEADER_MODE_CHOICES)}."
+        )
+
     sections: list[str] = []
     for artifact in artifacts:
-        title = artifact.title or artifact.canonical_id
         content = _read_artifact_text(artifact)
         sections.append(
             "\n".join(
                 (
-                    f"## {title}",
-                    f"source_url: {artifact.source_url}",
-                    f"canonical_id: {artifact.canonical_id}",
+                    *_render_bundle_header_lines(artifact, header_mode=header_mode),
                     "",
                     content.rstrip("\n"),
                 )
@@ -195,6 +217,9 @@ def _load_bundle_artifacts(manifest: Path) -> tuple[BundleArtifact, ...]:
         source_url = entry.get("source_url")
         output_path = entry.get("output_path")
         title = entry.get("title")
+        fetched_at = _optional_manifest_string(entry, "fetched_at", manifest=manifest)
+        path = _optional_manifest_string(entry, "path", manifest=manifest)
+        ref = _optional_manifest_string(entry, "ref", manifest=manifest)
         if not isinstance(canonical_id, str) or not isinstance(source_url, str):
             raise ValueError(
                 f"Bundle manifest {manifest} is invalid: files entries must include "
@@ -227,6 +252,9 @@ def _load_bundle_artifacts(manifest: Path) -> tuple[BundleArtifact, ...]:
                 source_url=source_url,
                 title=title,
                 output_path=output_path,
+                fetched_at=fetched_at,
+                path=path,
+                ref=ref,
                 artifact_path=(manifest.parent / output_path).resolve(),
             )
         )
@@ -242,6 +270,35 @@ def _read_artifact_text(artifact: BundleArtifact) -> str:
             f"Could not read artifact for canonical_id {artifact.canonical_id!r}: "
             f"{artifact.artifact_path}."
         ) from exc
+
+
+def _render_bundle_header_lines(
+    artifact: BundleArtifact,
+    *,
+    header_mode: HeaderMode,
+) -> tuple[str, ...]:
+    title = artifact.title or artifact.canonical_id
+    lines = [
+        f"## {title}",
+        f"source_url: {artifact.source_url}",
+    ]
+    if header_mode == "minimal":
+        return tuple(lines)
+    if header_mode == "full":
+        lines.append(f"canonical_id: {artifact.canonical_id}")
+        for label, value in (
+            ("fetched_at", artifact.fetched_at),
+            ("path", artifact.path),
+            ("ref", artifact.ref),
+        ):
+            if value:
+                lines.append(f"{label}: {value}")
+        return tuple(lines)
+
+    raise ValueError(
+        f"Unsupported bundle header mode {header_mode!r}. "
+        f"Choose one of: {', '.join(HEADER_MODE_CHOICES)}."
+    )
 
 
 def _order_bundle_artifacts(
@@ -316,3 +373,19 @@ def _artifact_matches_patterns(
         for pattern in patterns
         for value in artifact_values
     )
+
+
+def _optional_manifest_string(
+    entry: dict[str, object],
+    field_name: str,
+    *,
+    manifest: Path,
+) -> str | None:
+    value = entry.get(field_name)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(
+            f"Bundle manifest {manifest} is invalid: {field_name} values must be strings."
+        )
+    return value or None

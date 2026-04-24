@@ -15,17 +15,12 @@ grouping them into meaningful lanes.
 
 ## Active Arc
 
-### Bundle ergonomics
-
-- #152 Add basic include/exclude filters to the bundle command
-- #155 Add minimal and full header modes to the bundle command
-
-## Next Arcs
-
 ### Bundle advanced behavior
 
-- #157 Add changed-only bundle mode based on a prior manifest
 - #154 Add size-aware splitting to the bundle command
+- #157 Add changed-only bundle mode based on a prior manifest
+
+## Next Arcs
 
 ### Confluence expansion
 

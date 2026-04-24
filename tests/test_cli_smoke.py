@@ -155,15 +155,23 @@ def test_bundle_cli_help_includes_ordering_and_input_guidance(tmp_path: Path) ->
     assert "selected deterministic ordering mode" in stdout
     assert "--output FILE" in stdout
     assert "--order {canonical_id,manifest,input}" in stdout
+    assert "--header-mode {minimal,full}" in stdout
     assert "--include PATTERN" in stdout
     assert "--exclude PATTERN" in stdout
     assert "canonical_id sorts lexically by canonical_id (default)" in stdout
     assert "manifest preserves manifest entry order" in stdout
     assert "input preserves bundle input order" in stdout
+    assert "full includes source_url, canonical_id, and optional fetched_at," in stdout
+    assert "path, and ref metadata when present (default)" in stdout
+    assert "minimal includes only the title and source_url." in stdout
     assert "glob-style include and exclude filters match canonical_id, title," in stdout
     assert "output_path, and source_url" in stdout
     assert "Exclude filters apply after include matching and win on conflicts." in stdout
     assert "knowledge-adapters bundle ./artifacts/confluence --output ./bundle.md" in stdout
+    assert (
+        "knowledge-adapters bundle ./artifacts --header-mode minimal --output ./bundle.md"
+        in stdout
+    )
     assert '--include "team-*" --exclude "*draft*" --output ./bundle.md' in stdout
 
 
@@ -250,6 +258,10 @@ def test_bundle_cli_smoke_combines_multiple_inputs_in_deterministic_order(
     assert result.returncode == 0, result.stderr
     assert "Bundle command invoked" in result.stdout
     assert "ordering: lexical canonical_id order" in result.stdout
+    assert (
+        "header_mode: title, source URL, canonical_id, and optional manifest metadata"
+        in result.stdout
+    )
     assert f"manifest: {output_a / 'manifest.json'}" in result.stdout
     assert f"manifest: {output_b / 'manifest.json'}" in result.stdout
     assert "artifacts_selected: 3" in result.stdout
@@ -286,6 +298,58 @@ canonical_id: zeta
 # Zeta artifact
 
 Zeta content.
+"""
+    )
+
+
+def test_bundle_cli_smoke_supports_minimal_headers(tmp_path: Path) -> None:
+    output_dir = tmp_path / "artifacts"
+    (output_dir / "pages").mkdir(parents=True)
+    (output_dir / "pages" / "alpha.md").write_text(
+        "# Alpha artifact\n\nAlpha content.\n",
+        encoding="utf-8",
+    )
+    (output_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-04-24T00:00:00Z",
+                "files": [
+                    {
+                        "canonical_id": "alpha",
+                        "source_url": "https://example.com/alpha",
+                        "output_path": "pages/alpha.md",
+                        "title": "Alpha",
+                        "fetched_at": "2026-04-24T12:00:00Z",
+                        "path": "docs/alpha.md",
+                        "ref": "refs/heads/main",
+                    }
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_cli(
+        tmp_path,
+        "bundle",
+        "./artifacts",
+        "--header-mode",
+        "minimal",
+        "--output",
+        "./bundles/minimal.md",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "header_mode: title plus source URL" in result.stdout
+    assert (tmp_path / "bundles" / "minimal.md").read_text(encoding="utf-8") == (
+        """## Alpha
+source_url: https://example.com/alpha
+
+# Alpha artifact
+
+Alpha content.
 """
     )
 
