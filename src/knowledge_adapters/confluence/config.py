@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from knowledge_adapters.confluence.auth import resolve_tls_inputs
+from knowledge_adapters.confluence.auth import CONFLUENCE_CA_BUNDLE_ENV, resolve_tls_inputs
 
 
 @dataclass(frozen=True)
@@ -18,6 +18,7 @@ class ConfluenceConfig:
     space_key: str | None = None
     space_url: str | None = None
     ca_bundle: str | None = None
+    no_ca_bundle: bool = False
     client_cert_file: str | None = None
     client_key_file: str | None = None
     client_mode: str = "stub"
@@ -35,7 +36,7 @@ _TLS_INPUT_OPTION_NAMES = {
 }
 
 _TLS_INPUT_ENV_NAMES = {
-    "ca_bundle": ("REQUESTS_CA_BUNDLE", "SSL_CERT_FILE"),
+    "ca_bundle": (CONFLUENCE_CA_BUNDLE_ENV, "REQUESTS_CA_BUNDLE", "SSL_CERT_FILE"),
     "client_cert_file": ("CONFLUENCE_CLIENT_CERT_FILE",),
     "client_key_file": ("CONFLUENCE_CLIENT_KEY_FILE",),
 }
@@ -66,6 +67,7 @@ def validate_selected_real_tls_paths(config: ConfluenceConfig) -> None:
     """Fail fast when real-mode TLS/client-certificate file paths do not exist."""
     resolved_tls_inputs = resolve_tls_inputs(
         ca_bundle=config.ca_bundle,
+        no_ca_bundle=config.no_ca_bundle,
         client_cert_file=config.client_cert_file,
         client_key_file=config.client_key_file,
     )

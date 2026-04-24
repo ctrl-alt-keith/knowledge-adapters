@@ -7,7 +7,8 @@ grouping them into meaningful lanes.
 ## Current State
 
 - Confluence adapter: mature (single-page, tree traversal, incremental sync,
-  space discovery, TLS/auth, progress output)
+  space discovery, TLS/auth, environment-specific config overrides, progress
+  output)
 - Bundle command:
   - v1 complete (#147)
   - ordering controls added (#153)

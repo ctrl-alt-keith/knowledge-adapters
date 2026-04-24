@@ -49,6 +49,7 @@ def _fetch_real_page(
     base_url: str = "https://example.com/wiki",
     auth_method: str = "bearer-env",
     ca_bundle: str | None = None,
+    no_ca_bundle: bool = False,
     client_cert_file: str | None = None,
     client_key_file: str | None = None,
 ) -> dict[str, object]:
@@ -60,6 +61,7 @@ def _fetch_real_page(
         base_url=base_url,
         auth_method=auth_method,
         ca_bundle=ca_bundle,
+        no_ca_bundle=no_ca_bundle,
         client_cert_file=client_cert_file,
         client_key_file=client_key_file,
     )
@@ -519,6 +521,48 @@ def test_real_single_page_dry_run_surfaces_env_tls_input_paths(
     ) in output
 
 
+def test_real_single_page_dry_run_surfaces_disabled_ca_bundle(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    from knowledge_adapters.confluence import client as client_module
+
+    observed_no_ca_bundle: list[bool] = []
+
+    def stub_real_fetch(*args: object, **kwargs: object) -> dict[str, object]:
+        del args
+        observed_no_ca_bundle.append(cast(bool, kwargs.get("no_ca_bundle")))
+        return {
+            "canonical_id": "12345",
+            "title": "Real Page",
+            "content": "<p>Hello from Confluence.</p>",
+            "source_url": "https://example.com/wiki/spaces/ENG/pages/12345",
+            "page_version": 7,
+            "last_modified": "2026-04-20T12:34:56Z",
+        }
+
+    monkeypatch.setattr(client_module, "fetch_real_page", stub_real_fetch, raising=False)
+    monkeypatch.setenv("KNOWLEDGE_ADAPTERS_CONFLUENCE_CA_BUNDLE", "/tmp/env-ca.pem")
+
+    exit_code = main(
+        _confluence_argv(
+            tmp_path / "out",
+            "--client-mode",
+            "real",
+            "--dry-run",
+            "--ca-bundle",
+            "/tmp/config-ca.pem",
+            "--no-ca-bundle",
+        )
+    )
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "tls_inputs: ca_bundle=disabled" in output
+    assert observed_no_ca_bundle == [True]
+
+
 def test_real_client_cli_rejects_missing_env_selected_ca_bundle_before_request(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -676,6 +720,68 @@ def test_real_fetch_prefers_explicit_ca_bundle_over_env_fallback(
 
     assert page["canonical_id"] == "12345"
     assert observed_cafiles == ["/tmp/config-ca.pem"]
+
+
+def test_real_fetch_uses_confluence_ca_bundle_env_over_explicit_ca_bundle(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    ssl_context = _FakeSSLContext()
+    observed_cafiles: list[str | None] = []
+
+    def fake_create_default_context(*, cafile: str | None = None) -> _FakeSSLContext:
+        observed_cafiles.append(cafile)
+        return ssl_context
+
+    monkeypatch.setattr(
+        "knowledge_adapters.confluence.auth.ssl.create_default_context",
+        fake_create_default_context,
+    )
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setenv("KNOWLEDGE_ADAPTERS_CONFLUENCE_CA_BUNDLE", "/tmp/env-ca.pem")
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda *args, **kwargs: _FakeHTTPResponse(_valid_confluence_payload()),
+    )
+
+    page = _fetch_real_page(_real_target(), ca_bundle="/tmp/config-ca.pem")
+
+    assert page["canonical_id"] == "12345"
+    assert observed_cafiles == ["/tmp/env-ca.pem"]
+
+
+def test_real_fetch_no_ca_bundle_disables_confluence_ca_bundle_inputs(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    observed_contexts: list[object | None] = []
+    observed_cafiles: list[str | None] = []
+
+    def fake_create_default_context(*, cafile: str | None = None) -> _FakeSSLContext:
+        observed_cafiles.append(cafile)
+        return _FakeSSLContext()
+
+    def fake_urlopen(*args: object, **kwargs: object) -> _FakeHTTPResponse:
+        del args
+        observed_contexts.append(kwargs.get("context"))
+        return _FakeHTTPResponse(_valid_confluence_payload())
+
+    monkeypatch.setattr(
+        "knowledge_adapters.confluence.auth.ssl.create_default_context",
+        fake_create_default_context,
+    )
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setenv("KNOWLEDGE_ADAPTERS_CONFLUENCE_CA_BUNDLE", "/tmp/env-ca.pem")
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", "/tmp/requests-ca.pem")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    page = _fetch_real_page(
+        _real_target(),
+        ca_bundle="/tmp/config-ca.pem",
+        no_ca_bundle=True,
+    )
+
+    assert page["canonical_id"] == "12345"
+    assert observed_cafiles == []
+    assert observed_contexts == [None]
 
 
 def test_real_fetch_uses_requests_ca_bundle_env_when_explicit_ca_bundle_omitted(

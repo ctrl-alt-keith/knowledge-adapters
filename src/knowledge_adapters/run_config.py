@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
 import yaml  # type: ignore[import-untyped]
 
-from knowledge_adapters.confluence.auth import SUPPORTED_AUTH_METHODS
+from knowledge_adapters.confluence.auth import CONFLUENCE_CA_BUNDLE_ENV, SUPPORTED_AUTH_METHODS
 from knowledge_adapters.confluence.config import validate_explicit_tls_paths
 from knowledge_adapters.confluence.resolve import (
     resolve_target_for_base_url,
@@ -62,7 +63,11 @@ class RunConfig:
     runs: tuple[ConfiguredRun, ...]
 
 
-def load_run_config(config_path: str | Path) -> RunConfig:
+def load_run_config(
+    config_path: str | Path,
+    *,
+    no_confluence_ca_bundle: bool = False,
+) -> RunConfig:
     """Load and validate a config-driven run file."""
     resolved_config_path = Path(config_path).expanduser().resolve()
     try:
@@ -92,7 +97,12 @@ def load_run_config(config_path: str | Path) -> RunConfig:
     return RunConfig(
         config_path=resolved_config_path,
         runs=tuple(
-            _parse_run(run_config, index=index, config_path=resolved_config_path)
+            _parse_run(
+                run_config,
+                index=index,
+                config_path=resolved_config_path,
+                no_confluence_ca_bundle=no_confluence_ca_bundle,
+            )
             for index, run_config in enumerate(runs, start=1)
         ),
     )
@@ -130,6 +140,7 @@ def _parse_run(
     *,
     index: int,
     config_path: Path,
+    no_confluence_ca_bundle: bool,
 ) -> ConfiguredRun:
     if not isinstance(run_config, dict):
         raise ValueError(
@@ -146,7 +157,12 @@ def _parse_run(
         )
 
     if run_type == "confluence":
-        argv = _build_confluence_argv(run_config, name=name, config_path=config_path)
+        argv = _build_confluence_argv(
+            run_config,
+            name=name,
+            config_path=config_path,
+            no_ca_bundle=no_confluence_ca_bundle,
+        )
         dry_run = _optional_bool(
             run_config,
             "dry_run",
@@ -198,6 +214,7 @@ def _build_confluence_argv(
     *,
     name: str,
     config_path: Path,
+    no_ca_bundle: bool,
 ) -> tuple[str, ...]:
     _reject_unknown_keys(
         run_config,
@@ -314,8 +331,10 @@ def _build_confluence_argv(
         argv.extend(["--auth-method", auth_method])
 
     ca_bundle = _optional_string(run_config, "ca_bundle", index=index, config_path=config_path)
-    resolved_ca_bundle = (
-        _resolve_path_string(ca_bundle, config_path=config_path) if ca_bundle is not None else None
+    resolved_ca_bundle = _resolve_configured_ca_bundle(
+        ca_bundle,
+        config_path=config_path,
+        no_ca_bundle=no_ca_bundle,
     )
     client_cert_file = _optional_string(
         run_config,
@@ -360,6 +379,8 @@ def _build_confluence_argv(
                 resolved_ca_bundle,
             ]
         )
+    if no_ca_bundle:
+        argv.append("--no-ca-bundle")
     if resolved_client_cert_file is not None:
         argv.extend(
             [
@@ -395,6 +416,26 @@ def _build_confluence_argv(
         argv.extend(["--max-depth", str(max_depth)])
 
     return tuple(argv)
+
+
+def _resolve_configured_ca_bundle(
+    ca_bundle: str | None,
+    *,
+    config_path: Path,
+    no_ca_bundle: bool,
+) -> str | None:
+    if no_ca_bundle:
+        return None
+
+    env_ca_bundle = os.getenv(CONFLUENCE_CA_BUNDLE_ENV)
+    if env_ca_bundle is not None:
+        normalized_env_ca_bundle = env_ca_bundle.strip()
+        return normalized_env_ca_bundle or None
+
+    if ca_bundle is None:
+        return None
+
+    return _resolve_path_string(ca_bundle, config_path=config_path)
 
 
 def _build_local_files_argv(

@@ -788,6 +788,146 @@ runs:
     )
 
 
+def test_load_run_config_env_ca_bundle_overrides_confluence_config_path(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    certs_dir = tmp_path / "certs"
+    certs_dir.mkdir()
+    (certs_dir / "config-ca.pem").write_text("config ca\n", encoding="utf-8")
+    env_ca_bundle = tmp_path / "env-ca.pem"
+    env_ca_bundle.write_text("env ca\n", encoding="utf-8")
+    monkeypatch.setenv("KNOWLEDGE_ADAPTERS_CONFLUENCE_CA_BUNDLE", str(env_ca_bundle))
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: docs-home
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home
+    ca_bundle: ./certs/config-ca.pem
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    run_config = load_run_config(config_path)
+
+    assert "--ca-bundle" in run_config.runs[0].argv
+    assert str(env_ca_bundle) in run_config.runs[0].argv
+    assert str((certs_dir / "config-ca.pem").resolve()) not in run_config.runs[0].argv
+
+
+def test_load_run_config_empty_env_ca_bundle_disables_confluence_config_path(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("KNOWLEDGE_ADAPTERS_CONFLUENCE_CA_BUNDLE", "")
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: docs-home
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home
+    ca_bundle: ./certs/missing-ca.pem
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    run_config = load_run_config(config_path)
+
+    assert "--ca-bundle" not in run_config.runs[0].argv
+
+
+def test_load_run_config_no_ca_bundle_flag_disables_env_and_config_ca_bundle(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    env_ca_bundle = tmp_path / "env-ca.pem"
+    env_ca_bundle.write_text("env ca\n", encoding="utf-8")
+    monkeypatch.setenv("KNOWLEDGE_ADAPTERS_CONFLUENCE_CA_BUNDLE", str(env_ca_bundle))
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: docs-home
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home
+    ca_bundle: ./certs/missing-ca.pem
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    run_config = load_run_config(config_path, no_confluence_ca_bundle=True)
+
+    assert "--ca-bundle" not in run_config.runs[0].argv
+    assert "--no-ca-bundle" in run_config.runs[0].argv
+
+
+def test_run_command_no_ca_bundle_flag_disables_env_and_config_ca_bundle(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    from knowledge_adapters.confluence import client as client_module
+
+    observed_kwargs: list[dict[str, object]] = []
+
+    def stub_real_fetch(*args: object, **kwargs: object) -> dict[str, object]:
+        del args
+        observed_kwargs.append(dict(kwargs))
+        return {
+            "canonical_id": "12345",
+            "title": "Real Page",
+            "content": "<p>Hello from Confluence.</p>",
+            "source_url": "https://example.com/wiki/spaces/ENG/pages/12345",
+            "page_version": 7,
+            "last_modified": "2026-04-20T12:34:56Z",
+        }
+
+    env_ca_bundle = tmp_path / "env-ca.pem"
+    env_ca_bundle.write_text("env ca\n", encoding="utf-8")
+    monkeypatch.setattr(client_module, "fetch_real_page", stub_real_fetch, raising=False)
+    monkeypatch.setenv("KNOWLEDGE_ADAPTERS_CONFLUENCE_CA_BUNDLE", str(env_ca_bundle))
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: docs-home
+    type: confluence
+    client_mode: real
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home
+    ca_bundle: ./certs/missing-ca.pem
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(["run", "--no-ca-bundle", str(config_path)])
+
+    assert exit_code == 0
+    assert observed_kwargs == [
+        {
+            "base_url": "https://example.com/wiki",
+            "auth_method": "bearer-env",
+            "ca_bundle": None,
+            "client_cert_file": None,
+            "client_key_file": None,
+            "no_ca_bundle": True,
+        }
+    ]
+
+
 def test_load_run_config_rejects_confluence_client_key_without_client_cert(
     tmp_path: Path,
 ) -> None:

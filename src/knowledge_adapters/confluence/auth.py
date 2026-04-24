@@ -7,6 +7,7 @@ import ssl
 from dataclasses import dataclass
 
 SUPPORTED_AUTH_METHODS = ("bearer-env", "client-cert-env")
+CONFLUENCE_CA_BUNDLE_ENV = "KNOWLEDGE_ADAPTERS_CONFLUENCE_CA_BUNDLE"
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,7 @@ def build_request_auth(
     auth_method: str,
     *,
     ca_bundle: str | None = None,
+    no_ca_bundle: bool = False,
     client_cert_file: str | None = None,
     client_key_file: str | None = None,
 ) -> RequestAuth:
@@ -49,6 +51,7 @@ def build_request_auth(
         ssl_context=_client_cert_ssl_context(
             auth_method,
             ca_bundle=ca_bundle,
+            no_ca_bundle=no_ca_bundle,
             client_cert_file=client_cert_file,
             client_key_file=client_key_file,
         ),
@@ -58,16 +61,13 @@ def build_request_auth(
 def resolve_tls_inputs(
     *,
     ca_bundle: str | None = None,
+    no_ca_bundle: bool = False,
     client_cert_file: str | None = None,
     client_key_file: str | None = None,
 ) -> ResolvedTLSInputs:
     """Resolve the effective TLS/client-certificate file inputs."""
     return ResolvedTLSInputs(
-        ca_bundle=_first_non_empty(
-            ca_bundle,
-            os.getenv("REQUESTS_CA_BUNDLE"),
-            os.getenv("SSL_CERT_FILE"),
-        ),
+        ca_bundle=_resolve_ca_bundle(ca_bundle=ca_bundle, no_ca_bundle=no_ca_bundle),
         client_cert_file=_first_non_empty(
             client_cert_file,
             os.getenv("CONFLUENCE_CLIENT_CERT_FILE"),
@@ -94,11 +94,13 @@ def _client_cert_ssl_context(
     auth_method: str,
     *,
     ca_bundle: str | None = None,
+    no_ca_bundle: bool = False,
     client_cert_file: str | None = None,
     client_key_file: str | None = None,
 ) -> ssl.SSLContext | None:
     resolved_tls_inputs = resolve_tls_inputs(
         ca_bundle=ca_bundle,
+        no_ca_bundle=no_ca_bundle,
         client_cert_file=client_cert_file,
         client_key_file=client_key_file,
     )
@@ -142,6 +144,21 @@ def _client_cert_ssl_context(
         ) from exc
 
     return ssl_context
+
+
+def _resolve_ca_bundle(*, ca_bundle: str | None, no_ca_bundle: bool) -> str | None:
+    if no_ca_bundle:
+        return None
+
+    confluence_ca_bundle = os.getenv(CONFLUENCE_CA_BUNDLE_ENV)
+    if confluence_ca_bundle is not None:
+        return _first_non_empty(confluence_ca_bundle)
+
+    return _first_non_empty(
+        ca_bundle,
+        os.getenv("REQUESTS_CA_BUNDLE"),
+        os.getenv("SSL_CERT_FILE"),
+    )
 
 
 def _first_non_empty(*values: str | None) -> str | None:

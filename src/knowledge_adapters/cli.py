@@ -11,7 +11,7 @@ from collections.abc import Callable, Sequence
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TextIO
+from typing import TextIO, TypedDict
 
 from knowledge_adapters.bundle import (
     BUNDLE_ORDER_CHOICES,
@@ -105,6 +105,7 @@ _CLI_ERROR_RE = re.compile(r"^knowledge-adapters (?P<command>\S+): error: (?P<me
 _CONFLUENCE_REAL_ONLY_INPUT_FLAGS = (
     "--auth-method",
     "--ca-bundle",
+    "--no-ca-bundle",
     "--client-cert-file",
     "--client-key-file",
 )
@@ -117,6 +118,15 @@ class MultiRunSummary:
     dry_run: bool
     wrote: int
     skipped: int
+
+
+class RealClientTLSKwargs(TypedDict, total=False):
+    """Keyword arguments shared by Confluence real-client calls."""
+
+    ca_bundle: str | None
+    no_ca_bundle: bool
+    client_cert_file: str | None
+    client_key_file: str | None
 
 
 class _TeeStream:
@@ -347,6 +357,14 @@ def build_parser() -> argparse.ArgumentParser:
             "PEM bundle to trust for TLS verification in --client-mode real. "
             "When set, this overrides default certificate discovery for "
             "Confluence HTTPS requests."
+        ),
+    )
+    confluence_parser.add_argument(
+        "--no-ca-bundle",
+        action="store_true",
+        help=(
+            "Disable Confluence CA bundle usage for this run, overriding "
+            "--ca-bundle and KNOWLEDGE_ADAPTERS_CONFLUENCE_CA_BUNDLE."
         ),
     )
     confluence_parser.add_argument(
@@ -595,6 +613,14 @@ def build_parser() -> argparse.ArgumentParser:
             "details and effective TLS inputs are surfaced without editing runs.yaml."
         ),
     )
+    run_parser.add_argument(
+        "--no-ca-bundle",
+        action="store_true",
+        help=(
+            "Append --no-ca-bundle to configured Confluence runs so CA bundle "
+            "usage can be disabled without editing runs.yaml."
+        ),
+    )
 
     return parser
 
@@ -728,7 +754,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         from knowledge_adapters.run_config import load_run_config, select_runs
 
         try:
-            run_config = load_run_config(args.config_path)
+            run_config = load_run_config(
+                args.config_path,
+                no_confluence_ca_bundle=args.no_ca_bundle,
+            )
             selected_runs = select_runs(run_config, only_names=args.only)
         except ValueError as exc:
             exit_with_cli_error(str(exc), command="run")
@@ -920,6 +949,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             space_key=args.space_key,
             space_url=args.space_url,
             ca_bundle=args.ca_bundle,
+            no_ca_bundle=args.no_ca_bundle,
             client_cert_file=args.client_cert_file,
             client_key_file=args.client_key_file,
             client_mode=args.client_mode,
@@ -994,7 +1024,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         try:
             validate_explicit_tls_paths(
-                ca_bundle=confluence_config.ca_bundle,
+                ca_bundle=None if confluence_config.no_ca_bundle else confluence_config.ca_bundle,
                 client_cert_file=confluence_config.client_cert_file,
                 client_key_file=confluence_config.client_key_file,
             )
@@ -1022,14 +1052,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         selected_list_space_page_ids: Callable[[str], list[str]] | None = None
         if confluence_config.client_mode == "real":
 
+            def real_client_tls_kwargs() -> RealClientTLSKwargs:
+                kwargs = RealClientTLSKwargs(
+                    ca_bundle=confluence_config.ca_bundle,
+                    client_cert_file=confluence_config.client_cert_file,
+                    client_key_file=confluence_config.client_key_file,
+                )
+                if confluence_config.no_ca_bundle:
+                    kwargs["no_ca_bundle"] = True
+                return kwargs
+
             def selected_fetch_page(resolved_target: ResolvedTarget) -> dict[str, object]:
                 return fetch_real_page(
                     resolved_target,
                     base_url=confluence_config.base_url,
                     auth_method=confluence_config.auth_method,
-                    ca_bundle=confluence_config.ca_bundle,
-                    client_cert_file=confluence_config.client_cert_file,
-                    client_key_file=confluence_config.client_key_file,
+                    **real_client_tls_kwargs(),
                 )
 
             def selected_fetch_page_summary(
@@ -1039,9 +1077,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     resolved_target,
                     base_url=confluence_config.base_url,
                     auth_method=confluence_config.auth_method,
-                    ca_bundle=confluence_config.ca_bundle,
-                    client_cert_file=confluence_config.client_cert_file,
-                    client_key_file=confluence_config.client_key_file,
+                    **real_client_tls_kwargs(),
                 )
 
             def selected_list_child_page_ids(
@@ -1051,9 +1087,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     resolved_target,
                     base_url=confluence_config.base_url,
                     auth_method=confluence_config.auth_method,
-                    ca_bundle=confluence_config.ca_bundle,
-                    client_cert_file=confluence_config.client_cert_file,
-                    client_key_file=confluence_config.client_key_file,
+                    **real_client_tls_kwargs(),
                 )
 
             def selected_list_space_page_ids(space_key: str) -> list[str]:
@@ -1061,9 +1095,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     space_key,
                     base_url=confluence_config.base_url,
                     auth_method=confluence_config.auth_method,
-                    ca_bundle=confluence_config.ca_bundle,
-                    client_cert_file=confluence_config.client_cert_file,
-                    client_key_file=confluence_config.client_key_file,
+                    **real_client_tls_kwargs(),
                 )
         else:
             selected_fetch_page = fetch_page
@@ -1121,10 +1153,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             if confluence_config.client_mode == "real":
                 resolved_tls_inputs = resolve_tls_inputs(
                     ca_bundle=confluence_config.ca_bundle,
+                    no_ca_bundle=confluence_config.no_ca_bundle,
                     client_cert_file=confluence_config.client_cert_file,
                     client_key_file=confluence_config.client_key_file,
                 )
                 tls_inputs: list[str] = []
+                if confluence_config.no_ca_bundle:
+                    tls_inputs.append("ca_bundle=disabled")
                 if resolved_tls_inputs.ca_bundle:
                     tls_inputs.append(
                         f"ca_bundle={render_user_path(resolved_tls_inputs.ca_bundle)}"
