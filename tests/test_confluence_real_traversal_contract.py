@@ -35,6 +35,25 @@ def _real_tree_argv(
     ]
 
 
+def _real_space_argv(
+    output_dir: Path,
+    *,
+    space_flag: str = "--space-key",
+    space_value: str = "ENG",
+) -> list[str]:
+    return [
+        "confluence",
+        "--base-url",
+        "https://example.com/wiki",
+        space_flag,
+        space_value,
+        "--output-dir",
+        str(output_dir),
+        "--client-mode",
+        "real",
+    ]
+
+
 def _load_manifest(output_dir: Path) -> dict[str, object]:
     payload = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
     return cast(dict[str, object], payload)
@@ -241,6 +260,247 @@ def _run_real_recursive_cli(
     output_dir = tmp_path / "out"
     exit_code = main(_real_tree_argv(output_dir, target=target, max_depth=max_depth))
     return exit_code, output_dir, page_fetch_counts, child_list_calls
+
+
+def _run_real_space_cli(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    *,
+    pages: dict[str, dict[str, object]] | None = None,
+    discovered_page_ids: list[str] | None = None,
+    space_flag: str = "--space-key",
+    space_value: str = "ENG",
+) -> tuple[int, Path, dict[str, int], list[str]]:
+    from knowledge_adapters.confluence import client as client_module
+
+    if pages is None:
+        pages = _real_pages()
+    if discovered_page_ids is None:
+        discovered_page_ids = ["300", "100", "200"]
+
+    page_fetch_counts: dict[str, int] = {}
+    space_list_calls: list[str] = []
+
+    def stub_real_fetch(
+        target: ResolvedTarget,
+        *,
+        base_url: str = "https://example.com/wiki",
+        auth_method: str = "bearer-env",
+        ca_bundle: str | None = None,
+        client_cert_file: str | None = None,
+        client_key_file: str | None = None,
+    ) -> dict[str, object]:
+        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
+
+        page_id = str(target.page_id)
+        page_fetch_counts[page_id] = page_fetch_counts.get(page_id, 0) + 1
+        return dict(pages[page_id])
+
+    def stub_space_discovery(
+        space_key: str,
+        *,
+        base_url: str = "https://example.com/wiki",
+        auth_method: str = "bearer-env",
+        ca_bundle: str | None = None,
+        client_cert_file: str | None = None,
+        client_key_file: str | None = None,
+    ) -> list[str]:
+        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
+        space_list_calls.append(space_key)
+        return list(discovered_page_ids or [])
+
+    def fail_if_child_discovery_used(*args: object, **kwargs: object) -> list[str]:
+        del args, kwargs
+        raise AssertionError("child discovery should not be used in space mode")
+
+    monkeypatch.setattr(client_module, "fetch_real_page", stub_real_fetch, raising=False)
+    monkeypatch.setattr(
+        client_module,
+        "list_real_space_page_ids",
+        stub_space_discovery,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        client_module,
+        "list_real_child_page_ids",
+        fail_if_child_discovery_used,
+        raising=False,
+    )
+
+    output_dir = tmp_path / "out"
+    exit_code = main(
+        _real_space_argv(
+            output_dir,
+            space_flag=space_flag,
+            space_value=space_value,
+        )
+    )
+    return exit_code, output_dir, page_fetch_counts, space_list_calls
+
+
+@pytest.mark.parametrize(
+    ("space_flag", "space_value"),
+    [
+        ("--space-key", "ENG"),
+        ("--space-url", "https://example.com/wiki/spaces/ENG/overview"),
+    ],
+)
+def test_real_space_mode_discovers_pages_and_writes_in_lexical_order(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+    space_flag: str,
+    space_value: str,
+) -> None:
+    exit_code, output_dir, page_fetch_counts, space_list_calls = _run_real_space_cli(
+        tmp_path,
+        monkeypatch,
+        discovered_page_ids=["300", "100", "200", "100"],
+        space_flag=space_flag,
+        space_value=space_value,
+    )
+
+    assert exit_code == 0
+
+    payload = _load_manifest(output_dir)
+    assert "root_page_id" not in payload
+    assert "max_depth" not in payload
+    assert [entry["canonical_id"] for entry in _manifest_files(payload)] == [
+        "100",
+        "200",
+        "300",
+    ]
+    assert page_fetch_counts == {"100": 1, "200": 1, "300": 1}
+    assert space_list_calls == ["ENG"]
+
+    output = capsys.readouterr().out
+    assert "mode: space" not in output
+    assert "fetch_scope: space" in output
+    assert "space_key: ENG" in output
+    assert "pages_discovered: 3" in output
+    assert "pages_planned: 3" in output
+    assert "Summary: wrote 3, skipped 0" in output
+
+
+def test_real_space_dry_run_reports_space_summary_and_planned_actions(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    from knowledge_adapters.confluence import client as client_module
+
+    pages = _real_pages()
+
+    def stub_real_fetch(
+        target: ResolvedTarget,
+        *,
+        base_url: str = "https://example.com/wiki",
+        auth_method: str = "bearer-env",
+        ca_bundle: str | None = None,
+        client_cert_file: str | None = None,
+        client_key_file: str | None = None,
+    ) -> dict[str, object]:
+        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
+        return dict(pages[str(target.page_id)])
+
+    monkeypatch.setattr(client_module, "fetch_real_page", stub_real_fetch, raising=False)
+    monkeypatch.setattr(
+        client_module,
+        "list_real_space_page_ids",
+        lambda space_key, **kwargs: ["200", "100"] if space_key == "ENG" else [],
+        raising=False,
+    )
+
+    output_dir = tmp_path / "out"
+    exit_code = main([*_real_space_argv(output_dir), "--dry-run"])
+
+    assert exit_code == 0
+    assert not (output_dir / "manifest.json").exists()
+
+    output = capsys.readouterr().out
+    assert "mode: space" in output
+    assert "space_key: ENG" in output
+    assert "pages_discovered: 2" in output
+    assert "pages_in_plan: 2" in output
+    assert "would_write: 2" in output
+    assert "would write " in output
+    assert "pages/100.md" in output
+    assert "pages/200.md" in output
+
+
+@pytest.mark.parametrize(
+    ("extra_args", "expected_message"),
+    [
+        ([], "space mode requires --client-mode real"),
+        (
+            ["--client-mode", "real", "--target", "100"],
+            "space mode cannot be combined with --target.",
+        ),
+        (
+            ["--client-mode", "real", "--tree"],
+            "space mode cannot be combined with --tree.",
+        ),
+        (
+            ["--client-mode", "real", "--max-depth", "1"],
+            "space mode cannot be combined with --max-depth.",
+        ),
+        (
+            ["--client-mode", "real", "--space-url", "https://example.com/wiki/spaces/ENG/overview"],
+            "--space-key and --space-url are mutually exclusive.",
+        ),
+    ],
+)
+def test_space_mode_rejects_invalid_cli_combinations(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    extra_args: list[str],
+    expected_message: str,
+) -> None:
+    output_dir = tmp_path / "out"
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            [
+                "confluence",
+                "--base-url",
+                "https://example.com/wiki",
+                "--space-key",
+                "ENG",
+                "--output-dir",
+                str(output_dir),
+                *extra_args,
+            ]
+        )
+
+    assert exc_info.value.code == 2
+    _assert_concise_cli_error(capsys, expected_message=expected_message)
+    _assert_no_artifacts_written(output_dir)
+
+
+def test_space_mode_rejects_invalid_space_url_shape(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    output_dir = tmp_path / "out"
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            _real_space_argv(
+                output_dir,
+                space_flag="--space-url",
+                space_value="https://example.com/wiki/spaces/ENG/pages",
+            )
+        )
+
+    assert exc_info.value.code == 2
+    _assert_concise_cli_error(
+        capsys,
+        expected_message=(
+            "--space-url 'https://example.com/wiki/spaces/ENG/pages' must match "
+            "/spaces/{SPACE}/overview."
+        ),
+    )
+    _assert_no_artifacts_written(output_dir)
 
 
 @pytest.mark.parametrize(

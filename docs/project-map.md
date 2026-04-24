@@ -7,7 +7,7 @@ grouping them into meaningful lanes.
 ## Current State
 
 - Confluence adapter: mature (single-page, tree traversal, incremental sync,
-  TLS/auth, progress output)
+  space discovery, TLS/auth, progress output)
 - Bundle command:
   - v1 complete (#147)
   - ordering controls added (#153)
@@ -17,19 +17,11 @@ grouping them into meaningful lanes.
 
 ## Active Arc
 
-Pending selection.
+- #159 Add `git_repo` adapter for ingesting repository contents
 
 ## Next Arcs
 
-### Confluence expansion
-
-- #148 Add Confluence space-wide page discovery via space URL or space key
-
 ### New adapters
-
-#### Git source ingestion
-
-- #159 Add `git_repo` adapter for ingesting repository contents
 
 #### GitHub metadata ingestion
 

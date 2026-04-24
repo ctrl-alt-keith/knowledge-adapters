@@ -59,6 +59,42 @@ def _child_page_api_url(base_url: str, page_id: str) -> str:
     return f"{normalized_base}/rest/api/content/{encoded_page_id}/child/page"
 
 
+def _space_page_api_url(
+    base_url: str,
+    space_key: str,
+    *,
+    start: int,
+    limit: int,
+) -> str:
+    normalized_base = base_url.rstrip("/")
+    query = parse.urlencode(
+        {
+            "spaceKey": space_key,
+            "type": "page",
+            "start": start,
+            "limit": limit,
+        }
+    )
+    return f"{normalized_base}/rest/api/content?{query}"
+
+
+def _absolute_api_url(base_url: str, url: str) -> str:
+    parsed_url = parse.urlparse(url)
+    if parsed_url.scheme and parsed_url.netloc:
+        return url
+
+    normalized_base = base_url.rstrip("/")
+    if url.startswith("/"):
+        parsed_base = parse.urlparse(normalized_base)
+        normalized_base_path = parsed_base.path.rstrip("/")
+        if normalized_base_path and (
+            url == normalized_base_path or url.startswith(f"{normalized_base_path}/")
+        ):
+            return f"{parsed_base.scheme}://{parsed_base.netloc}{url}"
+        return f"{normalized_base}{url}"
+    return f"{normalized_base}/{url.lstrip('/')}"
+
+
 def _require_string(payload: dict[str, object], key: str) -> str:
     value = payload.get(key)
     if not isinstance(value, str) or not value:
@@ -176,6 +212,39 @@ def _map_child_page_ids(payload: dict[str, object]) -> list[str]:
         child_page_ids.append(child_page_id)
 
     return child_page_ids
+
+
+def _map_content_page_ids(payload: dict[str, object]) -> list[str]:
+    results = payload.get("results")
+    if not isinstance(results, list):
+        raise ValueError("Response error: invalid space page-list payload.")
+
+    page_ids: list[str] = []
+    for result in results:
+        if not isinstance(result, dict):
+            raise ValueError("Response error: invalid space page-list payload.")
+
+        content_type = result.get("type")
+        if content_type != "page":
+            raise ValueError("Response error: invalid non-page content in space page-list.")
+
+        page_id = result.get("id")
+        if not isinstance(page_id, str) or not page_id:
+            raise ValueError("Response error: invalid space page ID.")
+        page_ids.append(page_id)
+
+    return page_ids
+
+
+def _next_page_url(payload: dict[str, object], *, base_url: str) -> str | None:
+    links = payload.get("_links")
+    if not isinstance(links, dict):
+        return None
+
+    next_url = links.get("next")
+    if not isinstance(next_url, str) or not next_url:
+        return None
+    return _absolute_api_url(base_url, next_url)
 
 
 def _sanitize_debug_value(value: str) -> str:
@@ -375,3 +444,43 @@ def list_real_child_page_ids(
         client_key_file=client_key_file,
     )
     return _map_child_page_ids(raw_payload)
+
+
+def list_real_space_page_ids(
+    space_key: str,
+    *,
+    base_url: str,
+    auth_method: str,
+    ca_bundle: str | None = None,
+    client_cert_file: str | None = None,
+    client_key_file: str | None = None,
+    page_limit: int = 100,
+) -> list[str]:
+    """List all page IDs in one Confluence space in deterministic order."""
+    if not space_key:
+        raise ValueError("Response error: invalid space key.")
+
+    next_url: str | None = _space_page_api_url(
+        base_url,
+        space_key,
+        start=0,
+        limit=page_limit,
+    )
+    page_ids: set[str] = set()
+    seen_page_urls: set[str] = set()
+    while next_url is not None:
+        if next_url in seen_page_urls:
+            raise ValueError("Response error: repeated space page-list pagination URL.")
+        seen_page_urls.add(next_url)
+
+        raw_payload = _request_json(
+            next_url,
+            auth_method=auth_method,
+            ca_bundle=ca_bundle,
+            client_cert_file=client_cert_file,
+            client_key_file=client_key_file,
+        )
+        page_ids.update(_map_content_page_ids(raw_payload))
+        next_url = _next_page_url(raw_payload, base_url=base_url)
+
+    return sorted(page_ids)

@@ -13,8 +13,10 @@ class ConfluenceConfig:
     """Runtime configuration for the Confluence adapter."""
 
     base_url: str
-    target: str
+    target: str | None
     output_dir: str
+    space_key: str | None = None
+    space_url: str | None = None
     ca_bundle: str | None = None
     client_cert_file: str | None = None
     client_key_file: str | None = None

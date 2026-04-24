@@ -9,7 +9,12 @@ import yaml  # type: ignore[import-untyped]
 
 from knowledge_adapters.confluence.auth import SUPPORTED_AUTH_METHODS
 from knowledge_adapters.confluence.config import validate_explicit_tls_paths
-from knowledge_adapters.confluence.resolve import resolve_target_for_base_url, validate_base_url
+from knowledge_adapters.confluence.resolve import (
+    resolve_target_for_base_url,
+    space_key_from_url_for_base_url,
+    validate_base_url,
+    validate_space_key,
+)
 
 SUPPORTED_RUN_TYPES = frozenset({"confluence", "local_files"})
 _SUPPORTED_CONFLUENCE_CLIENT_MODES = frozenset({"real", "stub"})
@@ -27,6 +32,8 @@ _CONFLUENCE_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
         "dry_run",
         "enabled",
         "max_depth",
+        "space_key",
+        "space_url",
         "target",
         "tree",
     }
@@ -207,38 +214,93 @@ def _build_confluence_argv(
             f"Run {name!r} in {config_path} has invalid 'base_url': {exc}"
         ) from exc
 
-    target = _require_string(run_config, "target", index=index, config_path=config_path)
-    try:
-        resolve_target_for_base_url(target, base_url=base_url)
-    except ValueError as exc:
-        raise ValueError(
-            f"Run {name!r} in {config_path} has invalid 'target': {exc}"
-        ) from exc
-
     output_dir = _resolve_path_string(
         _require_string(run_config, "output_dir", index=index, config_path=config_path),
         config_path=config_path,
     )
+    client_mode = _optional_string(run_config, "client_mode", index=index, config_path=config_path)
+    if client_mode is not None and client_mode not in _SUPPORTED_CONFLUENCE_CLIENT_MODES:
+        supported_values = " or ".join(
+            repr(mode) for mode in sorted(_SUPPORTED_CONFLUENCE_CLIENT_MODES)
+        )
+        raise ValueError(
+            f"Run {name!r} in {config_path} has unsupported 'client_mode' value "
+            f"{client_mode!r}. Use {supported_values}."
+        )
+
+    target = _optional_string(run_config, "target", index=index, config_path=config_path)
+    space_key = _optional_string(run_config, "space_key", index=index, config_path=config_path)
+    space_url = _optional_string(run_config, "space_url", index=index, config_path=config_path)
+    space_mode = space_key is not None or space_url is not None
+    tree = _optional_bool(run_config, "tree", index=index, config_path=config_path, default=False)
+    max_depth = run_config.get("max_depth")
+
+    if space_key is not None and space_url is not None:
+        raise ValueError(
+            f"Run {name!r} in {config_path} must set only one of 'space_key' or 'space_url'."
+        )
+    if space_mode:
+        if client_mode != "real":
+            raise ValueError(
+                f"Run {name!r} in {config_path}: space mode requires --client-mode real."
+            )
+        if target is not None:
+            raise ValueError(
+                f"Run {name!r} in {config_path} cannot combine space mode with 'target'."
+            )
+        if tree:
+            raise ValueError(
+                f"Run {name!r} in {config_path} cannot combine space mode with 'tree'."
+            )
+        if max_depth is not None:
+            raise ValueError(
+                f"Run {name!r} in {config_path} cannot combine space mode with 'max_depth'."
+            )
+        if space_key is not None:
+            try:
+                validate_space_key(space_key)
+            except ValueError as exc:
+                raise ValueError(
+                    f"Run {name!r} in {config_path} has invalid 'space_key': {exc}"
+                ) from exc
+        if space_url is not None:
+            try:
+                space_key_from_url_for_base_url(space_url, base_url=base_url)
+            except ValueError as exc:
+                raise ValueError(
+                    f"Run {name!r} in {config_path} has invalid 'space_url': {exc}"
+                ) from exc
+    else:
+        if target is None:
+            raise ValueError(
+                f"Run {name!r} in {config_path} must set 'target', 'space_key', or "
+                "'space_url'."
+            )
+        try:
+            resolve_target_for_base_url(target, base_url=base_url)
+        except ValueError as exc:
+            raise ValueError(
+                f"Run {name!r} in {config_path} has invalid 'target': {exc}"
+            ) from exc
+
     argv: list[str] = [
         "confluence",
         "--base-url",
         base_url,
-        "--target",
-        target,
-        "--output-dir",
-        output_dir,
     ]
-
-    client_mode = _optional_string(run_config, "client_mode", index=index, config_path=config_path)
+    if target is not None:
+        argv.extend(["--target", target])
+    if space_key is not None:
+        argv.extend(["--space-key", space_key])
+    if space_url is not None:
+        argv.extend(["--space-url", space_url])
+    argv.extend(
+        [
+            "--output-dir",
+            output_dir,
+        ]
+    )
     if client_mode is not None:
-        if client_mode not in _SUPPORTED_CONFLUENCE_CLIENT_MODES:
-            supported_values = " or ".join(
-                repr(mode) for mode in sorted(_SUPPORTED_CONFLUENCE_CLIENT_MODES)
-            )
-            raise ValueError(
-                f"Run {name!r} in {config_path} has unsupported 'client_mode' value "
-                f"{client_mode!r}. Use {supported_values}."
-            )
         argv.extend(["--client-mode", client_mode])
 
     auth_method = _optional_string(run_config, "auth_method", index=index, config_path=config_path)
@@ -317,10 +379,9 @@ def _build_confluence_argv(
         argv.append("--debug")
     if _optional_bool(run_config, "dry_run", index=index, config_path=config_path, default=False):
         argv.append("--dry-run")
-    if _optional_bool(run_config, "tree", index=index, config_path=config_path, default=False):
+    if tree:
         argv.append("--tree")
 
-    max_depth = run_config.get("max_depth")
     if max_depth is not None:
         if isinstance(max_depth, bool) or not isinstance(max_depth, int):
             raise ValueError(

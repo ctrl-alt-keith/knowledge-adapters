@@ -112,6 +112,31 @@ def _list_real_child_page_ids(
     return cast(list[str], child_page_ids)
 
 
+def _list_real_space_page_ids(
+    space_key: str,
+    *,
+    base_url: str = "https://example.com/wiki",
+    auth_method: str = "bearer-env",
+    ca_bundle: str | None = None,
+    client_cert_file: str | None = None,
+    client_key_file: str | None = None,
+    page_limit: int = 100,
+) -> list[str]:
+    from knowledge_adapters.confluence import client as client_module
+
+    client_module_any = cast(Any, client_module)
+    page_ids = client_module_any.list_real_space_page_ids(
+        space_key,
+        base_url=base_url,
+        auth_method=auth_method,
+        ca_bundle=ca_bundle,
+        client_cert_file=client_cert_file,
+        client_key_file=client_key_file,
+        page_limit=page_limit,
+    )
+    return cast(list[str], page_ids)
+
+
 class _FakeHTTPResponse:
     def __init__(self, payload: dict[str, object], *, status: int = 200) -> None:
         self.status = status
@@ -170,6 +195,19 @@ def _valid_child_list_payload(*, child_page_ids: list[str]) -> dict[str, object]
             for child_page_id in child_page_ids
         ]
     }
+
+
+def _valid_space_page_list_payload(
+    *,
+    page_ids: list[str],
+    next_url: str | None = None,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "results": [{"id": page_id, "type": "page"} for page_id in page_ids]
+    }
+    if next_url is not None:
+        payload["_links"] = {"next": next_url}
+    return payload
 
 
 def _http_error(status_code: int) -> HTTPError:
@@ -977,6 +1015,58 @@ def test_real_child_list_ignores_extra_irrelevant_fields_in_valid_response(
     child_page_ids = _list_real_child_page_ids(_real_target())
 
     assert child_page_ids == ["200", "300"]
+
+
+def test_real_space_page_list_paginates_and_returns_lexical_page_ids(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    payloads = [
+        _valid_space_page_list_payload(
+            page_ids=["300", "100"],
+            next_url="/wiki/rest/api/content?spaceKey=ENG&type=page&start=2&limit=2",
+        ),
+        _valid_space_page_list_payload(page_ids=["200", "100"]),
+    ]
+    requested_urls: list[str] = []
+
+    def fake_urlopen(*args: object, **kwargs: object) -> _FakeHTTPResponse:
+        del kwargs
+        request = cast(Any, args[0])
+        requested_urls.append(str(request.full_url))
+        return _FakeHTTPResponse(payloads.pop(0))
+
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    page_ids = _list_real_space_page_ids("ENG", page_limit=2)
+
+    assert page_ids == ["100", "200", "300"]
+    assert requested_urls == [
+        "https://example.com/wiki/rest/api/content?spaceKey=ENG&type=page&start=0&limit=2",
+        "https://example.com/wiki/rest/api/content?spaceKey=ENG&type=page&start=2&limit=2",
+    ]
+
+
+def test_real_space_page_list_rejects_non_page_content(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    payload: dict[str, object] = {
+        "results": [
+            {
+                "id": "blog-1",
+                "type": "blogpost",
+            }
+        ]
+    }
+
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda *args, **kwargs: _FakeHTTPResponse(payload),
+    )
+
+    with pytest.raises(ValueError, match="invalid non-page content"):
+        _list_real_space_page_ids("ENG")
 
 
 @pytest.mark.parametrize(
