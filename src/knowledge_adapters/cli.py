@@ -385,6 +385,14 @@ def build_parser() -> argparse.ArgumentParser:
             "Returns non-zero if any configured run fails."
         ),
     )
+    run_parser.add_argument(
+        "--debug",
+        action="store_true",
+        help=(
+            "Append --debug to configured Confluence runs so nested request "
+            "details and effective TLS inputs are surfaced without editing runs.yaml."
+        ),
+    )
 
     return parser
 
@@ -495,6 +503,19 @@ def _build_configured_run_failure(
     return message, nested_details
 
 
+def _effective_configured_run_argv(
+    *,
+    run_type: str,
+    argv: Sequence[str],
+    debug: bool,
+) -> tuple[str, ...]:
+    """Apply safe top-level run overrides before invoking a configured run."""
+    effective_argv = tuple(argv)
+    if not debug or run_type != "confluence" or "--debug" in effective_argv:
+        return effective_argv
+    return (*effective_argv, "--debug")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI."""
     raw_argv = tuple(sys.argv[1:] if argv is None else argv)
@@ -541,7 +562,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         total_would_skip = 0
 
         for index, configured_run in enumerate(selected_runs, start=1):
-            display_command = shlex.join(("knowledge-adapters", *configured_run.argv))
+            effective_argv = _effective_configured_run_argv(
+                run_type=configured_run.run_type,
+                argv=configured_run.argv,
+                debug=args.debug,
+            )
+            display_command = shlex.join(("knowledge-adapters", *effective_argv))
             print(
                 f"\nRun {index}/{len(selected_runs)}: "
                 f"{configured_run.name} ({configured_run.run_type})"
@@ -552,7 +578,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             captured_stderr = io.StringIO()
             try:
                 with redirect_stdout(captured_stdout), redirect_stderr(captured_stderr):
-                    exit_code = main(configured_run.argv)
+                    exit_code = main(effective_argv)
             except SystemExit:
                 output = captured_stdout.getvalue()
                 if output:
