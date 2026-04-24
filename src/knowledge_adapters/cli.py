@@ -90,6 +90,8 @@ BUNDLE_HELP_EXAMPLES = """Examples:
   knowledge-adapters bundle ./artifacts/manifest.json --output ./bundle.md
   knowledge-adapters bundle ./artifacts --header-mode minimal --output ./bundle.md
   knowledge-adapters bundle ./artifacts --include "team-*" --exclude "*draft*" --output ./bundle.md
+  knowledge-adapters bundle ./artifacts --changed-only \\
+    --baseline-manifest ./prior/manifest.json --output ./bundle.md
 """
 
 _WRITE_SUMMARY_RE = re.compile(r"Summary: wrote (?P<wrote>\d+), skipped (?P<skipped>\d+)")
@@ -436,7 +438,8 @@ def build_parser() -> argparse.ArgumentParser:
             "glob-style include and exclude filters match canonical_id, title, "
             "output_path, and source_url. If no --include filters are provided, all "
             "artifacts start included. Exclude filters apply after include matching and "
-            "win on conflicts."
+            "win on conflicts. With --changed-only, a baseline manifest is used to keep "
+            "only artifacts with new canonical_id values or changed content_hash values."
         ),
         epilog=BUNDLE_HELP_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -491,6 +494,22 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Repeatable glob-style filter applied after --include matching across "
             "canonical_id, title, output_path, or source_url. Exclude wins on conflicts."
+        ),
+    )
+    bundle_parser.add_argument(
+        "--changed-only",
+        action="store_true",
+        help=(
+            "Keep only artifacts that are new or changed compared with "
+            "--baseline-manifest. Requires --baseline-manifest."
+        ),
+    )
+    bundle_parser.add_argument(
+        "--baseline-manifest",
+        metavar="PATH",
+        help=(
+            "Prior manifest.json to compare by canonical_id and content_hash when "
+            "--changed-only is set."
         ),
     )
 
@@ -1527,6 +1546,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 order=args.order,
                 include_patterns=args.include,
                 exclude_patterns=args.exclude,
+                changed_only=args.changed_only,
+                baseline_manifest=args.baseline_manifest,
             )
             markdown = render_bundle_markdown(
                 bundle_plan.artifacts,
@@ -1544,12 +1565,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"  include_filters: {len(args.include)}")
         if args.exclude:
             print(f"  exclude_filters: {len(args.exclude)}")
+        if args.changed_only:
+            print("  changed_only: true")
+            if bundle_plan.baseline_manifest is not None:
+                print(
+                    "  baseline_manifest: "
+                    f"{render_user_path(bundle_plan.baseline_manifest)}"
+                )
 
         print("\nPlan: Bundle run")
         for manifest in bundle_plan.manifests:
             print(f"  manifest: {render_user_path(manifest)}")
         print(f"  artifacts_selected: {len(bundle_plan.artifacts)}")
         print(f"  duplicates_skipped: {len(bundle_plan.duplicate_canonical_ids)}")
+        if args.changed_only:
+            print(f"  unchanged_skipped: {bundle_plan.unchanged_count}")
         if args.include:
             for pattern in args.include:
                 print(f"  include: {pattern}")
@@ -1566,7 +1596,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             exit_with_bundle_output_error(args.output, exc=exc)
 
         print(f"\nWrote bundle: {render_user_path(written_bundle)}")
-        if args.include or args.exclude:
+        if args.changed_only:
+            print(
+                "\nSummary: bundled "
+                f"{len(bundle_plan.artifacts)}, skipped "
+                f"{bundle_plan.unchanged_count} unchanged, skipped "
+                f"{len(bundle_plan.duplicate_canonical_ids)} duplicates"
+            )
+        elif args.include or args.exclude:
             print(
                 "\nSummary: bundled "
                 f"{len(bundle_plan.artifacts)}, filtered out "

@@ -11,6 +11,7 @@ grouping them into meaningful lanes.
 - Bundle command:
   - v1 complete (#147)
   - ordering controls added (#153)
+  - changed-only bundle comparison in review (#157)
 - CLI, config-driven runs, and test coverage are stable
 
 ## Active Arc

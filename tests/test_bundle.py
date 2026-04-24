@@ -188,6 +188,188 @@ def test_load_bundle_plan_preserves_input_grouping_and_first_wins_duplicates(
     assert plan.duplicate_canonical_ids == ("alpha",)
 
 
+def test_load_bundle_plan_changed_only_selects_new_and_changed_artifacts(
+    tmp_path: Path,
+) -> None:
+    baseline_dir = tmp_path / "baseline"
+    baseline_manifest = _write_output_dir(
+        baseline_dir,
+        files=[
+            {
+                "canonical_id": "alpha",
+                "source_url": "https://example.com/alpha",
+                "output_path": "pages/alpha.md",
+                "content_hash": "same-alpha",
+            },
+            {
+                "canonical_id": "beta",
+                "source_url": "https://example.com/beta",
+                "output_path": "pages/beta.md",
+                "content_hash": "old-beta",
+            },
+        ],
+        artifact_contents={
+            "pages/alpha.md": "# Alpha\n",
+            "pages/beta.md": "# Beta old\n",
+        },
+    )
+    current_dir = tmp_path / "current"
+    _write_output_dir(
+        current_dir,
+        files=[
+            {
+                "canonical_id": "alpha",
+                "source_url": "https://example.com/alpha",
+                "output_path": "pages/alpha.md",
+                "content_hash": "same-alpha",
+            },
+            {
+                "canonical_id": "beta",
+                "source_url": "https://example.com/beta",
+                "output_path": "pages/beta.md",
+                "content_hash": "new-beta",
+            },
+            {
+                "canonical_id": "gamma",
+                "source_url": "https://example.com/gamma",
+                "output_path": "pages/gamma.md",
+                "content_hash": "new-gamma",
+            },
+        ],
+        artifact_contents={
+            "pages/alpha.md": "# Alpha\n",
+            "pages/beta.md": "# Beta new\n",
+            "pages/gamma.md": "# Gamma\n",
+        },
+    )
+
+    plan = load_bundle_plan(
+        (current_dir,),
+        changed_only=True,
+        baseline_manifest=baseline_manifest,
+    )
+
+    assert [artifact.canonical_id for artifact in plan.artifacts] == ["beta", "gamma"]
+    assert plan.unchanged_count == 1
+    assert plan.baseline_manifest == baseline_manifest
+
+
+def test_load_bundle_plan_changed_only_uses_file_hashes_when_manifest_hashes_are_absent(
+    tmp_path: Path,
+) -> None:
+    baseline_dir = tmp_path / "baseline"
+    baseline_manifest = _write_output_dir(
+        baseline_dir,
+        files=[
+            {
+                "canonical_id": "alpha",
+                "source_url": "https://example.com/alpha",
+                "output_path": "pages/alpha.md",
+            },
+            {
+                "canonical_id": "beta",
+                "source_url": "https://example.com/beta",
+                "output_path": "pages/beta.md",
+            },
+        ],
+        artifact_contents={
+            "pages/alpha.md": "# Alpha\n",
+            "pages/beta.md": "# Beta old\n",
+        },
+    )
+    current_dir = tmp_path / "current"
+    _write_output_dir(
+        current_dir,
+        files=[
+            {
+                "canonical_id": "alpha",
+                "source_url": "https://example.com/alpha",
+                "output_path": "pages/alpha.md",
+            },
+            {
+                "canonical_id": "beta",
+                "source_url": "https://example.com/beta",
+                "output_path": "pages/beta.md",
+            },
+        ],
+        artifact_contents={
+            "pages/alpha.md": "# Alpha\n",
+            "pages/beta.md": "# Beta new\n",
+        },
+    )
+
+    plan = load_bundle_plan(
+        (current_dir,),
+        changed_only=True,
+        baseline_manifest=baseline_manifest,
+    )
+
+    assert [artifact.canonical_id for artifact in plan.artifacts] == ["beta"]
+    assert plan.unchanged_count == 1
+
+
+def test_load_bundle_plan_changed_only_treats_missing_baseline_file_as_changed(
+    tmp_path: Path,
+) -> None:
+    baseline_dir = tmp_path / "baseline"
+    baseline_manifest = _write_output_dir(
+        baseline_dir,
+        files=[
+            {
+                "canonical_id": "alpha",
+                "source_url": "https://example.com/alpha",
+                "output_path": "pages/alpha.md",
+                "content_hash": "same-alpha",
+            }
+        ],
+        artifact_contents={},
+    )
+    current_dir = tmp_path / "current"
+    _write_output_dir(
+        current_dir,
+        files=[
+            {
+                "canonical_id": "alpha",
+                "source_url": "https://example.com/alpha",
+                "output_path": "pages/alpha.md",
+                "content_hash": "same-alpha",
+            }
+        ],
+        artifact_contents={
+            "pages/alpha.md": "# Alpha\n",
+        },
+    )
+
+    plan = load_bundle_plan(
+        (current_dir,),
+        changed_only=True,
+        baseline_manifest=baseline_manifest,
+    )
+
+    assert [artifact.canonical_id for artifact in plan.artifacts] == ["alpha"]
+    assert plan.unchanged_count == 0
+
+
+def test_load_bundle_plan_changed_only_requires_baseline_manifest(tmp_path: Path) -> None:
+    output_dir = tmp_path / "artifacts"
+    _write_output_dir(
+        output_dir,
+        files=[
+            {
+                "canonical_id": "alpha",
+                "source_url": "https://example.com/alpha",
+                "output_path": "pages/alpha.md",
+            }
+        ],
+        artifact_contents={
+            "pages/alpha.md": "# Alpha\n",
+        },
+    )
+
+    with pytest.raises(ValueError, match="requires --baseline-manifest"):
+        load_bundle_plan((output_dir,), changed_only=True)
+
+
 def test_load_bundle_plan_supports_repeated_include_patterns_across_metadata_fields(
     tmp_path: Path,
 ) -> None:
