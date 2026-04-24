@@ -183,6 +183,71 @@ runs:
     assert "Hello from config run." in local_output_path.read_text(encoding="utf-8")
 
 
+def test_run_cli_smoke_supports_only_and_disabled_runs(tmp_path: Path) -> None:
+    inputs_dir = tmp_path / "inputs"
+    inputs_dir.mkdir()
+    source_file = inputs_dir / "today.txt"
+    source_file.write_text("Hello from config run.\n", encoding="utf-8")
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: docs-home
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home
+    enabled: false
+  - name: team-notes
+    type: local_files
+    file_path: ./inputs/today.txt
+    output_dir: ./artifacts/local/team-notes
+  - name: docs-tree
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "67890"
+    output_dir: ./artifacts/confluence/docs-tree
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_cli(tmp_path, "run", "./runs.yaml", "--only", "docs-tree,docs-home")
+
+    assert result.returncode == 0, result.stderr
+    assert "only: docs-tree, docs-home" in result.stdout
+    assert "runs_selected: 2" in result.stdout
+    assert "runs_skipped_disabled: 0" in result.stdout
+    assert "Run 1/2: docs-home (confluence)" in result.stdout
+    assert "Run 2/2: docs-tree (confluence)" in result.stdout
+    assert "Run 1/2: team-notes (local_files)" not in result.stdout
+    assert not (tmp_path / "artifacts" / "local" / "team-notes" / "pages" / "today.md").exists()
+
+
+def test_run_cli_smoke_rejects_unknown_only_name(tmp_path: Path) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: team-notes
+    type: local_files
+    file_path: ./inputs/today.txt
+    output_dir: ./artifacts/local/team-notes
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_cli(tmp_path, "run", "./runs.yaml", "--only", "missing-run")
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert (
+        "knowledge-adapters run: error: Unknown run name(s) for --only in "
+        f"{config_path.resolve()}: 'missing-run'. Available run names: 'team-notes'.\n"
+    ) == result.stderr
+
+
 def test_run_cli_smoke_rejects_invalid_confluence_config_before_execution(
     tmp_path: Path,
 ) -> None:

@@ -68,6 +68,7 @@ LOCAL_FILES_HELP_EXAMPLES = """Examples:
 RUN_HELP_EXAMPLES = """Examples:
   knowledge-adapters run runs.yaml
   knowledge-adapters run ./configs/runs.yaml
+  knowledge-adapters run runs.yaml --only team-notes,docs-home
   knowledge-adapters run runs.yaml --continue-on-error
 """
 
@@ -97,6 +98,25 @@ def _parse_confluence_auth_method(value: str) -> str:
 
     supported_values = " or ".join(repr(method) for method in SUPPORTED_AUTH_METHODS)
     raise argparse.ArgumentTypeError(f"unsupported value {value!r}. Choose {supported_values}.")
+
+
+def _parse_only_run_names(value: str) -> tuple[str, ...]:
+    """Parse a comma-separated run selection list."""
+    parsed_names: list[str] = []
+    seen_names: set[str] = set()
+    for raw_name in value.split(","):
+        name = raw_name.strip()
+        if not name or name in seen_names:
+            continue
+        parsed_names.append(name)
+        seen_names.add(name)
+
+    if not parsed_names:
+        raise argparse.ArgumentTypeError(
+            "expected one or more comma-separated run names."
+        )
+
+    return tuple(parsed_names)
 
 
 def exit_with_output_error(
@@ -342,6 +362,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to a YAML config file containing a top-level runs: list.",
     )
     run_parser.add_argument(
+        "--only",
+        type=_parse_only_run_names,
+        metavar="RUN_NAMES",
+        help=(
+            "Run only the named config entries from runs.yaml, matched by run name "
+            "and still executed in config order. Explicit selection overrides "
+            "enabled: false for those named runs."
+        ),
+    )
+    run_parser.add_argument(
         "--continue-on-error",
         action="store_true",
         help=(
@@ -465,16 +495,34 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "run":
-        from knowledge_adapters.run_config import load_run_config
+        from knowledge_adapters.run_config import load_run_config, select_runs
 
         try:
             run_config = load_run_config(args.config_path)
+            selected_runs = select_runs(run_config, only_names=args.only)
         except ValueError as exc:
             exit_with_cli_error(str(exc), command="run")
+
+        skipped_disabled_runs = (
+            ()
+            if args.only is not None
+            else tuple(
+                configured_run
+                for configured_run in run_config.runs
+                if not configured_run.enabled
+            )
+        )
 
         print("Config-driven run invoked")
         print(f"  config_path: {render_user_path(run_config.config_path)}")
         print(f"  runs_in_config: {len(run_config.runs)}")
+        if args.only is not None:
+            print(f"  only: {', '.join(args.only)}")
+            print(f"  runs_selected: {len(selected_runs)}")
+        if skipped_disabled_runs:
+            print(f"  runs_skipped_disabled: {len(skipped_disabled_runs)}")
+            for configured_run in skipped_disabled_runs:
+                print(f"  skipped_disabled: {configured_run.name} ({configured_run.run_type})")
 
         completed_runs = 0
         failed_runs = 0
@@ -485,10 +533,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         total_would_write = 0
         total_would_skip = 0
 
-        for index, configured_run in enumerate(run_config.runs, start=1):
+        for index, configured_run in enumerate(selected_runs, start=1):
             display_command = shlex.join(("knowledge-adapters", *configured_run.argv))
             print(
-                f"\nRun {index}/{len(run_config.runs)}: "
+                f"\nRun {index}/{len(selected_runs)}: "
                 f"{configured_run.name} ({configured_run.run_type})"
             )
             print(f"  command: {display_command}")
@@ -563,6 +611,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("\nAggregate summary:")
         print(f"  runs_completed: {completed_runs}")
         print(f"  runs_failed: {failed_runs}")
+        print(f"  runs_skipped_disabled: {len(skipped_disabled_runs)}")
         print(f"  write_runs: {write_runs}")
         print(f"  dry_run_runs: {dry_run_runs}")
         print(f"  wrote: {total_wrote}")
