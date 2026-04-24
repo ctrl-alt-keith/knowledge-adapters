@@ -7,6 +7,7 @@ import pytest
 
 from knowledge_adapters.bundle import (
     DEFAULT_BUNDLE_ORDER,
+    DEFAULT_HEADER_MODE,
     ORDERING_RULE,
     describe_bundle_order,
     load_bundle_plan,
@@ -312,6 +313,7 @@ def test_render_bundle_markdown_reads_selected_artifacts_with_separators(tmp_pat
 
     plan = load_bundle_plan((output_dir,))
 
+    assert DEFAULT_HEADER_MODE == "full"
     assert render_bundle_markdown(plan.artifacts) == (
         """## Alpha
 source_url: https://example.com/alpha
@@ -330,6 +332,93 @@ canonical_id: beta
 # Beta
 
 Beta content.
+"""
+    )
+
+
+def test_render_bundle_markdown_supports_minimal_headers(tmp_path: Path) -> None:
+    output_dir = tmp_path / "artifacts"
+    _write_output_dir(
+        output_dir,
+        files=[
+            {
+                "canonical_id": "beta",
+                "source_url": "https://example.com/beta",
+                "output_path": "pages/beta.md",
+            },
+            {
+                "canonical_id": "alpha",
+                "source_url": "https://example.com/alpha",
+                "output_path": "pages/alpha.md",
+                "title": "Alpha",
+                "fetched_at": "2026-04-24T12:00:00Z",
+                "path": "docs/alpha.md",
+                "ref": "refs/heads/main",
+            },
+        ],
+        artifact_contents={
+            "pages/beta.md": "# Beta\n\nBeta content.\n",
+            "pages/alpha.md": "# Alpha\n\nAlpha content.\n",
+        },
+    )
+
+    plan = load_bundle_plan((output_dir,))
+
+    assert render_bundle_markdown(plan.artifacts, header_mode="minimal") == (
+        """## Alpha
+source_url: https://example.com/alpha
+
+# Alpha
+
+Alpha content.
+
+---
+
+## beta
+source_url: https://example.com/beta
+
+# Beta
+
+Beta content.
+"""
+    )
+
+
+def test_render_bundle_markdown_includes_optional_full_header_metadata_when_present(
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "artifacts"
+    _write_output_dir(
+        output_dir,
+        files=[
+            {
+                "canonical_id": "alpha",
+                "source_url": "https://example.com/alpha",
+                "output_path": "pages/alpha.md",
+                "title": "Alpha",
+                "fetched_at": "2026-04-24T12:00:00Z",
+                "path": "docs/alpha.md",
+                "ref": "refs/heads/main",
+            }
+        ],
+        artifact_contents={
+            "pages/alpha.md": "# Alpha\n\nAlpha content.\n",
+        },
+    )
+
+    plan = load_bundle_plan((output_dir,))
+
+    assert render_bundle_markdown(plan.artifacts) == (
+        """## Alpha
+source_url: https://example.com/alpha
+canonical_id: alpha
+fetched_at: 2026-04-24T12:00:00Z
+path: docs/alpha.md
+ref: refs/heads/main
+
+# Alpha
+
+Alpha content.
 """
     )
 
