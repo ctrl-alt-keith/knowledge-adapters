@@ -11,6 +11,7 @@ from knowledge_adapters.cli import main
 from knowledge_adapters.confluence.models import ResolvedTarget
 from tests.cli_output_assertions import (
     assert_dry_run_summary,
+    assert_stale_artifacts,
     assert_tree_plan_page_count,
     assert_write_summary,
 )
@@ -328,6 +329,64 @@ def test_incremental_dry_run_reports_both_would_write_and_would_skip_without_wri
     assert _manifest_path(output_dir).read_text(encoding="utf-8") == original_manifest
 
 
+def test_incremental_dry_run_reports_stale_artifacts_without_modifying_them(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    output_dir = tmp_path / "out"
+    original_manifest = _write_previous_manifest(
+        output_dir,
+        [
+            _manifest_entry_for_page("100"),
+            {
+                "canonical_id": "777",
+                "source_url": "https://example.com/wiki/pages/777",
+                "output_path": "pages/legacy-child.md",
+            },
+        ],
+        root_page_id="100",
+    )
+    existing_page = _page_path(output_dir, "100")
+    stale_page = output_dir / "pages" / "legacy-child.md"
+    for path, contents in [
+        (existing_page, "already written\n"),
+        (stale_page, "legacy artifact\n"),
+    ]:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(contents, encoding="utf-8")
+
+    exit_code, _ = _run_recursive_cli(
+        tmp_path,
+        monkeypatch,
+        dry_run=True,
+    )
+
+    assert exit_code == 0
+
+    captured = capsys.readouterr()
+    assert_tree_confluence_dry_run_summary(
+        captured.out,
+        root_page_id="100",
+        manifest_path=_manifest_path(output_dir),
+        max_depth=1,
+        unique_pages=2,
+        write_count=1,
+        skip_count=1,
+        stale_count=1,
+        stale_artifact_paths=[stale_page],
+    )
+    assert_stale_artifacts(
+        captured.out,
+        count=1,
+        artifact_paths=[stale_page],
+    )
+    assert stale_page.read_text(encoding="utf-8") == "legacy artifact\n"
+    assert existing_page.read_text(encoding="utf-8") == "already written\n"
+    assert not _page_path(output_dir, "200").exists()
+    assert _manifest_path(output_dir).read_text(encoding="utf-8") == original_manifest
+
+
 def test_incremental_normal_run_manifest_includes_written_and_skipped_pages(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -611,6 +670,12 @@ def test_incremental_normal_run_handles_larger_mixed_write_and_skip_set(
         new_pages=2,
         changed_pages=0,
         unchanged_pages=2,
+        stale_artifacts=1,
+    )
+    assert_stale_artifacts(
+        captured.out,
+        count=1,
+        artifact_paths=[_page_path(output_dir, "999")],
     )
 
 
@@ -760,6 +825,12 @@ def test_incremental_output_directory_reuse_handles_overlapping_and_new_pages(
         new_pages=2,
         changed_pages=0,
         unchanged_pages=1,
+        stale_artifacts=1,
+    )
+    assert_stale_artifacts(
+        captured.out,
+        count=1,
+        artifact_paths=[unrelated_page],
     )
 
 

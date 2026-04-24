@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+from pathlib import Path
+
 
 def normalize_whitespace(text: str) -> str:
     return " ".join(text.split())
@@ -7,6 +10,22 @@ def normalize_whitespace(text: str) -> str:
 
 def assert_contains_normalized(output: str, expected: str) -> None:
     assert normalize_whitespace(expected) in normalize_whitespace(output)
+
+
+def assert_stale_artifacts(
+    output: str,
+    *,
+    count: int,
+    artifact_paths: Iterable[Path] = (),
+) -> None:
+    assert f"stale_artifacts: {count}" in output
+    if count == 0:
+        assert "Stale artifacts:" not in output
+        return
+
+    assert "Stale artifacts:" in output
+    for path in artifact_paths:
+        assert_contains_normalized(output, str(path))
 
 
 def assert_dry_run_summary(
@@ -42,6 +61,7 @@ def assert_write_summary(
     new_pages: int | None = None,
     changed_pages: int | None = None,
     unchanged_pages: int | None = None,
+    stale_artifacts: int | None = None,
 ) -> None:
     normalized = normalize_whitespace(output)
     if f"Summary: wrote {wrote}, skipped {skipped}" in normalized:
@@ -62,6 +82,8 @@ def assert_write_summary(
         assert f"changed_pages: {changed_pages}" in output
     if unchanged_pages is not None:
         assert f"unchanged_pages: {unchanged_pages}" in output
+    if stale_artifacts is not None:
+        assert f"stale_artifacts: {stale_artifacts}" in output
     if any(value is not None for value in (new_pages, changed_pages, unchanged_pages)):
         assert f"pages_written: {wrote}" in output
         assert f"pages_skipped: {skipped}" in output

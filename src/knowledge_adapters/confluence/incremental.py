@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -30,6 +30,14 @@ class PageSyncDecision:
 
     status: PageSyncStatus
     rewrite_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class StaleArtifact:
+    """Previously written artifact no longer discovered in the current tree run."""
+
+    canonical_id: str
+    output_path: str
 
 
 def _normalize_metadata_value(value: object) -> str | None:
@@ -120,6 +128,45 @@ def load_previous_manifest_output_index(output_dir: str) -> dict[str, str] | Non
         return None
 
     return indexes[1]
+
+
+def find_stale_artifacts(
+    output_dir: str,
+    previous_manifest_index: dict[str, PreviousManifestEntry] | None,
+    *,
+    current_page_ids: Collection[str],
+    current_output_paths: Collection[str],
+) -> list[StaleArtifact]:
+    """Return prior manifest artifacts no longer discovered and still present on disk."""
+    if previous_manifest_index is None:
+        return []
+
+    discovered_ids = frozenset(current_page_ids)
+    current_paths = frozenset(current_output_paths)
+    output_dir_path = Path(output_dir)
+    stale_artifacts: list[StaleArtifact] = []
+
+    for canonical_id, prior_entry in sorted(
+        previous_manifest_index.items(),
+        key=lambda item: (item[1].output_path, item[0]),
+    ):
+        if canonical_id in discovered_ids:
+            continue
+        if prior_entry.output_path in current_paths:
+            continue
+
+        artifact_path = output_dir_path / prior_entry.output_path
+        if not artifact_path.exists():
+            continue
+
+        stale_artifacts.append(
+            StaleArtifact(
+                canonical_id=canonical_id,
+                output_path=prior_entry.output_path,
+            )
+        )
+
+    return stale_artifacts
 
 
 def classify_page_sync(
