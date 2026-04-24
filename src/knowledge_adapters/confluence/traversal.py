@@ -3,12 +3,25 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 
 from knowledge_adapters.confluence.models import ResolvedTarget
 
 PagePayload = Mapping[str, object]
 FetchPage = Callable[[ResolvedTarget], dict[str, object]]
 ListChildPageIds = Callable[[ResolvedTarget], list[str]]
+
+
+@dataclass(frozen=True)
+class TreeWalkProgress:
+    """Operator-facing progress snapshot for one tree traversal step."""
+
+    depth: int
+    discovered_pages: int
+    fetched_pages: int
+
+
+TreeWalkProgressCallback = Callable[[TreeWalkProgress], None]
 
 
 def _canonical_id(page: PagePayload, fallback_page_id: str) -> str:
@@ -43,6 +56,7 @@ def walk_pages(
     max_depth: int,
     fetch_page: FetchPage,
     list_child_page_ids: ListChildPageIds | None = None,
+    progress_callback: TreeWalkProgressCallback | None = None,
 ) -> tuple[str, list[dict[str, object]]]:
     """Fetch pages breadth-first up to the requested depth."""
     root_page = fetch_page(root_target)
@@ -51,6 +65,14 @@ def walk_pages(
     ordered_pages = [root_page]
     fetched_pages = {root_page_id: root_page}
     current_level = [root_page]
+    if progress_callback is not None:
+        progress_callback(
+            TreeWalkProgress(
+                depth=0,
+                discovered_pages=len(ordered_pages),
+                fetched_pages=len(fetched_pages),
+            )
+        )
 
     for _depth in range(max_depth):
         child_ids: set[str] = set()
@@ -85,5 +107,13 @@ def walk_pages(
             key=lambda page: _canonical_id(page, ""),
         )
         ordered_pages.extend(current_level)
+        if progress_callback is not None and current_level:
+            progress_callback(
+                TreeWalkProgress(
+                    depth=_depth + 1,
+                    discovered_pages=len(ordered_pages),
+                    fetched_pages=len(fetched_pages),
+                )
+            )
 
     return root_page_id, ordered_pages

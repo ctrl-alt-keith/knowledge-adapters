@@ -169,8 +169,15 @@ runs:
 
     assert result.returncode == 0, result.stderr
     assert "Config-driven run invoked" in result.stdout
-    assert "Run 1/2: team-notes (local_files)" in result.stdout
-    assert "Run 2/2: docs-home (confluence)" in result.stdout
+    assert "Run 1/2 started: team-notes (local_files)" in result.stdout
+    assert "Run 1/2 completed: team-notes (local_files)" in result.stdout
+    assert "Run 2/2 started: docs-home (confluence)" in result.stdout
+    assert "Run 2/2 completed: docs-home (confluence)" in result.stdout
+    assert (
+        result.stdout.index("Run 1/2 started: team-notes (local_files)")
+        < result.stdout.index("Local files adapter invoked")
+        < result.stdout.index("Run 1/2 completed: team-notes (local_files)")
+    )
     assert "Aggregate summary:" in result.stdout
     assert "runs_completed: 2" in result.stdout
     assert "write_runs: 2" in result.stdout
@@ -218,9 +225,9 @@ runs:
     assert "only: docs-tree, docs-home" in result.stdout
     assert "runs_selected: 2" in result.stdout
     assert "runs_skipped_disabled: 0" in result.stdout
-    assert "Run 1/2: docs-home (confluence)" in result.stdout
-    assert "Run 2/2: docs-tree (confluence)" in result.stdout
-    assert "Run 1/2: team-notes (local_files)" not in result.stdout
+    assert "Run 1/2 started: docs-home (confluence)" in result.stdout
+    assert "Run 2/2 started: docs-tree (confluence)" in result.stdout
+    assert "Run 1/2 started: team-notes (local_files)" not in result.stdout
     assert not (tmp_path / "artifacts" / "local" / "team-notes" / "pages" / "today.md").exists()
 
 
@@ -308,8 +315,10 @@ runs:
     result = _run_cli(tmp_path, "run", "./runs.yaml", "--continue-on-error")
 
     assert result.returncode == 1
-    assert "Run 1/2: docs-home (confluence)" in result.stdout
-    assert "Run 2/2: team-notes (local_files)" in result.stdout
+    assert "Run 1/2 started: docs-home (confluence)" in result.stdout
+    assert "Run 1/2 failed: docs-home (confluence)" in result.stdout
+    assert "Run 2/2 started: team-notes (local_files)" in result.stdout
+    assert "Run 2/2 completed: team-notes (local_files)" in result.stdout
     assert "Aggregate summary:" in result.stdout
     assert "runs_completed: 1" in result.stdout
     assert "runs_failed: 1" in result.stdout
