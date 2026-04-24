@@ -24,12 +24,15 @@ _CONFLUENCE_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
         "client_key_file",
         "debug",
         "dry_run",
+        "enabled",
         "max_depth",
         "target",
         "tree",
     }
 )
-_LOCAL_FILES_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset({"dry_run", "file_path"})
+_LOCAL_FILES_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
+    {"dry_run", "enabled", "file_path"}
+)
 
 
 @dataclass(frozen=True)
@@ -40,6 +43,7 @@ class ConfiguredRun:
     run_type: str
     argv: tuple[str, ...]
     dry_run: bool
+    enabled: bool = True
 
 
 @dataclass(frozen=True)
@@ -86,6 +90,33 @@ def load_run_config(config_path: str | Path) -> RunConfig:
     )
 
 
+def select_runs(
+    run_config: RunConfig,
+    *,
+    only_names: tuple[str, ...] | None = None,
+) -> tuple[ConfiguredRun, ...]:
+    """Select runs for execution, preserving config order."""
+    if only_names is None:
+        return tuple(configured_run for configured_run in run_config.runs if configured_run.enabled)
+
+    available_names = {configured_run.name for configured_run in run_config.runs}
+    missing_names = tuple(name for name in only_names if name not in available_names)
+    if missing_names:
+        missing = ", ".join(repr(name) for name in missing_names)
+        available = ", ".join(repr(configured_run.name) for configured_run in run_config.runs)
+        raise ValueError(
+            f"Unknown run name(s) for --only in {run_config.config_path}: {missing}. "
+            f"Available run names: {available}."
+        )
+
+    selected_names = frozenset(only_names)
+    return tuple(
+        configured_run
+        for configured_run in run_config.runs
+        if configured_run.name in selected_names
+    )
+
+
 def _parse_run(
     run_config: object,
     *,
@@ -115,7 +146,20 @@ def _parse_run(
             config_path=config_path,
             default=False,
         )
-        return ConfiguredRun(name=name, run_type=run_type, argv=argv, dry_run=dry_run)
+        enabled = _optional_bool(
+            run_config,
+            "enabled",
+            index=index,
+            config_path=config_path,
+            default=True,
+        )
+        return ConfiguredRun(
+            name=name,
+            run_type=run_type,
+            argv=argv,
+            dry_run=dry_run,
+            enabled=enabled,
+        )
 
     argv = _build_local_files_argv(run_config, name=name, config_path=config_path)
     dry_run = _optional_bool(
@@ -125,7 +169,20 @@ def _parse_run(
         config_path=config_path,
         default=False,
     )
-    return ConfiguredRun(name=name, run_type=run_type, argv=argv, dry_run=dry_run)
+    enabled = _optional_bool(
+        run_config,
+        "enabled",
+        index=index,
+        config_path=config_path,
+        default=True,
+    )
+    return ConfiguredRun(
+        name=name,
+        run_type=run_type,
+        argv=argv,
+        dry_run=dry_run,
+        enabled=enabled,
+    )
 
 
 def _build_confluence_argv(

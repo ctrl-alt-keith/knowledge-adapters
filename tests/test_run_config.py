@@ -7,7 +7,7 @@ import pytest
 from pytest import CaptureFixture, MonkeyPatch
 
 from knowledge_adapters.cli import main
-from knowledge_adapters.run_config import ConfiguredRun, load_run_config
+from knowledge_adapters.run_config import ConfiguredRun, load_run_config, select_runs
 
 
 def test_load_run_config_resolves_relative_paths_from_config_location(tmp_path: Path) -> None:
@@ -81,6 +81,128 @@ runs:
 
     with pytest.raises(ValueError, match="unsupported keys"):
         load_run_config(config_path)
+
+
+def test_load_run_config_parses_enabled_flag(tmp_path: Path) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: team-notes
+    type: local_files
+    file_path: ./notes.txt
+    output_dir: ./artifacts
+    enabled: false
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    run_config = load_run_config(config_path)
+
+    assert run_config.runs == (
+        ConfiguredRun(
+            name="team-notes",
+            run_type="local_files",
+            argv=(
+                "local_files",
+                "--file-path",
+                str((tmp_path / "notes.txt").resolve()),
+                "--output-dir",
+                str((tmp_path / "artifacts").resolve()),
+            ),
+            dry_run=False,
+            enabled=False,
+        ),
+    )
+
+
+def test_select_runs_skips_disabled_runs_by_default(tmp_path: Path) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: docs-home
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home
+    enabled: false
+  - name: team-notes
+    type: local_files
+    file_path: ./notes.txt
+    output_dir: ./artifacts/local/team-notes
+  - name: docs-tree
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "67890"
+    output_dir: ./artifacts/confluence/docs-tree
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    run_config = load_run_config(config_path)
+
+    assert tuple(run.name for run in select_runs(run_config)) == ("team-notes", "docs-tree")
+
+
+def test_select_runs_only_named_runs_preserves_config_order_and_overrides_disabled(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: docs-home
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home
+    enabled: false
+  - name: team-notes
+    type: local_files
+    file_path: ./notes.txt
+    output_dir: ./artifacts/local/team-notes
+  - name: docs-tree
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "67890"
+    output_dir: ./artifacts/confluence/docs-tree
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    run_config = load_run_config(config_path)
+
+    assert tuple(
+        run.name
+        for run in select_runs(run_config, only_names=("docs-tree", "docs-home"))
+    ) == (
+        "docs-home",
+        "docs-tree",
+    )
+
+
+def test_select_runs_rejects_unknown_only_names(tmp_path: Path) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: team-notes
+    type: local_files
+    file_path: ./notes.txt
+    output_dir: ./artifacts
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    run_config = load_run_config(config_path)
+
+    with pytest.raises(ValueError, match="Unknown run name\\(s\\) for --only"):
+        select_runs(run_config, only_names=("missing-run",))
 
 
 @pytest.mark.parametrize(
@@ -240,6 +362,104 @@ runs:
             "last_modified": "1970-01-01T00:00:00Z",
         }
     ]
+
+
+def test_run_command_skips_disabled_runs_by_default(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    source_file = tmp_path / "inputs" / "team-notes.txt"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text("Ship it.\n", encoding="utf-8")
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: docs-home
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home
+    enabled: false
+  - name: team-notes
+    type: local_files
+    file_path: ./inputs/team-notes.txt
+    output_dir: ./artifacts/local/team-notes
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(["run", str(config_path)])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "runs_skipped_disabled: 1" in captured.out
+    assert "skipped_disabled: docs-home (confluence)" in captured.out
+    assert "Run 1/1: team-notes (local_files)" in captured.out
+    assert "Run 1/1: docs-home (confluence)" not in captured.out
+    assert "runs_completed: 1" in captured.out
+
+    local_output_path = (
+        tmp_path / "artifacts" / "local" / "team-notes" / "pages" / "team-notes.md"
+    )
+    assert local_output_path.exists()
+    disabled_output_path = (
+        tmp_path / "artifacts" / "confluence" / "docs-home" / "pages" / "12345.md"
+    )
+    assert not disabled_output_path.exists()
+
+
+def test_run_command_only_runs_selected_names_in_config_order_and_overrides_disabled(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    source_file = tmp_path / "inputs" / "team-notes.txt"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text("Ship it.\n", encoding="utf-8")
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: docs-home
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home
+    enabled: false
+  - name: team-notes
+    type: local_files
+    file_path: ./inputs/team-notes.txt
+    output_dir: ./artifacts/local/team-notes
+  - name: docs-tree
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "67890"
+    output_dir: ./artifacts/confluence/docs-tree
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(["run", str(config_path), "--only", "docs-tree,docs-home"])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "only: docs-tree, docs-home" in captured.out
+    assert "runs_selected: 2" in captured.out
+    assert "runs_skipped_disabled: 0" in captured.out
+    assert "Run 1/2: docs-home (confluence)" in captured.out
+    assert "Run 2/2: docs-tree (confluence)" in captured.out
+    assert "Run 1/2: team-notes (local_files)" not in captured.out
+
+    disabled_output_path = (
+        tmp_path / "artifacts" / "confluence" / "docs-home" / "pages" / "12345.md"
+    )
+    assert disabled_output_path.exists()
+    non_selected_output_path = (
+        tmp_path / "artifacts" / "local" / "team-notes" / "pages" / "team-notes.md"
+    )
+    assert not non_selected_output_path.exists()
 
 
 def test_run_command_reports_dry_run_counts(
