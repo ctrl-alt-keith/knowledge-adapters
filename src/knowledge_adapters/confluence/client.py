@@ -341,12 +341,14 @@ def _request_json(
     *,
     auth_method: str,
     ca_bundle: str | None = None,
+    no_ca_bundle: bool = False,
     client_cert_file: str | None = None,
     client_key_file: str | None = None,
 ) -> dict[str, object]:
     request_auth = build_request_auth(
         auth_method,
         ca_bundle=ca_bundle,
+        no_ca_bundle=no_ca_bundle,
         client_cert_file=client_cert_file,
         client_key_file=client_key_file,
     )
@@ -380,6 +382,7 @@ def fetch_real_page(
     base_url: str,
     auth_method: str,
     ca_bundle: str | None = None,
+    no_ca_bundle: bool = False,
     client_cert_file: str | None = None,
     client_key_file: str | None = None,
 ) -> dict[str, object]:
@@ -392,6 +395,7 @@ def fetch_real_page(
         _content_api_url(base_url, page_id, expand="body.storage,_links,version"),
         auth_method=auth_method,
         ca_bundle=ca_bundle,
+        no_ca_bundle=no_ca_bundle,
         client_cert_file=client_cert_file,
         client_key_file=client_key_file,
     )
@@ -404,6 +408,7 @@ def fetch_real_page_summary(
     base_url: str,
     auth_method: str,
     ca_bundle: str | None = None,
+    no_ca_bundle: bool = False,
     client_cert_file: str | None = None,
     client_key_file: str | None = None,
 ) -> dict[str, object]:
@@ -416,6 +421,7 @@ def fetch_real_page_summary(
         _content_api_url(base_url, page_id, expand="version,_links"),
         auth_method=auth_method,
         ca_bundle=ca_bundle,
+        no_ca_bundle=no_ca_bundle,
         client_cert_file=client_cert_file,
         client_key_file=client_key_file,
     )
@@ -428,6 +434,7 @@ def list_real_child_page_ids(
     base_url: str,
     auth_method: str,
     ca_bundle: str | None = None,
+    no_ca_bundle: bool = False,
     client_cert_file: str | None = None,
     client_key_file: str | None = None,
 ) -> list[str]:
@@ -440,6 +447,7 @@ def list_real_child_page_ids(
         _child_page_api_url(base_url, page_id),
         auth_method=auth_method,
         ca_bundle=ca_bundle,
+        no_ca_bundle=no_ca_bundle,
         client_cert_file=client_cert_file,
         client_key_file=client_key_file,
     )
@@ -452,6 +460,7 @@ def list_real_space_page_ids(
     base_url: str,
     auth_method: str,
     ca_bundle: str | None = None,
+    no_ca_bundle: bool = False,
     client_cert_file: str | None = None,
     client_key_file: str | None = None,
     page_limit: int = 100,
@@ -477,6 +486,7 @@ def list_real_space_page_ids(
             next_url,
             auth_method=auth_method,
             ca_bundle=ca_bundle,
+            no_ca_bundle=no_ca_bundle,
             client_cert_file=client_cert_file,
             client_key_file=client_key_file,
         )
