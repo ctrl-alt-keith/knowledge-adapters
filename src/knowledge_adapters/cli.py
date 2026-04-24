@@ -11,6 +11,7 @@ from collections.abc import Callable, Sequence
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TextIO
 
 from knowledge_adapters.confluence.auth import SUPPORTED_AUTH_METHODS, resolve_tls_inputs
 
@@ -94,6 +95,22 @@ class MultiRunSummary:
     dry_run: bool
     wrote: int
     skipped: int
+
+
+class _TeeStream:
+    """Write nested CLI stdout both live and into an in-memory buffer."""
+
+    def __init__(self, *streams: TextIO) -> None:
+        self._streams = streams
+
+    def write(self, text: str) -> int:
+        for stream in self._streams:
+            stream.write(text)
+        return len(text)
+
+    def flush(self) -> None:
+        for stream in self._streams:
+            stream.flush()
 
 
 def _parse_confluence_auth_method(value: str) -> str:
@@ -569,7 +586,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             display_command = shlex.join(("knowledge-adapters", *effective_argv))
             print(
-                f"\nRun {index}/{len(selected_runs)}: "
+                f"\nRun {index}/{len(selected_runs)} started: "
                 f"{configured_run.name} ({configured_run.run_type})"
             )
             print(f"  command: {display_command}")
@@ -577,12 +594,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             captured_stdout = io.StringIO()
             captured_stderr = io.StringIO()
             try:
-                with redirect_stdout(captured_stdout), redirect_stderr(captured_stderr):
+                with redirect_stdout(_TeeStream(sys.stdout, captured_stdout)), redirect_stderr(
+                    captured_stderr
+                ):
                     exit_code = main(effective_argv)
             except SystemExit:
-                output = captured_stdout.getvalue()
-                if output:
-                    print(output, end="" if output.endswith("\n") else "\n")
+                print(
+                    f"Run {index}/{len(selected_runs)} failed: "
+                    f"{configured_run.name} ({configured_run.run_type})"
+                )
                 message, nested_details = _build_configured_run_failure(
                     configured_run_name=configured_run.name,
                     configured_run_type=configured_run.run_type,
@@ -600,6 +620,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 continue
 
             if exit_code != 0:
+                print(
+                    f"Run {index}/{len(selected_runs)} failed: "
+                    f"{configured_run.name} ({configured_run.run_type})"
+                )
                 message, nested_details = _build_configured_run_failure(
                     configured_run_name=configured_run.name,
                     configured_run_type=configured_run.run_type,
@@ -618,14 +642,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 continue
 
             output = captured_stdout.getvalue()
-            if output:
-                print(output, end="" if output.endswith("\n") else "\n")
 
             try:
                 summary = _parse_multi_run_summary(output)
             except RuntimeError as exc:
                 exit_with_cli_error(str(exc), command="run")
 
+            print(
+                f"Run {index}/{len(selected_runs)} completed: "
+                f"{configured_run.name} ({configured_run.run_type})"
+            )
             completed_runs += 1
             if summary.dry_run:
                 dry_run_runs += 1
@@ -694,7 +720,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         from knowledge_adapters.confluence.models import ResolvedTarget
         from knowledge_adapters.confluence.normalize import normalize_to_markdown
         from knowledge_adapters.confluence.resolve import resolve_target_for_base_url
-        from knowledge_adapters.confluence.traversal import walk_pages
+        from knowledge_adapters.confluence.traversal import TreeWalkProgress, walk_pages
         from knowledge_adapters.confluence.writer import markdown_path, write_markdown
 
         confluence_config = ConfluenceConfig(
@@ -1011,12 +1037,28 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "use --client-mode real to discover descendants from Confluence."
             )
 
+        def _print_tree_walk_progress(progress: TreeWalkProgress) -> None:
+            print(
+                "Tree progress: "
+                f"depth {progress.depth}, "
+                f"discovered {progress.discovered_pages}, "
+                f"fetched {progress.fetched_pages}, "
+                f"planned {progress.discovered_pages}"
+            )
+
+        def _should_report_fetch_progress(*, fetched_count: int, total_count: int) -> bool:
+            return total_count <= 5 or fetched_count == total_count or fetched_count % 10 == 0
+
         if confluence_config.tree:
             previous_manifest_index = load_previous_manifest_index(confluence_config.output_dir)
             tree_fetch_page = (
                 selected_fetch_page
                 if previous_manifest_index is None
                 else selected_fetch_page_summary
+            )
+            print(
+                "Tree progress: "
+                f"traversal started, max_depth {confluence_config.max_depth}"
             )
             if confluence_config.client_mode == "real":
                 try:
@@ -1025,6 +1067,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         max_depth=confluence_config.max_depth,
                         fetch_page=tree_fetch_page,
                         list_child_page_ids=selected_list_child_page_ids,
+                        progress_callback=_print_tree_walk_progress,
                     )
                 except (RuntimeError, ValueError) as exc:
                     exit_with_cli_error(
@@ -1038,6 +1081,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     max_depth=confluence_config.max_depth,
                     fetch_page=tree_fetch_page,
                     list_child_page_ids=selected_list_child_page_ids,
+                    progress_callback=_print_tree_walk_progress,
                 )
             _print_confluence_invocation()
             page_records: list[tuple[dict[str, object], Path, PageSyncDecision, str]] = []
@@ -1121,6 +1165,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             ]
 
             pages_to_write: dict[str, dict[str, object]] = {}
+            pages_needing_fetch = sum(
+                1
+                for page, _output_path, _page_decision, action in page_records
+                if action == "write" and page.get("content") is None
+            )
+            fetched_write_pages = 0
+            if pages_needing_fetch > 0:
+                print(
+                    "Tree fetch progress: "
+                    f"fetched 0/{pages_needing_fetch}, "
+                    f"skipped {skip_count}, "
+                    f"planned {len(page_records)}"
+                )
             try:
                 for page, _output_path, _page_decision, action in page_records:
                     if action == "skip":
@@ -1138,6 +1195,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                             page_url=None,
                         )
                     )
+                    fetched_write_pages += 1
+                    if _should_report_fetch_progress(
+                        fetched_count=fetched_write_pages,
+                        total_count=pages_needing_fetch,
+                    ):
+                        print(
+                            "Tree fetch progress: "
+                            f"fetched {fetched_write_pages}/{pages_needing_fetch}, "
+                            f"skipped {skip_count}, "
+                            f"planned {len(page_records)}"
+                        )
             except (RuntimeError, ValueError) as exc:
                 exit_with_cli_error(
                     str(exc),

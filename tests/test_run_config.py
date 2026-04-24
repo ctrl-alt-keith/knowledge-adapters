@@ -333,10 +333,12 @@ runs:
     assert exit_code == 0
     captured = capsys.readouterr()
     assert "Config-driven run invoked" in captured.out
-    assert "Run 1/2: team-notes (local_files)" in captured.out
-    assert "Run 2/2: docs-home (confluence)" in captured.out
-    assert captured.out.index("Run 1/2: team-notes (local_files)") < captured.out.index(
-        "Run 2/2: docs-home (confluence)"
+    assert "Run 1/2 started: team-notes (local_files)" in captured.out
+    assert "Run 1/2 completed: team-notes (local_files)" in captured.out
+    assert "Run 2/2 started: docs-home (confluence)" in captured.out
+    assert "Run 2/2 completed: docs-home (confluence)" in captured.out
+    assert captured.out.index("Run 1/2 started: team-notes (local_files)") < captured.out.index(
+        "Run 2/2 started: docs-home (confluence)"
     )
     assert "Run summary: wrote 1, skipped 0" in captured.out
     assert "Aggregate summary:" in captured.out
@@ -411,8 +413,8 @@ runs:
     captured = capsys.readouterr()
     assert "runs_skipped_disabled: 1" in captured.out
     assert "skipped_disabled: docs-home (confluence)" in captured.out
-    assert "Run 1/1: team-notes (local_files)" in captured.out
-    assert "Run 1/1: docs-home (confluence)" not in captured.out
+    assert "Run 1/1 started: team-notes (local_files)" in captured.out
+    assert "Run 1/1 started: docs-home (confluence)" not in captured.out
     assert "runs_completed: 1" in captured.out
 
     local_output_path = (
@@ -463,9 +465,9 @@ runs:
     assert "only: docs-tree, docs-home" in captured.out
     assert "runs_selected: 2" in captured.out
     assert "runs_skipped_disabled: 0" in captured.out
-    assert "Run 1/2: docs-home (confluence)" in captured.out
-    assert "Run 2/2: docs-tree (confluence)" in captured.out
-    assert "Run 1/2: team-notes (local_files)" not in captured.out
+    assert "Run 1/2 started: docs-home (confluence)" in captured.out
+    assert "Run 2/2 started: docs-tree (confluence)" in captured.out
+    assert "Run 1/2 started: team-notes (local_files)" not in captured.out
 
     disabled_output_path = (
         tmp_path / "artifacts" / "confluence" / "docs-home" / "pages" / "12345.md"
@@ -540,7 +542,8 @@ runs:
     assert "Config-driven run invoked" in captured.out
     assert f"config_path: {config_path.resolve()}" in captured.out
     assert "runs_in_config: 1" in captured.out
-    assert "Run 1/1: docs-home (confluence)" in captured.out
+    assert "Run 1/1 started: docs-home (confluence)" in captured.out
+    assert "Run 1/1 failed: docs-home (confluence)" in captured.out
     assert (
         "knowledge-adapters run: error: Run 'docs-home' (confluence) failed while "
         "executing knowledge-adapters confluence --base-url https://example.com/wiki "
@@ -585,8 +588,9 @@ runs:
 
     assert exc_info.value.code == 2
     captured = capsys.readouterr()
-    assert "Run 1/2: docs-home (confluence)" in captured.out
-    assert "Run 2/2: team-notes (local_files)" not in captured.out
+    assert "Run 1/2 started: docs-home (confluence)" in captured.out
+    assert "Run 1/2 failed: docs-home (confluence)" in captured.out
+    assert "Run 2/2 started: team-notes (local_files)" not in captured.out
     assert "Aggregate summary:" not in captured.out
     assert "knowledge-adapters run: error: Run 'docs-home' (confluence) failed while " in (
         captured.err
@@ -627,8 +631,10 @@ runs:
 
     assert exit_code == 1
     captured = capsys.readouterr()
-    assert "Run 1/2: docs-home (confluence)" in captured.out
-    assert "Run 2/2: team-notes (local_files)" in captured.out
+    assert "Run 1/2 started: docs-home (confluence)" in captured.out
+    assert "Run 1/2 failed: docs-home (confluence)" in captured.out
+    assert "Run 2/2 started: team-notes (local_files)" in captured.out
+    assert "Run 2/2 completed: team-notes (local_files)" in captured.out
     assert "Aggregate summary:" in captured.out
     assert "runs_completed: 1" in captured.out
     assert "runs_failed: 1" in captured.out

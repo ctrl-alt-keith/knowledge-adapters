@@ -381,6 +381,8 @@ def test_real_tree_incremental_run_skips_full_page_fetch_for_unchanged_pages(
     assert "new_pages: 1" in captured.out
     assert "changed_pages: 0" in captured.out
     assert "unchanged_pages: 2" in captured.out
+    assert "Tree fetch progress: fetched 0/1, skipped 2, planned 3" in captured.out
+    assert "Tree fetch progress: fetched 1/1, skipped 2, planned 3" in captured.out
 
 
 def test_real_tree_run_does_not_report_stub_discovery_limit(
@@ -402,6 +404,26 @@ def test_real_tree_run_does_not_report_stub_discovery_limit(
         "note: stub mode does not support descendant discovery; use --client-mode real "
         "to discover descendants from Confluence."
     ) not in output
+
+
+def test_real_tree_reports_depth_progress_during_traversal(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    exit_code, _output_dir, _page_fetch_counts, _child_list_calls = _run_real_recursive_cli(
+        tmp_path,
+        monkeypatch,
+        max_depth=2,
+    )
+
+    assert exit_code == 0
+
+    output = capsys.readouterr().out
+    assert "Tree progress: traversal started, max_depth 2" in output
+    assert "Tree progress: depth 0, discovered 1, fetched 1, planned 1" in output
+    assert "Tree progress: depth 1, discovered 3, fetched 3, planned 3" in output
+    assert "Tree progress: depth 2, discovered 5, fetched 5, planned 5" in output
 
 
 def test_real_tree_orders_pages_breadth_first_then_lexical_without_parent_adjacency(
