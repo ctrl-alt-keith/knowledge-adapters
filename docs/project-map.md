@@ -21,6 +21,7 @@ grouping them into meaningful lanes.
 ## Active Arc
 
 - #159 Add `git_repo` adapter for ingesting repository contents
+- Status: implement clone/fetch + checkout ingestion, deterministic file filtering, and manifest metadata without broadening adapter scope
 
 ## Next Arcs
 

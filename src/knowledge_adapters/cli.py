@@ -27,6 +27,7 @@ TOP_LEVEL_HELP_EXAMPLES = """First steps:
   knowledge-adapters --help
   knowledge-adapters run runs.yaml
   knowledge-adapters local_files --help
+  knowledge-adapters git_repo --help
   knowledge-adapters confluence --help
   knowledge-adapters bundle ./artifacts --output ./bundle.md
 
@@ -74,6 +75,23 @@ LOCAL_FILES_HELP_EXAMPLES = """Examples:
     --dry-run
   knowledge-adapters local_files \\
     --file-path ./notes/today.txt \\
+    --output-dir ./artifacts
+"""
+
+GIT_REPO_HELP_EXAMPLES = """Examples:
+  knowledge-adapters git_repo \\
+    --repo-url https://github.com/example/project.git \\
+    --output-dir ./artifacts \\
+    --dry-run
+  knowledge-adapters git_repo \\
+    --repo-url https://github.com/example/project.git \\
+    --ref v1.2.3 \\
+    --include \"docs/**/*.md\" \\
+    --exclude \"docs/archive/*\" \\
+    --output-dir ./artifacts
+  knowledge-adapters git_repo \\
+    --repo-url https://github.com/example/project.git \\
+    --subdir docs \\
     --output-dir ./artifacts
 """
 
@@ -467,6 +485,72 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Preview the resolved file path, artifact path, manifest path, and "
             "normalized markdown without writing files."
+        ),
+    )
+
+    git_repo_parser = subparsers.add_parser(
+        "git_repo",
+        help="Normalize selected UTF-8 text files from a Git repository into shared artifacts.",
+        description=(
+            "Clone or refresh a Git repository with system git, check out the selected "
+            "ref or the repository default branch, enumerate tracked files, apply optional "
+            "include/exclude glob filters, and normalize one artifact per UTF-8 text file "
+            "into the shared artifact layout. An optional --subdir limits enumeration to "
+            "one repository-relative directory. Binary and non-UTF-8 files are skipped "
+            "with explicit reporting. File ordering is deterministic and lexical by "
+            "repository path."
+        ),
+        epilog=GIT_REPO_HELP_EXAMPLES,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    git_repo_parser.add_argument(
+        "--repo-url",
+        required=True,
+        help=(
+            "Git repository URL or other git clone locator. Relative local paths resolve "
+            "from the cwd."
+        ),
+    )
+    git_repo_parser.add_argument(
+        "--output-dir",
+        required=True,
+        metavar="DIR",
+        help="Directory where pages/ and manifest.json are written.",
+    )
+    git_repo_parser.add_argument(
+        "--ref",
+        help="Branch, tag, or commit to check out. Defaults to the repository default branch.",
+    )
+    git_repo_parser.add_argument(
+        "--include",
+        action="append",
+        default=[],
+        metavar="PATTERN",
+        help=(
+            "Glob pattern matched against repository-relative file paths. Repeat to include "
+            "multiple patterns. If omitted, all tracked files start included."
+        ),
+    )
+    git_repo_parser.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        metavar="PATTERN",
+        help=(
+            "Glob pattern matched against repository-relative file paths after include "
+            "filtering. Repeat to exclude multiple patterns."
+        ),
+    )
+    git_repo_parser.add_argument(
+        "--subdir",
+        help="Optional repository-relative directory to enumerate instead of the whole checkout.",
+    )
+    git_repo_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Preview the resolved ref, commit SHA, selected files, artifact paths, and "
+            "skip reasons without writing files."
         ),
     )
 
@@ -2201,6 +2285,183 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"\nWrote: {render_user_path(output_path)}")
         print("\nSummary: wrote 1, skipped 0")
         print(f"Artifact path: {render_user_path(output_path)}")
+        print(f"Manifest path: {render_user_path(manifest)}")
+        print_write_complete(output_dir)
+        return 0
+
+    if args.command == "git_repo":
+        import hashlib
+
+        from knowledge_adapters.confluence.manifest import (
+            build_manifest_entry,
+            write_manifest,
+        )
+        from knowledge_adapters.git_repo.client import fetch_repo_snapshot
+        from knowledge_adapters.git_repo.config import GitRepoConfig
+        from knowledge_adapters.git_repo.normalize import normalize_to_markdown
+        from knowledge_adapters.git_repo.writer import (
+            markdown_path as git_repo_markdown_path,
+        )
+        from knowledge_adapters.git_repo.writer import (
+            write_markdown as write_git_repo_markdown,
+        )
+
+        git_repo_config = GitRepoConfig(
+            repo_url=args.repo_url,
+            output_dir=args.output_dir,
+            ref=args.ref,
+            include=tuple(args.include),
+            exclude=tuple(args.exclude),
+            subdir=args.subdir,
+            dry_run=args.dry_run,
+        )
+
+        output_dir_input = Path(git_repo_config.output_dir).expanduser()
+        output_dir = output_dir_input.resolve()
+        if output_dir_input.exists() and not output_dir_input.is_dir():
+            exit_with_cli_error(
+                (
+                    f"Output path is not a directory: {output_dir}. "
+                    "Verify --output-dir and use a directory path."
+                ),
+                command="git_repo",
+            )
+
+        try:
+            snapshot = fetch_repo_snapshot(
+                git_repo_config.repo_url,
+                ref=git_repo_config.ref,
+                include=git_repo_config.include,
+                exclude=git_repo_config.exclude,
+                subdir=git_repo_config.subdir,
+            )
+        except ValueError as exc:
+            exit_with_cli_error(str(exc), command="git_repo")
+
+        print("Git repo adapter invoked")
+        print(f"  repo_url: {git_repo_config.repo_url}")
+        print(f"  output_dir: {render_user_path(git_repo_config.output_dir)}")
+        requested_ref_label = (
+            git_repo_config.ref if git_repo_config.ref is not None else "(default branch)"
+        )
+        print(
+            f"  requested_ref: {requested_ref_label}"
+        )
+        if git_repo_config.subdir is not None:
+            print(f"  subdir: {git_repo_config.subdir}")
+        if git_repo_config.include:
+            print(f"  include: {', '.join(git_repo_config.include)}")
+        if git_repo_config.exclude:
+            print(f"  exclude: {', '.join(git_repo_config.exclude)}")
+        print(f"  run_mode: {'dry-run' if git_repo_config.dry_run else 'write'}")
+
+        print("\nPlan: Git repo run")
+        print(f"  working_dir: {render_user_path(snapshot.repo_dir)}")
+        print(f"  resolved_ref: {snapshot.ref}")
+        print(f"  commit_sha: {snapshot.commit_sha}")
+        print(f"  tracked_files: {len(snapshot.discovered_paths)}")
+        filtered_out_count = len(snapshot.discovered_paths) - len(snapshot.selected_paths)
+        print(f"  selected_files: {len(snapshot.selected_paths)}")
+        print(f"  filtered_out: {filtered_out_count}")
+
+        manifest_entries: list[dict[str, object]] = []
+        written_output_paths: list[Path] = []
+        for repo_file in snapshot.files:
+            markdown = normalize_to_markdown(
+                {
+                    "title": repo_file.title,
+                    "canonical_id": repo_file.canonical_id,
+                    "source_url": repo_file.source_url,
+                    "content": repo_file.content,
+                    "source": repo_file.source,
+                    "adapter": repo_file.adapter,
+                }
+            )
+            output_path = git_repo_markdown_path(git_repo_config.output_dir, repo_file.repo_path)
+            manifest_entries.append(
+                build_manifest_entry(
+                    canonical_id=repo_file.canonical_id,
+                    source_url=repo_file.source_url,
+                    output_path=output_path,
+                    output_dir=git_repo_config.output_dir,
+                    title=repo_file.title,
+                    content_hash=hashlib.sha256(markdown.encode("utf-8")).hexdigest(),
+                    path=repo_file.repo_path,
+                    ref=snapshot.ref,
+                    commit_sha=snapshot.commit_sha,
+                )
+            )
+            written_output_paths.append(output_path)
+
+        for repo_file, output_path in zip(snapshot.files, written_output_paths, strict=True):
+            print(f"\n  path: {repo_file.repo_path}")
+            print(f"  Artifact path: {render_user_path(output_path)}")
+            content = repo_file.content
+            if content:
+                print("  content_status: UTF-8 text with content")
+            else:
+                print(
+                    "  content_status: empty UTF-8 file; output will contain metadata "
+                    "and an empty content section"
+                )
+            print(f"  action: {'would write' if git_repo_config.dry_run else 'write'}")
+
+        for skipped_file in snapshot.skipped_files:
+            output_path = git_repo_markdown_path(
+                git_repo_config.output_dir,
+                skipped_file.repo_path,
+            )
+            print(f"\n  path: {skipped_file.repo_path}")
+            print(f"  Artifact path: {render_user_path(output_path)}")
+            print(f"  content_status: skipped ({skipped_file.reason})")
+            print(f"  action: {'would skip' if git_repo_config.dry_run else 'skip'}")
+
+        manifest_output_path = output_dir / "manifest.json"
+        if git_repo_config.dry_run:
+            print(
+                "\nSummary: would write "
+                f"{len(snapshot.files)}, would skip {len(snapshot.skipped_files)}"
+            )
+            print(f"Manifest path: {render_user_path(manifest_output_path)}")
+            print_dry_run_complete()
+            return 0
+
+        try:
+            for repo_file in snapshot.files:
+                markdown = normalize_to_markdown(
+                    {
+                        "title": repo_file.title,
+                        "canonical_id": repo_file.canonical_id,
+                        "source_url": repo_file.source_url,
+                        "content": repo_file.content,
+                        "source": repo_file.source,
+                        "adapter": repo_file.adapter,
+                    }
+                )
+                write_git_repo_markdown(
+                    git_repo_config.output_dir,
+                    repo_file.repo_path,
+                    markdown,
+                )
+            manifest = write_manifest(
+                git_repo_config.output_dir,
+                manifest_entries,
+            )
+        except OSError as exc:
+            exit_with_output_error(
+                git_repo_config.output_dir,
+                command="git_repo",
+                exc=exc,
+            )
+
+        for output_path in written_output_paths:
+            print(f"\nWrote: {render_user_path(output_path)}")
+        for skipped_file in snapshot.skipped_files:
+            print(f"\nSkipped: {skipped_file.repo_path} ({skipped_file.reason})")
+        print(
+            "\nSummary: wrote "
+            f"{len(snapshot.files)}, skipped {len(snapshot.skipped_files)}"
+        )
         print(f"Manifest path: {render_user_path(manifest)}")
         print_write_complete(output_dir)
         return 0

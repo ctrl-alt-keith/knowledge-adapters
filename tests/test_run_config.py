@@ -79,6 +79,80 @@ runs:
     )
 
 
+def test_load_run_config_supports_git_repo_filters_and_ref(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        f"""
+runs:
+  - name: repo-docs
+    type: git_repo
+    repo_url: {repo_dir}
+    ref: v1.2.3
+    include:
+      - docs/**/*.md
+      - README.md
+    exclude:
+      - docs/archive/*
+    subdir: docs
+    output_dir: ./artifacts/git/repo-docs
+    dry_run: true
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    run_config = load_run_config(config_path)
+
+    assert run_config.runs == (
+        ConfiguredRun(
+            name="repo-docs",
+            run_type="git_repo",
+            argv=(
+                "git_repo",
+                "--repo-url",
+                str(repo_dir),
+                "--output-dir",
+                str((tmp_path / "artifacts" / "git" / "repo-docs").resolve()),
+                "--ref",
+                "v1.2.3",
+                "--subdir",
+                "docs",
+                "--include",
+                "docs/**/*.md",
+                "--include",
+                "README.md",
+                "--exclude",
+                "docs/archive/*",
+                "--dry-run",
+            ),
+            dry_run=True,
+        ),
+    )
+
+
+def test_load_run_config_rejects_invalid_git_repo_pattern_values(tmp_path: Path) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: repo-docs
+    type: git_repo
+    repo_url: https://github.com/example/project.git
+    include:
+      - docs/**/*.md
+      - ""
+    output_dir: ./artifacts/git/repo-docs
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="must define 'include' as a non-empty string or list"):
+        load_run_config(config_path)
+
+
 @pytest.mark.parametrize(
     ("space_block", "expected_arg"),
     [
