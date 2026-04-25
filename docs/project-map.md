@@ -17,12 +17,11 @@ grouping them into meaningful lanes.
   - header modes added (#155)
   - changed-only bundle comparison complete (#157)
   - size-aware bundle splitting complete (#154)
-- CLI, config-driven runs, and test coverage are stable
+- CLI, config-driven runs, interrupt handling, and test coverage are stable
 
 ## Active Arc
 
-- #169 Allow Ctrl-C to skip current run and continue in config-driven execution
-- Status: keep config-driven runs moving by treating one interrupt as a per-run skip and a second interrupt as process exit
+- No active arc at the moment
 
 ## Next Arcs
 
