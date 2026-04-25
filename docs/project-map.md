@@ -20,8 +20,8 @@ grouping them into meaningful lanes.
 
 ## Active Arc
 
-- #159 Add `git_repo` adapter for ingesting repository contents
-- Status: implement clone/fetch + checkout ingestion, deterministic file filtering, and manifest metadata without broadening adapter scope
+- #169 Allow Ctrl-C to skip current run and continue in config-driven execution
+- Status: keep config-driven runs moving by treating one interrupt as a per-run skip and a second interrupt as process exit
 
 ## Next Arcs
 

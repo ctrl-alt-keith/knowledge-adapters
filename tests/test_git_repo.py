@@ -8,6 +8,7 @@ from pathlib import Path
 from pytest import CaptureFixture
 
 from knowledge_adapters.cli import main
+from knowledge_adapters.git_repo.writer import markdown_path
 from tests.artifact_assertions import assert_markdown_document
 from tests.cli_output_assertions import assert_dry_run_summary, assert_write_summary
 
@@ -51,6 +52,11 @@ def _sha256_text(path: Path) -> str:
     return hashlib.sha256(path.read_text(encoding="utf-8").encode("utf-8")).hexdigest()
 
 
+def test_git_repo_markdown_path_avoids_double_md_extension() -> None:
+    assert markdown_path("/tmp/out", "README.md") == Path("/tmp/out/pages/README.md")
+    assert markdown_path("/tmp/out", "docs/guide.txt") == Path("/tmp/out/pages/docs/guide.txt.md")
+
+
 def test_git_repo_cli_writes_repo_files_with_manifest_metadata(
     tmp_path: Path,
     capsys: CaptureFixture[str],
@@ -88,7 +94,7 @@ def test_git_repo_cli_writes_repo_files_with_manifest_metadata(
     assert_write_summary(captured.out, wrote=3, skipped=1)
     assert f"Manifest path: {output_dir / 'manifest.json'}" in captured.out
 
-    readme_output = output_dir / "pages" / "README.md.md"
+    readme_output = output_dir / "pages" / "README.md"
     guide_output = output_dir / "pages" / "docs" / "guide.txt.md"
     module_output = output_dir / "pages" / "src" / "module.py.md"
     assert readme_output.exists()
@@ -123,7 +129,7 @@ def test_git_repo_cli_writes_repo_files_with_manifest_metadata(
         {
             "canonical_id": f"{repo_dir}@{commit_sha}:README.md",
             "source_url": str(repo_dir),
-            "output_path": "pages/README.md.md",
+            "output_path": "pages/README.md",
             "title": "README.md",
             "content_hash": readme_hash,
             "path": "README.md",
@@ -189,7 +195,7 @@ def test_git_repo_cli_dry_run_respects_subdir_and_include_filters(
     assert "filtered_out: 1" in captured.out
     assert "path: docs/guide.md" in captured.out
     assert "Artifact path: " in captured.out
-    assert "pages/docs/guide.md.md" in captured.out
+    assert "pages/docs/guide.md" in captured.out
     assert_dry_run_summary(captured.out, would_write=1, would_skip=0)
     assert not output_dir.exists()
 
@@ -226,7 +232,7 @@ def test_git_repo_cli_uses_requested_ref_for_artifact_content_and_manifest(
     assert "resolved_ref: v1.0.0" in captured.out
     assert f"commit_sha: {first_commit}" in captured.out
 
-    readme_output = output_dir / "pages" / "README.md.md"
+    readme_output = output_dir / "pages" / "README.md"
     assert "# First version" in readme_output.read_text(encoding="utf-8")
     manifest_payload = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest_payload["files"][0]["ref"] == "v1.0.0"
