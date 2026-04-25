@@ -828,6 +828,19 @@ def _effective_configured_run_argv(
     return (*effective_argv, "--debug")
 
 
+def _execute_configured_run(
+    argv: Sequence[str],
+    *,
+    captured_stdout: TextIO,
+    captured_stderr: TextIO,
+) -> int:
+    """Execute one configured run while teeing nested stdout into the parent CLI."""
+    with redirect_stdout(_TeeStream(sys.stdout, captured_stdout)), redirect_stderr(
+        captured_stderr
+    ):
+        return main(argv)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI."""
     raw_argv = tuple(sys.argv[1:] if argv is None else argv)
@@ -869,12 +882,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         completed_runs = 0
         failed_runs = 0
+        interrupted_runs = 0
         write_runs = 0
         dry_run_runs = 0
         total_wrote = 0
         total_skipped = 0
         total_would_write = 0
         total_would_skip = 0
+        interrupt_requested = False
 
         for index, configured_run in enumerate(selected_runs, start=1):
             effective_argv = _effective_configured_run_argv(
@@ -892,10 +907,24 @@ def main(argv: Sequence[str] | None = None) -> int:
             captured_stdout = io.StringIO()
             captured_stderr = io.StringIO()
             try:
-                with redirect_stdout(_TeeStream(sys.stdout, captured_stdout)), redirect_stderr(
-                    captured_stderr
-                ):
-                    exit_code = main(effective_argv)
+                exit_code = _execute_configured_run(
+                    effective_argv,
+                    captured_stdout=captured_stdout,
+                    captured_stderr=captured_stderr,
+                )
+            except KeyboardInterrupt:
+                if interrupt_requested:
+                    raise
+
+                interrupt_requested = True
+                interrupted_runs += 1
+                print(
+                    f"Run {index}/{len(selected_runs)} interrupted: "
+                    f"{configured_run.name} ({configured_run.run_type})"
+                )
+                print("Run interrupted: skipping remaining work for this run")
+                print("Run summary: interrupted, skipped remaining work for this run")
+                continue
             except SystemExit:
                 print(
                     f"Run {index}/{len(selected_runs)} failed: "
@@ -968,6 +997,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("\nAggregate summary:")
         print(f"  runs_completed: {completed_runs}")
         print(f"  runs_failed: {failed_runs}")
+        print(f"  runs_interrupted: {interrupted_runs}")
         print(f"  runs_skipped_disabled: {len(skipped_disabled_runs)}")
         print(f"  write_runs: {write_runs}")
         print(f"  dry_run_runs: {dry_run_runs}")
@@ -977,17 +1007,32 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"  would_write: {total_would_write}")
             print(f"  would_skip: {total_would_skip}")
         if failed_runs > 0:
-            print(
-                "Config run completed with failures. "
-                f"Processed {completed_runs} successful run(s) and {failed_runs} failed "
-                f"run(s) from {render_user_path(run_config.config_path)}"
-            )
+            if interrupted_runs > 0:
+                print(
+                    "Config run completed with failures. "
+                    f"Processed {completed_runs} successful run(s), {failed_runs} failed "
+                    f"run(s), and {interrupted_runs} interrupted run(s) from "
+                    f"{render_user_path(run_config.config_path)}"
+                )
+            else:
+                print(
+                    "Config run completed with failures. "
+                    f"Processed {completed_runs} successful run(s) and {failed_runs} failed "
+                    f"run(s) from {render_user_path(run_config.config_path)}"
+                )
             return 1
 
-        print(
-            "Config run complete. "
-            f"Processed {completed_runs} run(s) from {render_user_path(run_config.config_path)}"
-        )
+        if interrupted_runs > 0:
+            print(
+                "Config run complete. "
+                f"Processed {completed_runs} completed run(s) and {interrupted_runs} "
+                f"interrupted run(s) from {render_user_path(run_config.config_path)}"
+            )
+        else:
+            print(
+                "Config run complete. "
+                f"Processed {completed_runs} run(s) from {render_user_path(run_config.config_path)}"
+            )
         return 0
 
     if args.command == "confluence":

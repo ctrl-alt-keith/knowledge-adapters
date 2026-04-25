@@ -7,6 +7,7 @@ from typing import Any, Literal, cast
 import pytest
 from pytest import CaptureFixture, MonkeyPatch
 
+import knowledge_adapters.cli as cli
 from knowledge_adapters.cli import main
 from knowledge_adapters.run_config import ConfiguredRun, load_run_config, select_runs
 
@@ -811,6 +812,138 @@ runs:
     local_output_path = tmp_path / "artifacts" / "local" / "team-notes" / "pages" / "team-notes.md"
     assert local_output_path.exists()
     assert "Ship it." in local_output_path.read_text(encoding="utf-8")
+
+
+def test_run_command_keyboard_interrupt_skips_current_run_and_continues(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    first_source = tmp_path / "inputs" / "first.txt"
+    second_source = tmp_path / "inputs" / "second.txt"
+    first_source.parent.mkdir(parents=True)
+    first_source.write_text("First file.\n", encoding="utf-8")
+    second_source.write_text("Second file.\n", encoding="utf-8")
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: first-run
+    type: local_files
+    file_path: ./inputs/first.txt
+    output_dir: ./artifacts/local/first-run
+  - name: second-run
+    type: local_files
+    file_path: ./inputs/second.txt
+    output_dir: ./artifacts/local/second-run
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    real_execute_configured_run = cli._execute_configured_run
+    attempt_count = 0
+
+    def interrupt_once(
+        argv: tuple[str, ...],
+        *,
+        captured_stdout: Any,
+        captured_stderr: Any,
+    ) -> int:
+        nonlocal attempt_count
+        attempt_count += 1
+        if attempt_count == 1:
+            raise KeyboardInterrupt
+        return real_execute_configured_run(
+            argv,
+            captured_stdout=captured_stdout,
+            captured_stderr=captured_stderr,
+        )
+
+    monkeypatch.setattr(cli, "_execute_configured_run", interrupt_once)
+
+    exit_code = main(["run", str(config_path)])
+
+    assert exit_code == 0
+    assert attempt_count == 2
+    captured = capsys.readouterr()
+    assert "Run 1/2 started: first-run (local_files)" in captured.out
+    assert "Run 1/2 interrupted: first-run (local_files)" in captured.out
+    assert "Run interrupted: skipping remaining work for this run" in captured.out
+    assert "Run summary: interrupted, skipped remaining work for this run" in captured.out
+    assert "Run 2/2 started: second-run (local_files)" in captured.out
+    assert "Run 2/2 completed: second-run (local_files)" in captured.out
+    assert "Aggregate summary:" in captured.out
+    assert "runs_completed: 1" in captured.out
+    assert "runs_failed: 0" in captured.out
+    assert "runs_interrupted: 1" in captured.out
+    assert "write_runs: 1" in captured.out
+    assert "dry_run_runs: 0" in captured.out
+    assert "wrote: 1" in captured.out
+    assert "skipped: 0" in captured.out
+    assert "Config run complete. Processed 1 completed run(s) and 1 interrupted run(s)" in (
+        captured.out
+    )
+
+    assert not (tmp_path / "artifacts" / "local" / "first-run").exists()
+    second_output_path = (
+        tmp_path / "artifacts" / "local" / "second-run" / "pages" / "second.md"
+    )
+    assert second_output_path.exists()
+    assert "Second file." in second_output_path.read_text(encoding="utf-8")
+
+
+def test_run_command_second_keyboard_interrupt_propagates_immediately(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    source_file = tmp_path / "inputs" / "team-notes.txt"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text("Ship it.\n", encoding="utf-8")
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: first-run
+    type: local_files
+    file_path: ./inputs/team-notes.txt
+    output_dir: ./artifacts/local/first-run
+  - name: second-run
+    type: local_files
+    file_path: ./inputs/team-notes.txt
+    output_dir: ./artifacts/local/second-run
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    attempt_count = 0
+
+    def always_interrupt(
+        argv: tuple[str, ...],
+        *,
+        captured_stdout: Any,
+        captured_stderr: Any,
+    ) -> int:
+        del argv, captured_stdout, captured_stderr
+        nonlocal attempt_count
+        attempt_count += 1
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli, "_execute_configured_run", always_interrupt)
+
+    with pytest.raises(KeyboardInterrupt):
+        main(["run", str(config_path)])
+
+    assert attempt_count == 2
+    captured = capsys.readouterr()
+    assert "Run 1/2 started: first-run (local_files)" in captured.out
+    assert "Run 1/2 interrupted: first-run (local_files)" in captured.out
+    assert "Run interrupted: skipping remaining work for this run" in captured.out
+    assert "Run 2/2 started: second-run (local_files)" in captured.out
+    assert "Run 2/2 interrupted: second-run (local_files)" not in captured.out
+    assert "Aggregate summary:" not in captured.out
 
 
 def test_load_run_config_includes_confluence_tls_and_client_cert_paths(tmp_path: Path) -> None:
