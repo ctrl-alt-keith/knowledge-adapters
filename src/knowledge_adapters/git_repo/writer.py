@@ -8,7 +8,10 @@ from pathlib import Path, PurePosixPath
 def markdown_path(output_dir: str, repo_path: str) -> Path:
     """Return the deterministic markdown path for one repository file."""
     repo_relative_path = PurePosixPath(repo_path)
-    output_relative_path = repo_relative_path.with_name(f"{repo_relative_path.name}.md")
+    filename = repo_relative_path.name
+    if not filename.endswith(".md"):
+        filename = f"{filename}.md"
+    output_relative_path = repo_relative_path.with_name(filename)
     return Path(output_dir) / "pages" / Path(*output_relative_path.parts)
 
 
