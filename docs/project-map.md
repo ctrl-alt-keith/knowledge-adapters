@@ -21,7 +21,9 @@ grouping them into meaningful lanes.
 
 ## Active Arc
 
-- No active arc at the moment
+- #160 Add `github_metadata` adapter for issues, PRs, and releases
+  - current design narrows v1 to issues-only metadata ingestion
+  - see [GitHub Metadata v1 Contract](./github-metadata-v1.md)
 
 ## Next Arcs
 
@@ -29,7 +31,8 @@ grouping them into meaningful lanes.
 
 #### GitHub metadata ingestion
 
-- #160 Add `github_metadata` adapter for issues, PRs, and releases
+- #160 implementation should start with the issues-only v1 contract, then split
+  PRs, releases, and comments into follow-up issues
 
 ## Deferred / Usage-driven
 
