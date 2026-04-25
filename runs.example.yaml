@@ -8,6 +8,16 @@ runs:
     file_path: ./example-inputs/team-notes.txt
     output_dir: ./artifacts/local/team-notes
 
+  # Minimal git_repo example. Use include filters by default; ingesting an
+  # entire repository is usually not the safest starting point.
+  - name: example-repo
+    type: git_repo
+    repo_url: https://github.com/ctrl-alt-keith/ai-workflow-playbook.git
+    output_dir: ./artifacts/git/example-repo
+    include:
+      - "docs/**/*.md"
+      - "README.md"
+
   # Minimal Confluence example using the default stub client.
   - name: docs-home
     type: confluence

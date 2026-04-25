@@ -9,6 +9,7 @@ grouping them into meaningful lanes.
 - Confluence adapter: mature (single-page, tree traversal, incremental sync,
   space discovery by key/URL, TLS/auth, portable CA bundle overrides,
   environment-specific config overrides, progress output)
+- Git repo ingestion: complete (`git_repo` adapter, polish, and example config)
 - Bundle command:
   - v1 complete (#147)
   - ordering controls added (#153)
