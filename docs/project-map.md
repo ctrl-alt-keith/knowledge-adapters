@@ -12,6 +12,8 @@ grouping them into meaningful lanes.
 - Git repo ingestion: complete (`git_repo` adapter, polish, and example config)
 - GitHub metadata ingestion: issues-only v1 complete (`github_metadata` adapter
   for GitHub/GHE repository issues)
+- Google Docs destination: design completed as a separate post-bundle
+  publication layer, not a `knowledge-adapters` adapter or bundle subcommand
 - Bundle command:
   - v1 complete (#147)
   - ordering controls added (#153)
