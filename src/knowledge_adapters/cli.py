@@ -28,6 +28,7 @@ TOP_LEVEL_HELP_EXAMPLES = """First steps:
   knowledge-adapters run runs.yaml
   knowledge-adapters local_files --help
   knowledge-adapters git_repo --help
+  knowledge-adapters github_metadata --help
   knowledge-adapters confluence --help
   knowledge-adapters bundle ./artifacts --output ./bundle.md
 
@@ -92,6 +93,26 @@ GIT_REPO_HELP_EXAMPLES = """Examples:
   knowledge-adapters git_repo \\
     --repo-url https://github.com/example/project.git \\
     --subdir docs \\
+    --output-dir ./artifacts
+"""
+
+GITHUB_METADATA_HELP_EXAMPLES = """Examples:
+  GITHUB_TOKEN=... knowledge-adapters github_metadata \\
+    --repo example/project \\
+    --token-env GITHUB_TOKEN \\
+    --output-dir ./artifacts \\
+    --dry-run
+  GITHUB_TOKEN=... knowledge-adapters github_metadata \\
+    --repo example/project \\
+    --token-env GITHUB_TOKEN \\
+    --state all \\
+    --since 2026-01-01T00:00:00Z \\
+    --max-items 25 \\
+    --output-dir ./artifacts
+  GHE_TOKEN=... knowledge-adapters github_metadata \\
+    --repo example/project \\
+    --base-url https://github.example.com \\
+    --token-env GHE_TOKEN \\
     --output-dir ./artifacts
 """
 
@@ -551,6 +572,75 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Preview the resolved ref, commit SHA, selected files, artifact paths, and "
             "skip reasons without writing files."
+        ),
+    )
+
+    github_metadata_parser = subparsers.add_parser(
+        "github_metadata",
+        help="Normalize GitHub issue metadata from one repository into shared artifacts.",
+        description=(
+            "Fetch issues from one GitHub or GitHub Enterprise repository through the "
+            "REST issues API, filter out pull requests returned by that endpoint, and "
+            "normalize one markdown artifact per issue under issues/. v1 is intentionally "
+            "bounded to issues only: comments, pull requests, releases, timelines, "
+            "reactions, reviews, checks, GraphQL, attachments, and live sync are not "
+            "included. The token is read only from --token-env, and token values are "
+            "never printed."
+        ),
+        epilog=GITHUB_METADATA_HELP_EXAMPLES,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    github_metadata_parser.add_argument(
+        "--repo",
+        required=True,
+        metavar="OWNER/NAME",
+        help="Repository to read, in owner/name form.",
+    )
+    github_metadata_parser.add_argument(
+        "--base-url",
+        help=(
+            "GitHub Enterprise web root or API root ending in /api/v3. Defaults to "
+            "GitHub.com, using https://github.com for source URLs and "
+            "https://api.github.com for REST API requests."
+        ),
+    )
+    github_metadata_parser.add_argument(
+        "--token-env",
+        required=True,
+        metavar="ENV_VAR",
+        help=(
+            "Name of the environment variable containing the GitHub token. The token "
+            "value is read from the environment only and is never printed."
+        ),
+    )
+    github_metadata_parser.add_argument(
+        "--output-dir",
+        required=True,
+        metavar="DIR",
+        help="Directory where issues/ and manifest.json are written.",
+    )
+    github_metadata_parser.add_argument(
+        "--state",
+        choices=("open", "closed", "all"),
+        default="open",
+        help="Issue state filter for the REST API. Defaults to open.",
+    )
+    github_metadata_parser.add_argument(
+        "--since",
+        help="ISO 8601 timestamp for issues updated at or after that time.",
+    )
+    github_metadata_parser.add_argument(
+        "--max-items",
+        type=_parse_positive_int,
+        metavar="N",
+        help="Positive issue limit applied after filtering out pull requests.",
+    )
+    github_metadata_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Fetch and plan matching issues without creating directories, writing "
+            "issue artifacts, or writing manifest.json."
         ),
     )
 
@@ -2330,6 +2420,163 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"\nWrote: {render_user_path(output_path)}")
         print("\nSummary: wrote 1, skipped 0")
         print(f"Artifact path: {render_user_path(output_path)}")
+        print(f"Manifest path: {render_user_path(manifest)}")
+        print_write_complete(output_dir)
+        return 0
+
+    if args.command == "github_metadata":
+        import hashlib
+
+        from knowledge_adapters.confluence.manifest import write_manifest
+        from knowledge_adapters.github_metadata.client import (
+            GitHubMetadataRequestError,
+            list_repository_issues,
+            resolve_base_urls,
+        )
+        from knowledge_adapters.github_metadata.config import GitHubMetadataConfig
+        from knowledge_adapters.github_metadata.normalize import normalize_issue_to_markdown
+        from knowledge_adapters.github_metadata.writer import (
+            markdown_path as github_issue_markdown_path,
+        )
+        from knowledge_adapters.github_metadata.writer import (
+            write_markdown as write_github_issue_markdown,
+        )
+
+        github_metadata_config = GitHubMetadataConfig(
+            repo=args.repo,
+            base_url=args.base_url,
+            token_env=args.token_env,
+            output_dir=args.output_dir,
+            state=args.state,
+            since=args.since,
+            max_items=args.max_items,
+            dry_run=args.dry_run,
+        )
+
+        output_dir_input = Path(github_metadata_config.output_dir).expanduser()
+        output_dir = output_dir_input.resolve()
+        if output_dir_input.exists() and not output_dir_input.is_dir():
+            exit_with_cli_error(
+                (
+                    f"Output path is not a directory: {output_dir}. "
+                    "Verify --output-dir and use a directory path."
+                ),
+                command="github_metadata",
+            )
+
+        try:
+            base_urls = resolve_base_urls(github_metadata_config.base_url)
+            issues = list_repository_issues(
+                repo=github_metadata_config.repo,
+                base_url=github_metadata_config.base_url,
+                token_env=github_metadata_config.token_env,
+                state=github_metadata_config.state,
+                since=github_metadata_config.since,
+                max_items=github_metadata_config.max_items,
+            )
+        except (GitHubMetadataRequestError, ValueError) as exc:
+            exit_with_cli_error(str(exc), command="github_metadata")
+
+        print("GitHub metadata adapter invoked")
+        print(f"  repo: {github_metadata_config.repo}")
+        print(f"  web_root: {base_urls.web_root}")
+        print(f"  api_root: {base_urls.api_root}")
+        print(f"  token_env: {github_metadata_config.token_env}")
+        print(f"  output_dir: {render_user_path(github_metadata_config.output_dir)}")
+        print(f"  state: {github_metadata_config.state}")
+        if github_metadata_config.since is not None:
+            print(f"  since: {github_metadata_config.since}")
+        if github_metadata_config.max_items is not None:
+            print(f"  max_items: {github_metadata_config.max_items}")
+        print(f"  run_mode: {'dry-run' if github_metadata_config.dry_run else 'write'}")
+
+        print("\nPlan: GitHub metadata run")
+        print("  resource_type: issue")
+        print(f"  issues_planned: {len(issues)}")
+
+        issue_markdowns: dict[int, str] = {}
+        github_manifest_entries: list[dict[str, object]] = []
+        github_written_output_paths: list[Path] = []
+        for issue in issues:
+            markdown = normalize_issue_to_markdown(
+                {
+                    "repo": issue.repo,
+                    "number": issue.number,
+                    "title": issue.title,
+                    "state": issue.state,
+                    "author": issue.author,
+                    "created_at": issue.created_at,
+                    "updated_at": issue.updated_at,
+                    "source_url": issue.source_url,
+                    "body": issue.body,
+                }
+            )
+            output_path = github_issue_markdown_path(
+                github_metadata_config.output_dir,
+                issue.number,
+            )
+            issue_markdowns[issue.number] = markdown
+            github_written_output_paths.append(output_path)
+            github_manifest_entries.append(
+                {
+                    "canonical_id": issue.canonical_id,
+                    "source_url": issue.source_url,
+                    "title": issue.title,
+                    "repo": issue.repo,
+                    "resource_type": "issue",
+                    "number": issue.number,
+                    "state": issue.state,
+                    "created_at": issue.created_at,
+                    "updated_at": issue.updated_at,
+                    "author": issue.author,
+                    "content_hash": hashlib.sha256(markdown.encode("utf-8")).hexdigest(),
+                    "output_path": output_path.relative_to(
+                        Path(github_metadata_config.output_dir)
+                    ).as_posix(),
+                }
+            )
+
+        for issue, output_path in zip(issues, github_written_output_paths, strict=True):
+            print(f"\n  issue: #{issue.number}")
+            print(f"  title: {issue.title}")
+            print(f"  source_url: {issue.source_url}")
+            print(f"  Artifact path: {render_user_path(output_path)}")
+            if issue.body:
+                print("  body_status: markdown/text with content")
+            else:
+                print("  body_status: empty issue body; output will include an empty-body marker")
+            print(
+                f"  action: {'would write' if github_metadata_config.dry_run else 'write'}"
+            )
+
+        manifest_output_path = output_dir / "manifest.json"
+        if github_metadata_config.dry_run:
+            print(f"\nSummary: would write {len(issues)}, would skip 0")
+            print(f"Manifest path: {render_user_path(manifest_output_path)}")
+            print_dry_run_complete()
+            return 0
+
+        try:
+            for issue in issues:
+                write_github_issue_markdown(
+                    github_metadata_config.output_dir,
+                    issue.number,
+                    issue_markdowns[issue.number],
+                )
+            manifest = write_manifest(
+                github_metadata_config.output_dir,
+                github_manifest_entries,
+            )
+        except OSError as exc:
+            exit_with_output_error(
+                github_metadata_config.output_dir,
+                command="github_metadata",
+                exc=exc,
+            )
+
+        for output_path in github_written_output_paths:
+            print(f"\nWrote: {render_user_path(output_path)}")
+        print(f"\nSummary: wrote {len(issues)}, skipped 0")
         print(f"Manifest path: {render_user_path(manifest)}")
         print_write_complete(output_dir)
         return 0
