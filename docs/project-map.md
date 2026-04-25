@@ -10,6 +10,8 @@ grouping them into meaningful lanes.
   space discovery by key/URL, TLS/auth, portable CA bundle overrides,
   environment-specific config overrides, progress output)
 - Git repo ingestion: complete (`git_repo` adapter, polish, and example config)
+- GitHub metadata ingestion: issues-only v1 complete (`github_metadata` adapter
+  for GitHub/GHE repository issues)
 - Bundle command:
   - v1 complete (#147)
   - ordering controls added (#153)
@@ -19,20 +21,14 @@ grouping them into meaningful lanes.
   - size-aware bundle splitting complete (#154)
 - CLI, config-driven runs, interrupt handling, and test coverage are stable
 
-## Active Arc
-
-- #160 Add `github_metadata` adapter for issues, PRs, and releases
-  - current design narrows v1 to issues-only metadata ingestion
-  - see [GitHub Metadata v1 Contract](./github-metadata-v1.md)
-
 ## Next Arcs
 
 ### New adapters
 
 #### GitHub metadata ingestion
 
-- #160 implementation should start with the issues-only v1 contract, then split
-  PRs, releases, and comments into follow-up issues
+- Split PRs, releases, and comments into follow-up issues after the issues-only
+  v1 adapter proves out
 
 ## Deferred / Usage-driven
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml  # type: ignore[import-untyped]
@@ -17,8 +18,9 @@ from knowledge_adapters.confluence.resolve import (
     validate_space_key,
 )
 
-SUPPORTED_RUN_TYPES = frozenset({"confluence", "git_repo", "local_files"})
+SUPPORTED_RUN_TYPES = frozenset({"confluence", "git_repo", "github_metadata", "local_files"})
 _SUPPORTED_CONFLUENCE_CLIENT_MODES = frozenset({"real", "stub"})
+_SUPPORTED_GITHUB_METADATA_STATES = frozenset({"open", "closed", "all"})
 
 _COMMON_REQUIRED_KEYS = frozenset({"name", "type", "output_dir"})
 _CONFLUENCE_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
@@ -44,6 +46,9 @@ _LOCAL_FILES_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
 )
 _GIT_REPO_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
     {"dry_run", "enabled", "exclude", "include", "ref", "repo_url", "subdir"}
+)
+_GITHUB_METADATA_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
+    {"base_url", "dry_run", "enabled", "max_items", "repo", "since", "state", "token_env"}
 )
 
 
@@ -190,6 +195,8 @@ def _parse_run(
 
     if run_type == "git_repo":
         argv = _build_git_repo_argv(run_config, name=name, config_path=config_path)
+    elif run_type == "github_metadata":
+        argv = _build_github_metadata_argv(run_config, name=name, config_path=config_path)
     else:
         argv = _build_local_files_argv(run_config, name=name, config_path=config_path)
     dry_run = _optional_bool(
@@ -531,6 +538,68 @@ def _build_git_repo_argv(
     return tuple(argv)
 
 
+def _build_github_metadata_argv(
+    run_config: dict[str, object],
+    *,
+    name: str,
+    config_path: Path,
+) -> tuple[str, ...]:
+    _reject_unknown_keys(
+        run_config,
+        allowed_keys=_GITHUB_METADATA_ALLOWED_KEYS,
+        name=name,
+        config_path=config_path,
+    )
+    index = _run_index(name=name, config_path=config_path)
+    repo = _require_string(run_config, "repo", index=index, config_path=config_path)
+    token_env = _require_string(run_config, "token_env", index=index, config_path=config_path)
+    output_dir = _resolve_path_string(
+        _require_string(run_config, "output_dir", index=index, config_path=config_path),
+        config_path=config_path,
+    )
+    argv: list[str] = [
+        "github_metadata",
+        "--repo",
+        repo,
+        "--token-env",
+        token_env,
+        "--output-dir",
+        output_dir,
+    ]
+
+    base_url = _optional_string(run_config, "base_url", index=index, config_path=config_path)
+    if base_url is not None:
+        argv.extend(["--base-url", base_url])
+
+    state = _optional_string(run_config, "state", index=index, config_path=config_path)
+    if state is not None:
+        if state not in _SUPPORTED_GITHUB_METADATA_STATES:
+            supported_values = " or ".join(
+                repr(value) for value in sorted(_SUPPORTED_GITHUB_METADATA_STATES)
+            )
+            raise ValueError(
+                f"Run {name!r} in {config_path} has unsupported 'state' value "
+                f"{state!r}. Use {supported_values}."
+            )
+        argv.extend(["--state", state])
+
+    since = _optional_string_or_datetime(run_config, "since", index=index, config_path=config_path)
+    if since is not None:
+        argv.extend(["--since", since])
+
+    max_items = run_config.get("max_items")
+    if max_items is not None:
+        if isinstance(max_items, bool) or not isinstance(max_items, int) or max_items < 1:
+            raise ValueError(
+                f"Run {name!r} in {config_path} must set 'max_items' to a positive integer."
+            )
+        argv.extend(["--max-items", str(max_items)])
+
+    if _optional_bool(run_config, "dry_run", index=index, config_path=config_path, default=False):
+        argv.append("--dry-run")
+    return tuple(argv)
+
+
 def _reject_unknown_keys(
     run_config: dict[str, object],
     *,
@@ -576,6 +645,28 @@ def _optional_string(
             f"Run {index!r} in {config_path} must define a non-empty string for {key!r}."
         )
     return value.strip()
+
+
+def _optional_string_or_datetime(
+    run_config: dict[str, object],
+    key: str,
+    *,
+    index: int | str,
+    config_path: Path,
+) -> str | None:
+    if key not in run_config:
+        return None
+    value = run_config.get(key)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    if isinstance(value, datetime):
+        normalized_datetime = value
+        if normalized_datetime.tzinfo is UTC:
+            return normalized_datetime.isoformat().replace("+00:00", "Z")
+        return normalized_datetime.isoformat()
+    raise ValueError(
+        f"Run {index!r} in {config_path} must define a non-empty string for {key!r}."
+    )
 
 
 def _optional_string_sequence(

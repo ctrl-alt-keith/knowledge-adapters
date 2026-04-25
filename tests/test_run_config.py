@@ -133,6 +133,86 @@ runs:
     )
 
 
+def test_load_run_config_supports_github_metadata_inputs(tmp_path: Path) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: repo-issues
+    type: github_metadata
+    repo: octo/project
+    base_url: https://github.example.com/api/v3
+    token_env: GH_TOKEN
+    state: all
+    since: 2026-01-01T00:00:00Z
+    max_items: 25
+    output_dir: ./artifacts/github/repo-issues
+    dry_run: true
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    run_config = load_run_config(config_path)
+
+    assert run_config.runs == (
+        ConfiguredRun(
+            name="repo-issues",
+            run_type="github_metadata",
+            argv=(
+                "github_metadata",
+                "--repo",
+                "octo/project",
+                "--token-env",
+                "GH_TOKEN",
+                "--output-dir",
+                str((tmp_path / "artifacts" / "github" / "repo-issues").resolve()),
+                "--base-url",
+                "https://github.example.com/api/v3",
+                "--state",
+                "all",
+                "--since",
+                "2026-01-01T00:00:00Z",
+                "--max-items",
+                "25",
+                "--dry-run",
+            ),
+            dry_run=True,
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("field_block", "expected_fragment"),
+    [
+        ("state: merged", "unsupported 'state' value"),
+        ("max_items: 0", "'max_items' to a positive integer"),
+    ],
+)
+def test_load_run_config_rejects_invalid_github_metadata_values(
+    tmp_path: Path,
+    field_block: str,
+    expected_fragment: str,
+) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        f"""
+runs:
+  - name: repo-issues
+    type: github_metadata
+    repo: octo/project
+    token_env: GH_TOKEN
+    output_dir: ./artifacts/github/repo-issues
+    {field_block}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=expected_fragment):
+        load_run_config(config_path)
+
+
 def test_load_run_config_rejects_invalid_git_repo_pattern_values(tmp_path: Path) -> None:
     config_path = tmp_path / "runs.yaml"
     config_path.write_text(
