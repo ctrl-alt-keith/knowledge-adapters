@@ -21,6 +21,10 @@ def build_manifest_entry(
     title: str | None = None,
     page_version: int | str | None = None,
     last_modified: str | None = None,
+    content_hash: str | None = None,
+    path: str | None = None,
+    ref: str | None = None,
+    commit_sha: str | None = None,
 ) -> dict[str, object]:
     """Build a minimal manifest entry for a generated file."""
     entry: dict[str, object] = {
@@ -35,6 +39,14 @@ def build_manifest_entry(
         entry["page_version"] = page_version
     if last_modified:
         entry["last_modified"] = last_modified
+    if content_hash:
+        entry["content_hash"] = content_hash
+    if path:
+        entry["path"] = path
+    if ref:
+        entry["ref"] = ref
+    if commit_sha:
+        entry["commit_sha"] = commit_sha
 
     return entry
 

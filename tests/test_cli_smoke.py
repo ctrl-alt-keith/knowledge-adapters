@@ -43,6 +43,10 @@ def test_top_level_help_introduces_shared_cli_flow(tmp_path: Path) -> None:
     assert "plans a markdown artifact under pages/ plus manifest.json" in stdout
     assert "Execute multiple configured adapter runs from one YAML file." in stdout
     assert "Normalize Confluence content into shared artifacts." in stdout
+    assert (
+        "Normalize selected UTF-8 text files from a Git repository into shared artifacts."
+        in stdout
+    )
     assert "Normalize one local UTF-8 text file into shared artifacts." in stdout
     assert "Combine existing artifacts into one prompt-ready markdown file." in stdout
     assert (
@@ -51,6 +55,7 @@ def test_top_level_help_introduces_shared_cli_flow(tmp_path: Path) -> None:
     )
     assert "Re-run without --dry-run to write the same artifact layout" in stdout
     assert "knowledge-adapters run runs.yaml" in stdout
+    assert "knowledge-adapters git_repo --help" in stdout
     assert "knowledge-adapters bundle ./artifacts --output ./bundle.md" in stdout
 
 
@@ -142,6 +147,25 @@ def test_local_files_cli_help_includes_first_run_guidance(tmp_path: Path) -> Non
     assert "without writing files." in stdout
     assert "knowledge-adapters local_files" in stdout
     assert "--dry-run" in stdout
+
+
+def test_git_repo_cli_help_includes_filter_and_binary_guidance(tmp_path: Path) -> None:
+    result = _run_cli(tmp_path, "git_repo", "--help")
+    stdout = normalize_whitespace(result.stdout)
+
+    assert result.returncode == 0, result.stderr
+    assert "Clone or refresh a Git repository with system git" in stdout
+    assert "Binary and non-UTF-8 files are skipped with explicit reporting." in stdout
+    assert "File ordering is deterministic and lexical by repository path." in stdout
+    assert "--repo-url REPO_URL" in stdout
+    assert "--ref REF" in stdout
+    assert "--include PATTERN" in stdout
+    assert "--exclude PATTERN" in stdout
+    assert "--subdir SUBDIR" in stdout
+    assert "--dry-run" in stdout
+    assert "knowledge-adapters git_repo" in stdout
+    assert "--include \"docs/**/*.md\"" in stdout
+    assert "--subdir docs" in stdout
 
 
 def test_bundle_cli_help_includes_ordering_and_input_guidance(tmp_path: Path) -> None:

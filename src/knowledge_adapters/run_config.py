@@ -17,7 +17,7 @@ from knowledge_adapters.confluence.resolve import (
     validate_space_key,
 )
 
-SUPPORTED_RUN_TYPES = frozenset({"confluence", "local_files"})
+SUPPORTED_RUN_TYPES = frozenset({"confluence", "git_repo", "local_files"})
 _SUPPORTED_CONFLUENCE_CLIENT_MODES = frozenset({"real", "stub"})
 
 _COMMON_REQUIRED_KEYS = frozenset({"name", "type", "output_dir"})
@@ -41,6 +41,9 @@ _CONFLUENCE_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
 )
 _LOCAL_FILES_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
     {"dry_run", "enabled", "file_path"}
+)
+_GIT_REPO_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
+    {"dry_run", "enabled", "exclude", "include", "ref", "repo_url", "subdir"}
 )
 
 
@@ -185,7 +188,10 @@ def _parse_run(
             enabled=enabled,
         )
 
-    argv = _build_local_files_argv(run_config, name=name, config_path=config_path)
+    if run_type == "git_repo":
+        argv = _build_git_repo_argv(run_config, name=name, config_path=config_path)
+    else:
+        argv = _build_local_files_argv(run_config, name=name, config_path=config_path)
     dry_run = _optional_bool(
         run_config,
         "dry_run",
@@ -471,6 +477,60 @@ def _build_local_files_argv(
     return tuple(argv)
 
 
+def _build_git_repo_argv(
+    run_config: dict[str, object],
+    *,
+    name: str,
+    config_path: Path,
+) -> tuple[str, ...]:
+    _reject_unknown_keys(
+        run_config,
+        allowed_keys=_GIT_REPO_ALLOWED_KEYS,
+        name=name,
+        config_path=config_path,
+    )
+    index = _run_index(name=name, config_path=config_path)
+    repo_url = _require_string(run_config, "repo_url", index=index, config_path=config_path)
+    output_dir = _resolve_path_string(
+        _require_string(run_config, "output_dir", index=index, config_path=config_path),
+        config_path=config_path,
+    )
+    argv: list[str] = [
+        "git_repo",
+        "--repo-url",
+        repo_url,
+        "--output-dir",
+        output_dir,
+    ]
+
+    ref = _optional_string(run_config, "ref", index=index, config_path=config_path)
+    if ref is not None:
+        argv.extend(["--ref", ref])
+
+    subdir = _optional_string(run_config, "subdir", index=index, config_path=config_path)
+    if subdir is not None:
+        argv.extend(["--subdir", subdir])
+
+    for include_pattern in _optional_string_sequence(
+        run_config,
+        "include",
+        index=index,
+        config_path=config_path,
+    ):
+        argv.extend(["--include", include_pattern])
+    for exclude_pattern in _optional_string_sequence(
+        run_config,
+        "exclude",
+        index=index,
+        config_path=config_path,
+    ):
+        argv.extend(["--exclude", exclude_pattern])
+
+    if _optional_bool(run_config, "dry_run", index=index, config_path=config_path, default=False):
+        argv.append("--dry-run")
+    return tuple(argv)
+
+
 def _reject_unknown_keys(
     run_config: dict[str, object],
     *,
@@ -516,6 +576,42 @@ def _optional_string(
             f"Run {index!r} in {config_path} must define a non-empty string for {key!r}."
         )
     return value.strip()
+
+
+def _optional_string_sequence(
+    run_config: dict[str, object],
+    key: str,
+    *,
+    index: int | str,
+    config_path: Path,
+) -> tuple[str, ...]:
+    if key not in run_config:
+        return ()
+
+    raw_value = run_config.get(key)
+    if isinstance(raw_value, str):
+        normalized_value = raw_value.strip()
+        if not normalized_value:
+            raise ValueError(
+                f"Run {index!r} in {config_path} must define a non-empty string for {key!r}."
+            )
+        return (normalized_value,)
+
+    if not isinstance(raw_value, list) or not raw_value:
+        raise ValueError(
+            f"Run {index!r} in {config_path} must define {key!r} as a non-empty string "
+            "or list of non-empty strings."
+        )
+
+    normalized_values: list[str] = []
+    for item in raw_value:
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError(
+                f"Run {index!r} in {config_path} must define {key!r} as a non-empty "
+                "string or list of non-empty strings."
+            )
+        normalized_values.append(item.strip())
+    return tuple(normalized_values)
 
 
 def _optional_bool(
