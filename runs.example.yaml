@@ -54,3 +54,13 @@ runs:
       - ./artifacts/confluence/eng-space-tree
     output: ./artifacts/bundles/eng-space-tree.md
     stale_mode: flag
+
+# Optional named bundle definitions resolve inputs from existing run names.
+# These bundle definitions do not execute the referenced runs automatically.
+bundles:
+  - name: review-pack
+    runs:
+      - team-notes
+      - eng-space-tree
+    output: ./artifacts/bundles/review-pack.md
+    header_mode: minimal

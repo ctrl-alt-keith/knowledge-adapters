@@ -16,6 +16,9 @@ from knowledge_adapters.bundle import (
     DEFAULT_STALE_MODE,
     HEADER_MODE_CHOICES,
     STALE_MODE_CHOICES,
+    BundleOrder,
+    HeaderMode,
+    StaleMode,
 )
 from knowledge_adapters.confluence.auth import CONFLUENCE_CA_BUNDLE_ENV, SUPPORTED_AUTH_METHODS
 from knowledge_adapters.confluence.config import validate_explicit_tls_paths
@@ -35,6 +38,19 @@ _SUPPORTED_GITHUB_METADATA_STATES = frozenset({"open", "closed", "all"})
 _SUPPORTED_GITHUB_METADATA_RESOURCE_TYPES = SUPPORTED_RESOURCE_TYPES
 
 _COMMON_REQUIRED_KEYS = frozenset({"name", "type"})
+_BUNDLE_OPTION_KEYS = frozenset(
+    {
+        "baseline_manifest",
+        "changed_only",
+        "exclude",
+        "header_mode",
+        "include",
+        "max_bytes",
+        "order",
+        "output",
+        "stale_mode",
+    }
+)
 _CONFLUENCE_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
     {
         "auth_method",
@@ -54,21 +70,10 @@ _CONFLUENCE_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
         "tree",
     }
 )
-_BUNDLE_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
-    {
-        "baseline_manifest",
-        "changed_only",
-        "enabled",
-        "exclude",
-        "header_mode",
-        "include",
-        "inputs",
-        "max_bytes",
-        "order",
-        "output",
-        "stale_mode",
-    }
+_BUNDLE_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | _BUNDLE_OPTION_KEYS | frozenset(
+    {"enabled", "inputs"}
 )
+_NAMED_BUNDLE_ALLOWED_KEYS = _BUNDLE_OPTION_KEYS | frozenset({"name", "runs"})
 _LOCAL_FILES_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
     {"dry_run", "enabled", "file_path", "output_dir"}
 )
@@ -104,11 +109,29 @@ class ConfiguredRun:
 
 
 @dataclass(frozen=True)
+class ConfiguredBundle:
+    """One named bundle definition described in a config file."""
+
+    name: str
+    inputs: tuple[str, ...]
+    output: str
+    max_bytes: int | None = None
+    order: BundleOrder = DEFAULT_BUNDLE_ORDER
+    header_mode: HeaderMode = DEFAULT_HEADER_MODE
+    include_patterns: tuple[str, ...] = ()
+    exclude_patterns: tuple[str, ...] = ()
+    changed_only: bool = False
+    baseline_manifest: str | None = None
+    stale_mode: StaleMode = DEFAULT_STALE_MODE
+
+
+@dataclass(frozen=True)
 class RunConfig:
     """Validated multi-run config."""
 
     config_path: Path
     runs: tuple[ConfiguredRun, ...]
+    bundles: tuple[ConfiguredBundle, ...] = ()
 
 
 def load_run_config(
@@ -142,17 +165,44 @@ def load_run_config(
             f"Config file {resolved_config_path} must define a non-empty top-level 'runs:' list."
         )
 
-    return RunConfig(
-        config_path=resolved_config_path,
-        runs=tuple(
-            _parse_run(
-                run_config,
+    configured_runs = tuple(
+        _parse_run(
+            run_config,
+            index=index,
+            config_path=resolved_config_path,
+            no_confluence_ca_bundle=no_confluence_ca_bundle,
+        )
+        for index, run_config in enumerate(runs, start=1)
+    )
+
+    configured_bundles: tuple[ConfiguredBundle, ...] = ()
+    if "bundles" in raw_config:
+        raw_bundles = raw_config.get("bundles")
+        if not isinstance(raw_bundles, list) or not raw_bundles:
+            raise ValueError(
+                f"Config file {resolved_config_path} must define top-level 'bundles:' "
+                "as a non-empty list when provided."
+            )
+
+        configured_runs_by_name = _configured_runs_by_name(
+            configured_runs,
+            config_path=resolved_config_path,
+        )
+        configured_bundles = tuple(
+            _parse_named_bundle(
+                bundle_config,
                 index=index,
                 config_path=resolved_config_path,
-                no_confluence_ca_bundle=no_confluence_ca_bundle,
+                configured_runs_by_name=configured_runs_by_name,
             )
-            for index, run_config in enumerate(runs, start=1)
-        ),
+            for index, bundle_config in enumerate(raw_bundles, start=1)
+        )
+        _reject_duplicate_bundle_names(configured_bundles, config_path=resolved_config_path)
+
+    return RunConfig(
+        config_path=resolved_config_path,
+        runs=configured_runs,
+        bundles=configured_bundles,
     )
 
 
@@ -180,6 +230,25 @@ def select_runs(
         configured_run
         for configured_run in run_config.runs
         if configured_run.name in selected_names
+    )
+
+
+def select_bundle(run_config: RunConfig, *, name: str) -> ConfiguredBundle:
+    """Select one named bundle definition by name."""
+    if not run_config.bundles:
+        raise ValueError(
+            f"Config file {run_config.config_path} does not define any top-level named "
+            "bundles. Add a 'bundles:' list or use direct bundle inputs."
+        )
+
+    for configured_bundle in run_config.bundles:
+        if configured_bundle.name == name:
+            return configured_bundle
+
+    available = ", ".join(repr(configured_bundle.name) for configured_bundle in run_config.bundles)
+    raise ValueError(
+        f"Unknown bundle name {name!r} in {run_config.config_path}. "
+        f"Available bundle names: {available}."
     )
 
 
@@ -503,16 +572,73 @@ def _build_bundle_argv(
             config_path=config_path,
         )
     )
+    configured_bundle = _parse_configured_bundle(
+        run_config,
+        name=name,
+        config_path=config_path,
+        inputs=inputs,
+    )
+    return _configured_bundle_to_argv(configured_bundle)
+
+
+def _parse_named_bundle(
+    bundle_config: object,
+    *,
+    index: int,
+    config_path: Path,
+    configured_runs_by_name: dict[str, ConfiguredRun],
+) -> ConfiguredBundle:
+    if not isinstance(bundle_config, dict):
+        raise ValueError(
+            f"Bundle #{index} in {config_path} must be a mapping with name, runs, and output."
+        )
+
+    name = bundle_config.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError(
+            f"Bundle #{index} in {config_path} must define a non-empty string for 'name'."
+        )
+    normalized_name = name.strip()
+    _reject_unknown_keys(
+        bundle_config,
+        allowed_keys=_NAMED_BUNDLE_ALLOWED_KEYS,
+        name=normalized_name,
+        config_path=config_path,
+    )
+    run_names = _named_bundle_run_names(
+        bundle_config,
+        name=normalized_name,
+        config_path=config_path,
+    )
+    inputs = tuple(
+        _resolve_named_bundle_input(
+            configured_runs_by_name.get(run_name),
+            run_name=run_name,
+            bundle_name=normalized_name,
+            config_path=config_path,
+        )
+        for run_name in run_names
+    )
+    return _parse_configured_bundle(
+        bundle_config,
+        name=normalized_name,
+        config_path=config_path,
+        inputs=inputs,
+    )
+
+
+def _parse_configured_bundle(
+    run_config: dict[str, object],
+    *,
+    name: str,
+    config_path: Path,
+    inputs: tuple[str, ...],
+) -> ConfiguredBundle:
+    index = _run_index(name=name, config_path=config_path)
     output = _resolve_path_string(
         _require_string(run_config, "output", index=index, config_path=config_path),
         config_path=config_path,
     )
-    argv: list[str] = [
-        "bundle",
-        *inputs,
-        "--output",
-        output,
-    ]
 
     max_bytes = run_config.get("max_bytes")
     if max_bytes is not None:
@@ -520,9 +646,9 @@ def _build_bundle_argv(
             raise ValueError(
                 f"Run {name!r} in {config_path} must set 'max_bytes' to a positive integer."
             )
-        argv.extend(["--max-bytes", str(max_bytes)])
 
     order = _optional_string(run_config, "order", index=index, config_path=config_path)
+    resolved_order: BundleOrder = DEFAULT_BUNDLE_ORDER
     if order is not None:
         if order not in BUNDLE_ORDER_CHOICES:
             supported_values = " or ".join(repr(value) for value in BUNDLE_ORDER_CHOICES)
@@ -530,10 +656,10 @@ def _build_bundle_argv(
                 f"Run {name!r} in {config_path} has unsupported 'order' value "
                 f"{order!r}. Use {supported_values}."
             )
-        if order != DEFAULT_BUNDLE_ORDER:
-            argv.extend(["--order", order])
+        resolved_order = order
 
     header_mode = _optional_string(run_config, "header_mode", index=index, config_path=config_path)
+    resolved_header_mode: HeaderMode = DEFAULT_HEADER_MODE
     if header_mode is not None:
         if header_mode not in HEADER_MODE_CHOICES:
             supported_values = " or ".join(repr(value) for value in HEADER_MODE_CHOICES)
@@ -541,10 +667,10 @@ def _build_bundle_argv(
                 f"Run {name!r} in {config_path} has unsupported 'header_mode' value "
                 f"{header_mode!r}. Use {supported_values}."
             )
-        if header_mode != DEFAULT_HEADER_MODE:
-            argv.extend(["--header-mode", header_mode])
+        resolved_header_mode = header_mode
 
     stale_mode = _optional_string(run_config, "stale_mode", index=index, config_path=config_path)
+    resolved_stale_mode: StaleMode = DEFAULT_STALE_MODE
     if stale_mode is not None:
         if stale_mode not in STALE_MODE_CHOICES:
             supported_values = " or ".join(repr(value) for value in STALE_MODE_CHOICES)
@@ -552,24 +678,20 @@ def _build_bundle_argv(
                 f"Run {name!r} in {config_path} has unsupported 'stale_mode' value "
                 f"{stale_mode!r}. Use {supported_values}."
             )
-        if stale_mode != DEFAULT_STALE_MODE:
-            argv.extend(["--stale-mode", stale_mode])
+        resolved_stale_mode = stale_mode
 
-    for include_pattern in _optional_string_sequence(
+    include_patterns = _optional_string_sequence(
         run_config,
         "include",
         index=index,
         config_path=config_path,
-    ):
-        argv.extend(["--include", include_pattern])
-    for exclude_pattern in _optional_string_sequence(
+    )
+    exclude_patterns = _optional_string_sequence(
         run_config,
         "exclude",
         index=index,
         config_path=config_path,
-    ):
-        argv.extend(["--exclude", exclude_pattern])
-
+    )
     changed_only = _optional_bool(
         run_config,
         "changed_only",
@@ -583,17 +705,158 @@ def _build_bundle_argv(
         index=index,
         config_path=config_path,
     )
-    if changed_only:
+    resolved_baseline_manifest = (
+        _resolve_path_string(baseline_manifest, config_path=config_path)
+        if baseline_manifest is not None
+        else None
+    )
+
+    return ConfiguredBundle(
+        name=name,
+        inputs=inputs,
+        output=output,
+        max_bytes=max_bytes,
+        order=resolved_order,
+        header_mode=resolved_header_mode,
+        include_patterns=include_patterns,
+        exclude_patterns=exclude_patterns,
+        changed_only=changed_only,
+        baseline_manifest=resolved_baseline_manifest,
+        stale_mode=resolved_stale_mode,
+    )
+
+
+def _configured_bundle_to_argv(configured_bundle: ConfiguredBundle) -> tuple[str, ...]:
+    argv: list[str] = [
+        "bundle",
+        *configured_bundle.inputs,
+        "--output",
+        configured_bundle.output,
+    ]
+    if configured_bundle.max_bytes is not None:
+        argv.extend(["--max-bytes", str(configured_bundle.max_bytes)])
+    if configured_bundle.order != DEFAULT_BUNDLE_ORDER:
+        argv.extend(["--order", configured_bundle.order])
+    if configured_bundle.header_mode != DEFAULT_HEADER_MODE:
+        argv.extend(["--header-mode", configured_bundle.header_mode])
+    if configured_bundle.stale_mode != DEFAULT_STALE_MODE:
+        argv.extend(["--stale-mode", configured_bundle.stale_mode])
+    for include_pattern in configured_bundle.include_patterns:
+        argv.extend(["--include", include_pattern])
+    for exclude_pattern in configured_bundle.exclude_patterns:
+        argv.extend(["--exclude", exclude_pattern])
+    if configured_bundle.changed_only:
         argv.append("--changed-only")
-    if baseline_manifest is not None:
-        argv.extend(
-            [
-                "--baseline-manifest",
-                _resolve_path_string(baseline_manifest, config_path=config_path),
-            ]
+    if configured_bundle.baseline_manifest is not None:
+        argv.extend(["--baseline-manifest", configured_bundle.baseline_manifest])
+    return tuple(argv)
+
+
+def _configured_runs_by_name(
+    configured_runs: tuple[ConfiguredRun, ...],
+    *,
+    config_path: Path,
+) -> dict[str, ConfiguredRun]:
+    runs_by_name: dict[str, ConfiguredRun] = {}
+    duplicate_names: list[str] = []
+    for configured_run in configured_runs:
+        if configured_run.name in runs_by_name:
+            if configured_run.name not in duplicate_names:
+                duplicate_names.append(configured_run.name)
+            continue
+        runs_by_name[configured_run.name] = configured_run
+    if duplicate_names:
+        duplicates = ", ".join(repr(name) for name in duplicate_names)
+        raise ValueError(
+            f"Config file {config_path} must use unique run names when defining top-level "
+            f"bundles. Duplicate run names: {duplicates}."
+        )
+    return runs_by_name
+
+
+def _reject_duplicate_bundle_names(
+    configured_bundles: tuple[ConfiguredBundle, ...],
+    *,
+    config_path: Path,
+) -> None:
+    seen_names: set[str] = set()
+    duplicate_names: list[str] = []
+    for configured_bundle in configured_bundles:
+        if configured_bundle.name in seen_names:
+            if configured_bundle.name not in duplicate_names:
+                duplicate_names.append(configured_bundle.name)
+            continue
+        seen_names.add(configured_bundle.name)
+    if duplicate_names:
+        duplicates = ", ".join(repr(name) for name in duplicate_names)
+        raise ValueError(
+            f"Config file {config_path} contains duplicate bundle names: {duplicates}."
         )
 
-    return tuple(argv)
+
+def _named_bundle_run_names(
+    bundle_config: dict[str, object],
+    *,
+    name: str,
+    config_path: Path,
+) -> tuple[str, ...]:
+    raw_run_names = bundle_config.get("runs")
+    if raw_run_names is None:
+        raise ValueError(
+            f"Bundle {name!r} in {config_path} must define 'runs' as a non-empty string "
+            "or list of non-empty strings."
+        )
+    if isinstance(raw_run_names, str):
+        normalized_name = raw_run_names.strip()
+        if not normalized_name:
+            raise ValueError(
+                f"Bundle {name!r} in {config_path} must define 'runs' as a non-empty string "
+                "or list of non-empty strings."
+            )
+        return (normalized_name,)
+    if not isinstance(raw_run_names, list) or not raw_run_names:
+        raise ValueError(
+            f"Bundle {name!r} in {config_path} must define 'runs' as a non-empty string "
+            "or list of non-empty strings."
+        )
+
+    normalized_names: list[str] = []
+    for run_name in raw_run_names:
+        if not isinstance(run_name, str) or not run_name.strip():
+            raise ValueError(
+                f"Bundle {name!r} in {config_path} must define 'runs' as a non-empty string "
+                "or list of non-empty strings."
+            )
+        normalized_names.append(run_name.strip())
+    return tuple(normalized_names)
+
+
+def _resolve_named_bundle_input(
+    configured_run: ConfiguredRun | None,
+    *,
+    run_name: str,
+    bundle_name: str,
+    config_path: Path,
+) -> str:
+    if configured_run is None:
+        raise ValueError(
+            f"Bundle {bundle_name!r} in {config_path} references unknown run name "
+            f"{run_name!r}."
+        )
+    resolved_output_dir = _argv_flag_value(configured_run.argv, "--output-dir")
+    if resolved_output_dir is None:
+        raise ValueError(
+            f"Bundle {bundle_name!r} in {config_path} references run {run_name!r}, but "
+            "that run has no resolvable output directory or manifest path for bundling."
+        )
+    return resolved_output_dir
+
+
+def _argv_flag_value(argv: tuple[str, ...], flag: str) -> str | None:
+    for index, value in enumerate(argv):
+        if value == flag and index + 1 < len(argv):
+            return argv[index + 1]
+    return None
 
 
 def _resolve_configured_ca_bundle(

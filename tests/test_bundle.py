@@ -542,6 +542,159 @@ def test_bundle_cli_reports_stale_handling_when_metadata_is_available(
     assert "Legacy" not in bundle_path.read_text(encoding="utf-8")
 
 
+def test_bundle_cli_renders_named_bundle_from_config_for_one_run(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    output_dir = tmp_path / "artifacts" / "team-notes"
+    _write_output_dir(
+        output_dir,
+        files=[
+            {
+                "canonical_id": "team-notes",
+                "source_url": "https://example.com/team-notes",
+                "output_path": "pages/team-notes.md",
+                "title": "Team Notes",
+            }
+        ],
+        artifact_contents={
+            "pages/team-notes.md": "# Team Notes\n\nShip it.\n",
+        },
+    )
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: team-notes
+    type: local_files
+    file_path: ./inputs/team-notes.txt
+    output_dir: ./artifacts/team-notes
+bundles:
+  - name: review-pack
+    runs: team-notes
+    output: ./bundles/review-pack.md
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(["bundle", "--config", str(config_path), "--bundle", "review-pack"])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "bundle: review-pack" in captured.out
+    assert "config_path:" in captured.out
+    bundle_path = tmp_path / "bundles" / "review-pack.md"
+    assert bundle_path.exists()
+    assert "Team Notes" in bundle_path.read_text(encoding="utf-8")
+
+
+def test_bundle_cli_renders_named_bundle_from_config_with_multiple_runs_and_options(
+    tmp_path: Path,
+) -> None:
+    output_a = tmp_path / "artifacts" / "a"
+    output_b = tmp_path / "artifacts" / "b"
+    _write_output_dir(
+        output_a,
+        files=[
+            {
+                "canonical_id": "gamma",
+                "source_url": "https://example.com/gamma",
+                "output_path": "pages/gamma.md",
+                "title": "Gamma",
+            },
+            {
+                "canonical_id": "draft",
+                "source_url": "https://example.com/draft",
+                "output_path": "pages/draft.md",
+                "title": "Draft",
+            },
+        ],
+        artifact_contents={
+            "pages/gamma.md": "# Gamma\n\nGamma content.\n",
+            "pages/draft.md": "# Draft\n\nDraft content.\n",
+        },
+    )
+    _write_output_dir(
+        output_b,
+        files=[
+            {
+                "canonical_id": "alpha",
+                "source_url": "https://example.com/alpha",
+                "output_path": "pages/alpha.md",
+                "title": "Alpha",
+            }
+        ],
+        artifact_contents={
+            "pages/alpha.md": "# Alpha\n\nAlpha content.\n",
+        },
+    )
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: run-a
+    type: local_files
+    file_path: ./inputs/a.txt
+    output_dir: ./artifacts/a
+  - name: run-b
+    type: local_files
+    file_path: ./inputs/b.txt
+    output_dir: ./artifacts/b
+bundles:
+  - name: review-pack
+    runs:
+      - run-a
+      - run-b
+    output: ./bundles/review-pack.md
+    order: input
+    header_mode: minimal
+    exclude:
+      - draft
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(["bundle", "--config", str(config_path), "--bundle", "review-pack"])
+
+    assert exit_code == 0
+    bundle_path = tmp_path / "bundles" / "review-pack.md"
+    bundle_text = bundle_path.read_text(encoding="utf-8")
+    assert bundle_text.startswith("## Gamma\n")
+    assert "\n---\n\n## Alpha\n" in bundle_text
+    assert "## Draft\n" not in bundle_text
+    assert "canonical_id:" not in bundle_text
+
+
+def test_bundle_cli_rejects_unknown_named_bundle_name(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: team-notes
+    type: local_files
+    file_path: ./inputs/team-notes.txt
+    output_dir: ./artifacts/team-notes
+bundles:
+  - name: review-pack
+    runs: team-notes
+    output: ./bundles/review-pack.md
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        main(["bundle", "--config", str(config_path), "--bundle", "missing-bundle"])
+
+    captured = capsys.readouterr()
+    assert "Unknown bundle name 'missing-bundle'" in captured.err
+
+
 def test_load_bundle_plan_changed_only_requires_baseline_manifest(tmp_path: Path) -> None:
     output_dir = tmp_path / "artifacts"
     _write_output_dir(
