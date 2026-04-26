@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-SUPPORTED_RESOURCE_TYPES = frozenset({"issue", "pull_request"})
+SUPPORTED_RESOURCE_TYPES = frozenset({"issue", "pull_request", "release"})
 
 
 @dataclass(frozen=True)

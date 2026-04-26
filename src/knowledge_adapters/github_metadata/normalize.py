@@ -6,6 +6,7 @@ from collections.abc import Mapping
 
 EMPTY_BODY_MARKER = "(empty issue body)"
 EMPTY_PULL_REQUEST_BODY_MARKER = "(empty pull request body)"
+EMPTY_RELEASE_BODY_MARKER = "(empty release body)"
 EMPTY_COMMENT_BODY_MARKER = "(empty issue comment body)"
 
 
@@ -29,6 +30,60 @@ def normalize_pull_request_to_markdown(pull_request: Mapping[str, object]) -> st
         empty_body_marker=EMPTY_PULL_REQUEST_BODY_MARKER,
         include_comments=False,
     )
+
+
+def normalize_release_to_markdown(release: Mapping[str, object]) -> str:
+    """Normalize one release payload into deterministic markdown."""
+    release_id_value = release.get("release_id")
+    if not isinstance(release_id_value, int) or isinstance(release_id_value, bool):
+        raise ValueError("release_id must be an integer.")
+    tag_name_value = release.get("tag_name")
+    if not isinstance(tag_name_value, str):
+        raise ValueError("tag_name must be a string.")
+    title_value = release.get("title", "")
+    if not isinstance(title_value, str):
+        raise ValueError("title must be a string.")
+    draft_value = release.get("draft")
+    if not isinstance(draft_value, bool):
+        raise ValueError("draft must be a boolean.")
+    prerelease_value = release.get("prerelease")
+    if not isinstance(prerelease_value, bool):
+        raise ValueError("prerelease must be a boolean.")
+
+    author = release.get("author")
+    author_text = "" if author is None else str(author)
+    created_at = str(release.get("created_at", ""))
+    published_at = release.get("published_at")
+    published_at_text = "" if published_at is None else str(published_at)
+    source_url = str(release.get("source_url", ""))
+    repo = str(release.get("repo", ""))
+    body = str(release.get("body") or "").rstrip("\n")
+    body_text = body if body else EMPTY_RELEASE_BODY_MARKER
+    heading = (
+        f"# Release {tag_name_value}: {title_value}"
+        if title_value
+        else f"# Release {tag_name_value}"
+    )
+
+    return f"""{heading}
+
+## Metadata
+- repo: {repo}
+- resource_type: release
+- release_id: {release_id_value}
+- tag_name: {tag_name_value}
+- title: {title_value}
+- author: {author_text}
+- created_at: {created_at}
+- published_at: {published_at_text}
+- draft: {str(draft_value).lower()}
+- prerelease: {str(prerelease_value).lower()}
+- source_url: {source_url}
+
+## Body
+
+{body_text}
+"""
 
 
 def _normalize_record_to_markdown(

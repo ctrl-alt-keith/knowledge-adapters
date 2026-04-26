@@ -16,12 +16,15 @@ from knowledge_adapters.github_metadata.client import (
     issue_list_api_url,
     list_repository_issues,
     list_repository_pull_requests,
+    list_repository_releases,
     pull_request_list_api_url,
+    release_list_api_url,
     resolve_base_urls,
 )
 from knowledge_adapters.github_metadata.normalize import (
     EMPTY_BODY_MARKER,
     EMPTY_PULL_REQUEST_BODY_MARKER,
+    EMPTY_RELEASE_BODY_MARKER,
 )
 from tests.cli_output_assertions import (
     assert_dry_run_summary,
@@ -126,6 +129,33 @@ def _issue_comment(
     return payload
 
 
+def _release(
+    release_id: int,
+    *,
+    tag_name: str | None = None,
+    title: str | None = None,
+    body: str | None = "Release body",
+    author: str | None = "alice",
+    created_at: str | None = None,
+    published_at: str | None = None,
+    draft: bool = False,
+    prerelease: bool = False,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "id": release_id,
+        "tag_name": tag_name or f"v{release_id}.0.0",
+        "name": title,
+        "created_at": created_at or f"2026-04-{release_id:02d}T00:00:00Z",
+        "published_at": published_at or f"2026-04-{release_id:02d}T01:00:00Z",
+        "body": body,
+        "draft": draft,
+        "prerelease": prerelease,
+    }
+    if author is not None:
+        payload["user"] = {"login": author}
+    return payload
+
+
 def _install_fake_urlopen(
     monkeypatch: MonkeyPatch,
     responses: Mapping[str, _FakeGitHubResponse],
@@ -158,6 +188,14 @@ def test_github_metadata_resolves_github_and_ghe_base_urls() -> None:
             state="open",
         )
         == "https://api.github.com/repos/octo/project/pulls?state=open&per_page=100"
+    )
+    assert (
+        release_list_api_url(
+            api_root=github_urls.api_root,
+            owner="octo",
+            repo_name="project",
+        )
+        == "https://api.github.com/repos/octo/project/releases?per_page=100"
     )
 
     ghe_web_urls = resolve_base_urls("https://github.example.com")
@@ -272,6 +310,71 @@ def test_github_metadata_pull_requests_paginate_filter_since_and_limit(
     assert [pull_request.canonical_id for pull_request in pull_requests] == [
         "github_metadata:github.com:octo/project:pull_request:2",
         "github_metadata:github.com:octo/project:pull_request:4",
+    ]
+
+
+def test_github_metadata_releases_paginate_filter_since_order_and_limit(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GH_TOKEN", "secret-token")
+    first_url = release_list_api_url(
+        api_root="https://api.github.com",
+        owner="octo",
+        repo_name="project",
+    )
+    second_url = "https://api.github.com/repos/octo/project/releases?per_page=100&page=2"
+    fake_urlopen = _install_fake_urlopen(
+        monkeypatch,
+        {
+            first_url: _FakeGitHubResponse(
+                [
+                    _release(
+                        9,
+                        tag_name="v2.0.0",
+                        title="Major release",
+                        published_at="2026-04-09T01:00:00Z",
+                    ),
+                    _release(
+                        4,
+                        tag_name="v1.0.0",
+                        title="Initial release",
+                        published_at="2026-04-04T01:00:00Z",
+                    ),
+                ],
+                headers={"Link": f'<{second_url}>; rel="next"'},
+            ),
+            second_url: _FakeGitHubResponse(
+                [
+                    _release(
+                        7,
+                        tag_name="v1.1.0",
+                        title="Feature release",
+                        published_at="2026-04-07T01:00:00Z",
+                    ),
+                    _release(
+                        6,
+                        tag_name="v0.9.0",
+                        title="Old prerelease",
+                        published_at="2025-12-31T23:59:59Z",
+                        prerelease=True,
+                    ),
+                ]
+            ),
+        },
+    )
+
+    releases = list_repository_releases(
+        repo="octo/project",
+        token_env="GH_TOKEN",
+        since="2026-01-01T00:00:00Z",
+        max_items=2,
+    )
+
+    assert fake_urlopen.calls == [first_url, second_url]
+    assert [release.tag_name for release in releases] == ["v1.0.0", "v1.1.0"]
+    assert [release.canonical_id for release in releases] == [
+        "github_metadata:github.com:octo/project:release:4",
+        "github_metadata:github.com:octo/project:release:7",
     ]
 
 
@@ -663,6 +766,149 @@ def test_github_metadata_cli_writes_pull_request_artifacts_and_manifest(
             "author": None,
             "content_hash": hashlib.sha256(pr_8_markdown.encode("utf-8")).hexdigest(),
             "output_path": "pull_requests/8.md",
+        },
+    ]
+
+
+def test_github_metadata_cli_writes_release_artifacts_and_manifest(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("GH_TOKEN", "secret-token")
+    first_url = release_list_api_url(
+        api_root="https://api.github.com",
+        owner="octo",
+        repo_name="project",
+    )
+    second_url = "https://api.github.com/repos/octo/project/releases?per_page=100&page=2"
+    fake_urlopen = _install_fake_urlopen(
+        monkeypatch,
+        {
+            first_url: _FakeGitHubResponse(
+                [
+                    _release(
+                        9,
+                        tag_name="v2.0.0",
+                        title="Major release",
+                        body="Release notes for v2.\n",
+                        published_at="2026-04-09T01:00:00Z",
+                    )
+                ],
+                headers={"Link": f'<{second_url}>; rel="next"'},
+            ),
+            second_url: _FakeGitHubResponse(
+                [
+                    _release(
+                        4,
+                        tag_name="v1.0.0",
+                        title="Initial release",
+                        body=None,
+                        author=None,
+                        published_at="2026-04-04T01:00:00Z",
+                    ),
+                    _release(
+                        7,
+                        tag_name="v1.1.0",
+                        title="Feature release",
+                        body="Release notes for v1.1.\n",
+                        published_at="2026-04-07T01:00:00Z",
+                        prerelease=True,
+                    ),
+                ]
+            ),
+        },
+    )
+    output_dir = tmp_path / "out"
+
+    exit_code = main(
+        [
+            "github_metadata",
+            "--repo",
+            "octo/project",
+            "--token-env",
+            "GH_TOKEN",
+            "--resource-type",
+            "release",
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "resource_type: release" in captured.out
+    assert "releases_planned: 3" in captured.out
+    assert "state:" not in captured.out
+    assert "Release notes for v2." not in captured.out
+    assert_write_summary(captured.out, wrote=3, skipped=0)
+    assert fake_urlopen.calls == [first_url, second_url]
+
+    release_4_path = output_dir / "releases" / "4.md"
+    release_7_path = output_dir / "releases" / "7.md"
+    release_9_path = output_dir / "releases" / "9.md"
+    assert release_4_path.exists()
+    assert release_7_path.exists()
+    assert release_9_path.exists()
+    release_4_markdown = release_4_path.read_text(encoding="utf-8")
+    release_7_markdown = release_7_path.read_text(encoding="utf-8")
+    release_9_markdown = release_9_path.read_text(encoding="utf-8")
+    assert "# Release v1.0.0: Initial release" in release_4_markdown
+    assert "- published_at: 2026-04-04T01:00:00Z" in release_4_markdown
+    assert "- prerelease: true" in release_7_markdown
+    assert "Release notes for v2." in release_9_markdown
+    assert EMPTY_RELEASE_BODY_MARKER in release_4_markdown
+
+    manifest_payload = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert isinstance(manifest_payload["generated_at"], str)
+    assert manifest_payload["files"] == [
+        {
+            "canonical_id": "github_metadata:github.com:octo/project:release:4",
+            "source_url": "https://github.com/octo/project/releases/tag/v1.0.0",
+            "title": "Initial release",
+            "repo": "octo/project",
+            "resource_type": "release",
+            "release_id": 4,
+            "tag_name": "v1.0.0",
+            "created_at": "2026-04-04T00:00:00Z",
+            "published_at": "2026-04-04T01:00:00Z",
+            "author": None,
+            "draft": False,
+            "prerelease": False,
+            "content_hash": hashlib.sha256(release_4_markdown.encode("utf-8")).hexdigest(),
+            "output_path": "releases/4.md",
+        },
+        {
+            "canonical_id": "github_metadata:github.com:octo/project:release:7",
+            "source_url": "https://github.com/octo/project/releases/tag/v1.1.0",
+            "title": "Feature release",
+            "repo": "octo/project",
+            "resource_type": "release",
+            "release_id": 7,
+            "tag_name": "v1.1.0",
+            "created_at": "2026-04-07T00:00:00Z",
+            "published_at": "2026-04-07T01:00:00Z",
+            "author": "alice",
+            "draft": False,
+            "prerelease": True,
+            "content_hash": hashlib.sha256(release_7_markdown.encode("utf-8")).hexdigest(),
+            "output_path": "releases/7.md",
+        },
+        {
+            "canonical_id": "github_metadata:github.com:octo/project:release:9",
+            "source_url": "https://github.com/octo/project/releases/tag/v2.0.0",
+            "title": "Major release",
+            "repo": "octo/project",
+            "resource_type": "release",
+            "release_id": 9,
+            "tag_name": "v2.0.0",
+            "created_at": "2026-04-09T00:00:00Z",
+            "published_at": "2026-04-09T01:00:00Z",
+            "author": "alice",
+            "draft": False,
+            "prerelease": False,
+            "content_hash": hashlib.sha256(release_9_markdown.encode("utf-8")).hexdigest(),
+            "output_path": "releases/9.md",
         },
     ]
 
