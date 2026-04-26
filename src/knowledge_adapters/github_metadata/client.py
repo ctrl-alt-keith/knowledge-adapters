@@ -46,6 +46,27 @@ class GitHubIssue:
         return f"github_metadata:{self.host}:{self.repo}:issue:{self.number}"
 
 
+@dataclass(frozen=True)
+class GitHubPullRequest:
+    """One normalized GitHub pull request record."""
+
+    repo: str
+    host: str
+    number: int
+    title: str
+    state: str
+    author: str | None
+    created_at: str
+    updated_at: str
+    source_url: str
+    body: str
+
+    @property
+    def canonical_id(self) -> str:
+        """Return the pull request canonical ID."""
+        return f"github_metadata:{self.host}:{self.repo}:pull_request:{self.number}"
+
+
 class GitHubMetadataRequestError(RuntimeError):
     """Stable request failure for github_metadata API reads."""
 
@@ -171,6 +192,26 @@ def issue_list_api_url(
     )
 
 
+def pull_request_list_api_url(
+    *,
+    api_root: str,
+    owner: str,
+    repo_name: str,
+    state: str,
+) -> str:
+    """Build the first repository pull requests API URL."""
+    encoded_owner = parse.quote(owner, safe="")
+    encoded_repo = parse.quote(repo_name, safe="")
+    query: dict[str, str | int] = {
+        "state": state,
+        "per_page": _PAGE_SIZE,
+    }
+    return (
+        f"{api_root.rstrip('/')}/repos/{encoded_owner}/{encoded_repo}/pulls?"
+        f"{parse.urlencode(query)}"
+    )
+
+
 def list_repository_issues(
     *,
     repo: str,
@@ -229,6 +270,70 @@ def list_repository_issues(
     return ordered_issues[:normalized_max_items]
 
 
+def list_repository_pull_requests(
+    *,
+    repo: str,
+    token_env: str,
+    base_url: str | None = None,
+    state: str = "open",
+    since: str | None = None,
+    max_items: int | None = None,
+) -> tuple[GitHubPullRequest, ...]:
+    """List normalized pull requests for one repository through the REST API."""
+    owner, repo_name, normalized_repo = validate_repo(repo)
+    normalized_state = validate_state(state)
+    normalized_since = validate_since(since)
+    normalized_max_items = validate_max_items(max_items)
+    base_urls = resolve_base_urls(base_url)
+    token_env_name, token = resolve_token(token_env)
+
+    next_url: str | None = pull_request_list_api_url(
+        api_root=base_urls.api_root,
+        owner=owner,
+        repo_name=repo_name,
+        state=normalized_state,
+    )
+    seen_urls: set[str] = set()
+    pull_requests: list[GitHubPullRequest] = []
+    while next_url is not None:
+        if next_url in seen_urls:
+            raise ValueError("Response error: repeated GitHub pull requests pagination URL.")
+        seen_urls.add(next_url)
+
+        payload, link_header = _request_json_list(
+            next_url,
+            token=token,
+            token_env=token_env_name,
+            repo=normalized_repo,
+            api_root=base_urls.api_root,
+        )
+        for item in payload:
+            pull_requests.append(
+                _map_pull_request(
+                    item,
+                    repo=normalized_repo,
+                    owner=owner,
+                    repo_name=repo_name,
+                    base_urls=base_urls,
+                )
+            )
+        next_url = _next_link_url(link_header)
+
+    ordered_pull_requests = tuple(
+        sorted(pull_requests, key=lambda pull_request: pull_request.number)
+    )
+    if normalized_since is not None:
+        since_cutoff = _parse_timestamp(normalized_since)
+        ordered_pull_requests = tuple(
+            pull_request
+            for pull_request in ordered_pull_requests
+            if _parse_timestamp(pull_request.updated_at) >= since_cutoff
+        )
+    if normalized_max_items is None:
+        return ordered_pull_requests
+    return ordered_pull_requests[:normalized_max_items]
+
+
 def _map_issue(
     payload: dict[str, object],
     *,
@@ -264,6 +369,54 @@ def _map_issue(
     encoded_repo = parse.quote(repo_name, safe="")
     source_url = f"{base_urls.web_root}/{encoded_owner}/{encoded_repo}/issues/{number}"
     return GitHubIssue(
+        repo=repo,
+        host=base_urls.host,
+        number=number,
+        title=title,
+        state=state,
+        author=author,
+        created_at=created_at,
+        updated_at=updated_at,
+        source_url=source_url,
+        body=body,
+    )
+
+
+def _map_pull_request(
+    payload: dict[str, object],
+    *,
+    repo: str,
+    owner: str,
+    repo_name: str,
+    base_urls: GitHubMetadataBaseUrls,
+) -> GitHubPullRequest:
+    number = payload.get("number")
+    if not isinstance(number, int) or isinstance(number, bool):
+        raise ValueError("Response error: invalid pull request number.")
+
+    title = _require_string(payload, "title")
+    state = _require_string(payload, "state")
+    created_at = _require_string(payload, "created_at")
+    updated_at = _require_string(payload, "updated_at")
+    body_value = payload.get("body")
+    if body_value is None:
+        body = ""
+    elif isinstance(body_value, str):
+        body = body_value
+    else:
+        raise ValueError("Response error: invalid pull request body.")
+
+    user = payload.get("user")
+    author: str | None = None
+    if isinstance(user, dict):
+        login = user.get("login")
+        if isinstance(login, str) and login:
+            author = login
+
+    encoded_owner = parse.quote(owner, safe="")
+    encoded_repo = parse.quote(repo_name, safe="")
+    source_url = f"{base_urls.web_root}/{encoded_owner}/{encoded_repo}/pull/{number}"
+    return GitHubPullRequest(
         repo=repo,
         host=base_urls.host,
         number=number,
@@ -317,12 +470,12 @@ def _request_json_list(
         raise ValueError("Response error: invalid JSON payload.") from exc
 
     if not isinstance(raw_payload, list):
-        raise ValueError("Response error: expected a list of GitHub issues.")
+        raise ValueError("Response error: expected a list of GitHub resources.")
 
     payload: list[dict[str, object]] = []
     for item in raw_payload:
         if not isinstance(item, dict):
-            raise ValueError("Response error: invalid issue payload.")
+            raise ValueError("Response error: invalid GitHub resource payload.")
         payload.append(item)
     return payload, link_header
 
@@ -353,9 +506,7 @@ def _rate_limit_hint(exc: HTTPError) -> str | None:
     if retry_after:
         return f"retry after {retry_after} second(s)"
 
-    remaining = (
-        exc.headers.get("X-RateLimit-Remaining") if exc.headers is not None else None
-    )
+    remaining = exc.headers.get("X-RateLimit-Remaining") if exc.headers is not None else None
     if remaining != "0" and exc.code != 429:
         return None
 
@@ -381,3 +532,7 @@ def _next_link_url(link_header: str | None) -> str | None:
         if link_url.startswith("<") and link_url.endswith(">"):
             return link_url[1:-1]
     return None
+
+
+def _parse_timestamp(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))

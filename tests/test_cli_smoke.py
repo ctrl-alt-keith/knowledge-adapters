@@ -44,16 +44,15 @@ def test_top_level_help_introduces_shared_cli_flow(tmp_path: Path) -> None:
     assert "Execute multiple configured adapter runs from one YAML file." in stdout
     assert "Normalize Confluence content into shared artifacts." in stdout
     assert (
-        "Normalize selected UTF-8 text files from a Git repository into shared artifacts."
+        "Normalize selected UTF-8 text files from a Git repository into shared artifacts." in stdout
+    )
+    assert (
+        "Normalize GitHub issue or pull request metadata from one repository into shared artifacts."
         in stdout
     )
-    assert "Normalize GitHub issue metadata from one repository into shared artifacts." in stdout
     assert "Normalize one local UTF-8 text file into shared artifacts." in stdout
     assert "Combine existing artifacts into one prompt-ready markdown file." in stdout
-    assert (
-        "Start with --dry-run to preview the source, artifact path, manifest path,"
-        in stdout
-    )
+    assert "Start with --dry-run to preview the source, artifact path, manifest path," in stdout
     assert "Re-run without --dry-run to write the same artifact layout" in stdout
     assert "knowledge-adapters run runs.yaml" in stdout
     assert "knowledge-adapters git_repo --help" in stdout
@@ -128,10 +127,7 @@ def test_local_files_cli_help_includes_first_run_guidance(tmp_path: Path) -> Non
     stdout = normalize_whitespace(result.stdout)
 
     assert result.returncode == 0, result.stderr
-    assert (
-        "Normalize one existing UTF-8 text file into the shared artifact layout."
-        in stdout
-    )
+    assert "Normalize one existing UTF-8 text file into the shared artifact layout." in stdout
     assert "Empty UTF-8 files are allowed" in stdout
     assert "produce an empty content section." in stdout
     assert "Files that are not valid UTF-8 text are rejected" in stdout
@@ -166,23 +162,24 @@ def test_git_repo_cli_help_includes_filter_and_binary_guidance(tmp_path: Path) -
     assert "--subdir SUBDIR" in stdout
     assert "--dry-run" in stdout
     assert "knowledge-adapters git_repo" in stdout
-    assert "--include \"docs/**/*.md\"" in stdout
+    assert '--include "docs/**/*.md"' in stdout
     assert "--subdir docs" in stdout
 
 
-def test_github_metadata_cli_help_includes_issues_only_guidance(tmp_path: Path) -> None:
+def test_github_metadata_cli_help_includes_resource_type_guidance(tmp_path: Path) -> None:
     result = _run_cli(tmp_path, "github_metadata", "--help")
     stdout = normalize_whitespace(result.stdout)
 
     assert result.returncode == 0, result.stderr
-    assert "Fetch issues from one GitHub or GitHub Enterprise repository" in stdout
-    assert "filter out pull requests returned by that endpoint" in stdout
-    assert "bounded to issues only" in stdout
-    assert "comments, pull requests, releases, timelines" in stdout
+    assert "Fetch issues or pull requests from one GitHub or GitHub Enterprise repository" in stdout
+    assert "Issue mode filters out pull requests returned by the issues endpoint." in stdout
+    assert "under issues/ or pull_requests/." in stdout
+    assert "Comments, releases, timelines, reactions, reviews, checks" in stdout
     assert "--repo OWNER/NAME" in stdout
     assert "--base-url BASE_URL" in stdout
     assert "--token-env ENV_VAR" in stdout
     assert "--output-dir DIR" in stdout
+    assert "--resource-type {issue,pull_request}" in stdout
     assert "--state {open,closed,all}" in stdout
     assert "--since SINCE" in stdout
     assert "--max-items N" in stdout
@@ -223,8 +220,7 @@ def test_bundle_cli_help_includes_ordering_and_input_guidance(tmp_path: Path) ->
     assert "single oversized artifact is written to its own file and reported" in stdout
     assert "knowledge-adapters bundle ./artifacts/confluence --output ./bundle.md" in stdout
     assert (
-        "knowledge-adapters bundle ./artifacts --header-mode minimal --output ./bundle.md"
-        in stdout
+        "knowledge-adapters bundle ./artifacts --header-mode minimal --output ./bundle.md" in stdout
     )
     assert '--include "team-*" --exclude "*draft*" --output ./bundle.md' in stdout
     assert "knowledge-adapters bundle ./artifacts --max-bytes 250000 --output ./bundle.md" in stdout

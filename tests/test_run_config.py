@@ -141,6 +141,7 @@ runs:
   - name: repo-issues
     type: github_metadata
     repo: octo/project
+    resource_type: pull_request
     base_url: https://github.example.com/api/v3
     token_env: GH_TOKEN
     state: all
@@ -167,6 +168,8 @@ runs:
                 "GH_TOKEN",
                 "--output-dir",
                 str((tmp_path / "artifacts" / "github" / "repo-issues").resolve()),
+                "--resource-type",
+                "pull_request",
                 "--base-url",
                 "https://github.example.com/api/v3",
                 "--state",
@@ -186,6 +189,7 @@ runs:
     ("field_block", "expected_fragment"),
     [
         ("state: merged", "unsupported 'state' value"),
+        ("resource_type: release", "unsupported 'resource_type' value"),
         ("max_items: 0", "'max_items' to a positive integer"),
     ],
 )
@@ -433,8 +437,7 @@ runs:
     run_config = load_run_config(config_path)
 
     assert tuple(
-        run.name
-        for run in select_runs(run_config, only_names=("docs-tree", "docs-home"))
+        run.name for run in select_runs(run_config, only_names=("docs-tree", "docs-home"))
     ) == (
         "docs-home",
         "docs-tree",
@@ -658,9 +661,7 @@ runs:
     assert "Run 1/1 started: docs-home (confluence)" not in captured.out
     assert "runs_completed: 1" in captured.out
 
-    local_output_path = (
-        tmp_path / "artifacts" / "local" / "team-notes" / "pages" / "team-notes.md"
-    )
+    local_output_path = tmp_path / "artifacts" / "local" / "team-notes" / "pages" / "team-notes.md"
     assert local_output_path.exists()
     disabled_output_path = (
         tmp_path / "artifacts" / "confluence" / "docs-home" / "pages" / "12345.md"
@@ -966,9 +967,7 @@ runs:
     )
 
     assert not (tmp_path / "artifacts" / "local" / "first-run").exists()
-    second_output_path = (
-        tmp_path / "artifacts" / "local" / "second-run" / "pages" / "second.md"
-    )
+    second_output_path = tmp_path / "artifacts" / "local" / "second-run" / "pages" / "second.md"
     assert second_output_path.exists()
     assert "Second file." in second_output_path.read_text(encoding="utf-8")
 

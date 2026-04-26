@@ -4,9 +4,9 @@ import pytest
 from pytest import CaptureFixture
 
 from knowledge_adapters.cli import main
-from knowledge_adapters.confluence.manifest import build_manifest_entry, write_manifest
 from knowledge_adapters.confluence.normalize import normalize_to_markdown
 from knowledge_adapters.confluence.writer import write_markdown
+from knowledge_adapters.manifest import build_manifest_entry, write_manifest
 from tests.artifact_assertions import (
     assert_manifest_entries,
     assert_manifest_entry,
@@ -198,8 +198,7 @@ def test_confluence_cli_dry_run_reports_same_resolved_target_details_for_full_ur
     assert "source_url: https://example.com/wiki/pages/viewpage.action?pageId=12345" in captured.out
     assert f"Artifact: {output_dir / 'pages' / '12345.md'}" in captured.out
     assert (
-        "- source_url: https://example.com/wiki/pages/viewpage.action?pageId=12345"
-        in captured.out
+        "- source_url: https://example.com/wiki/pages/viewpage.action?pageId=12345" in captured.out
     )
 
 

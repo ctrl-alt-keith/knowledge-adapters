@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from knowledge_adapters.confluence.manifest import manifest_path
+from knowledge_adapters.manifest import manifest_path
 
 BundleOrder = Literal["canonical_id", "manifest", "input"]
 HeaderMode = Literal["minimal", "full"]
@@ -133,8 +133,7 @@ def load_bundle_plan(
     """Load artifacts from output directories or manifest files."""
     if order not in BUNDLE_ORDER_CHOICES:
         raise ValueError(
-            f"Unsupported bundle order {order!r}. "
-            f"Choose one of: {', '.join(BUNDLE_ORDER_CHOICES)}."
+            f"Unsupported bundle order {order!r}. Choose one of: {', '.join(BUNDLE_ORDER_CHOICES)}."
         )
     if changed_only and baseline_manifest is None:
         raise ValueError("Bundle --changed-only requires --baseline-manifest.")
@@ -315,9 +314,7 @@ def _load_bundle_artifacts(manifest: Path) -> tuple[BundleArtifact, ...]:
 
     files = payload.get("files") if isinstance(payload, dict) else None
     if not isinstance(files, list):
-        raise ValueError(
-            f"Bundle manifest {manifest} is invalid: expected a files list."
-        )
+        raise ValueError(f"Bundle manifest {manifest} is invalid: expected a files list.")
 
     artifacts: list[BundleArtifact] = []
     manifest_ids: set[str] = set()
@@ -352,8 +349,7 @@ def _load_bundle_artifacts(manifest: Path) -> tuple[BundleArtifact, ...]:
             )
         if canonical_id in manifest_ids:
             raise ValueError(
-                f"Bundle manifest {manifest} is invalid: duplicate canonical_id "
-                f"{canonical_id!r}."
+                f"Bundle manifest {manifest} is invalid: duplicate canonical_id {canonical_id!r}."
             )
         if output_path in manifest_output_paths:
             raise ValueError(
@@ -387,9 +383,7 @@ def _load_baseline_manifest_entries(manifest: Path) -> dict[str, _BaselineManife
 
     files = payload.get("files") if isinstance(payload, dict) else None
     if not isinstance(files, list):
-        raise ValueError(
-            f"Baseline manifest {manifest} is invalid: expected a files list."
-        )
+        raise ValueError(f"Baseline manifest {manifest} is invalid: expected a files list.")
 
     entries_by_id: dict[str, _BaselineManifestEntry] = {}
     for entry in files:
@@ -408,8 +402,7 @@ def _load_baseline_manifest_entries(manifest: Path) -> dict[str, _BaselineManife
             )
         if canonical_id in entries_by_id:
             raise ValueError(
-                f"Baseline manifest {manifest} is invalid: duplicate canonical_id "
-                f"{canonical_id!r}."
+                f"Baseline manifest {manifest} is invalid: duplicate canonical_id {canonical_id!r}."
             )
 
         entries_by_id[canonical_id] = _BaselineManifestEntry(
@@ -607,8 +600,7 @@ def _order_bundle_artifacts(
             )
         )
     raise ValueError(
-        f"Unsupported bundle order {order!r}. "
-        f"Choose one of: {', '.join(BUNDLE_ORDER_CHOICES)}."
+        f"Unsupported bundle order {order!r}. Choose one of: {', '.join(BUNDLE_ORDER_CHOICES)}."
     )
 
 

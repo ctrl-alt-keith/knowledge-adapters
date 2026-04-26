@@ -48,6 +48,7 @@ def _commit_all(repo_dir: Path, message: str) -> str:
 def _init_repo(repo_dir: Path) -> None:
     repo_dir.mkdir()
     _git(repo_dir, "init", "--quiet", "--initial-branch=main")
+    _git(repo_dir, "config", "commit.gpgsign", "false")
     _git(repo_dir, "config", "user.name", "Test User")
     _git(repo_dir, "config", "user.email", "test@example.com")
 

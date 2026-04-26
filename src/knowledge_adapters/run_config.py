@@ -17,10 +17,12 @@ from knowledge_adapters.confluence.resolve import (
     validate_base_url,
     validate_space_key,
 )
+from knowledge_adapters.github_metadata.config import SUPPORTED_RESOURCE_TYPES
 
 SUPPORTED_RUN_TYPES = frozenset({"confluence", "git_repo", "github_metadata", "local_files"})
 _SUPPORTED_CONFLUENCE_CLIENT_MODES = frozenset({"real", "stub"})
 _SUPPORTED_GITHUB_METADATA_STATES = frozenset({"open", "closed", "all"})
+_SUPPORTED_GITHUB_METADATA_RESOURCE_TYPES = SUPPORTED_RESOURCE_TYPES
 
 _COMMON_REQUIRED_KEYS = frozenset({"name", "type", "output_dir"})
 _CONFLUENCE_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
@@ -41,14 +43,22 @@ _CONFLUENCE_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
         "tree",
     }
 )
-_LOCAL_FILES_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
-    {"dry_run", "enabled", "file_path"}
-)
+_LOCAL_FILES_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset({"dry_run", "enabled", "file_path"})
 _GIT_REPO_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
     {"dry_run", "enabled", "exclude", "include", "ref", "repo_url", "subdir"}
 )
 _GITHUB_METADATA_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
-    {"base_url", "dry_run", "enabled", "max_items", "repo", "since", "state", "token_env"}
+    {
+        "base_url",
+        "dry_run",
+        "enabled",
+        "max_items",
+        "repo",
+        "resource_type",
+        "since",
+        "state",
+        "token_env",
+    }
 )
 
 
@@ -240,9 +250,7 @@ def _build_confluence_argv(
     try:
         validate_base_url(base_url)
     except ValueError as exc:
-        raise ValueError(
-            f"Run {name!r} in {config_path} has invalid 'base_url': {exc}"
-        ) from exc
+        raise ValueError(f"Run {name!r} in {config_path} has invalid 'base_url': {exc}") from exc
 
     output_dir = _resolve_path_string(
         _require_string(run_config, "output_dir", index=index, config_path=config_path),
@@ -303,15 +311,12 @@ def _build_confluence_argv(
     else:
         if target is None:
             raise ValueError(
-                f"Run {name!r} in {config_path} must set 'target', 'space_key', or "
-                "'space_url'."
+                f"Run {name!r} in {config_path} must set 'target', 'space_key', or 'space_url'."
             )
         try:
             resolve_target_for_base_url(target, base_url=base_url)
         except ValueError as exc:
-            raise ValueError(
-                f"Run {name!r} in {config_path} has invalid 'target': {exc}"
-            ) from exc
+            raise ValueError(f"Run {name!r} in {config_path} has invalid 'target': {exc}") from exc
 
     argv: list[str] = [
         "confluence",
@@ -418,9 +423,7 @@ def _build_confluence_argv(
 
     if max_depth is not None:
         if isinstance(max_depth, bool) or not isinstance(max_depth, int):
-            raise ValueError(
-                f"Run {name!r} in {config_path} must set 'max_depth' to an integer."
-            )
+            raise ValueError(f"Run {name!r} in {config_path} must set 'max_depth' to an integer.")
         if max_depth < 0:
             raise ValueError(
                 f"Run {name!r} in {config_path} must set 'max_depth' to an integer "
@@ -567,6 +570,23 @@ def _build_github_metadata_argv(
         output_dir,
     ]
 
+    resource_type = _optional_string(
+        run_config,
+        "resource_type",
+        index=index,
+        config_path=config_path,
+    )
+    if resource_type is not None:
+        if resource_type not in _SUPPORTED_GITHUB_METADATA_RESOURCE_TYPES:
+            supported_values = " or ".join(
+                repr(value) for value in sorted(_SUPPORTED_GITHUB_METADATA_RESOURCE_TYPES)
+            )
+            raise ValueError(
+                f"Run {name!r} in {config_path} has unsupported 'resource_type' value "
+                f"{resource_type!r}. Use {supported_values}."
+            )
+        argv.extend(["--resource-type", resource_type])
+
     base_url = _optional_string(run_config, "base_url", index=index, config_path=config_path)
     if base_url is not None:
         argv.extend(["--base-url", base_url])
@@ -664,9 +684,7 @@ def _optional_string_or_datetime(
         if normalized_datetime.tzinfo is UTC:
             return normalized_datetime.isoformat().replace("+00:00", "Z")
         return normalized_datetime.isoformat()
-    raise ValueError(
-        f"Run {index!r} in {config_path} must define a non-empty string for {key!r}."
-    )
+    raise ValueError(f"Run {index!r} in {config_path} must define a non-empty string for {key!r}.")
 
 
 def _optional_string_sequence(

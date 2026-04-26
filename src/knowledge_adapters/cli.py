@@ -105,6 +105,12 @@ GITHUB_METADATA_HELP_EXAMPLES = """Examples:
   GITHUB_TOKEN=... knowledge-adapters github_metadata \\
     --repo example/project \\
     --token-env GITHUB_TOKEN \\
+    --resource-type pull_request \\
+    --output-dir ./artifacts \\
+    --dry-run
+  GITHUB_TOKEN=... knowledge-adapters github_metadata \\
+    --repo example/project \\
+    --token-env GITHUB_TOKEN \\
     --state all \\
     --since 2026-01-01T00:00:00Z \\
     --max-items 25 \\
@@ -565,12 +571,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     github_metadata_parser = subparsers.add_parser(
         "github_metadata",
-        help="Normalize GitHub issue metadata from one repository into shared artifacts.",
+        help=(
+            "Normalize GitHub issue or pull request metadata from one repository into "
+            "shared artifacts."
+        ),
         description=(
-            "Fetch issues from one GitHub or GitHub Enterprise repository through the "
-            "REST issues API, filter out pull requests returned by that endpoint, and "
-            "normalize one markdown artifact per issue under issues/. v1 is intentionally "
-            "bounded to issues only: comments, pull requests, releases, timelines, "
+            "Fetch issues or pull requests from one GitHub or GitHub Enterprise "
+            "repository through the REST API and normalize one markdown artifact per "
+            "record under issues/ or pull_requests/. Issue mode filters out pull "
+            "requests returned by the issues endpoint. Comments, releases, timelines, "
             "reactions, reviews, checks, GraphQL, attachments, and live sync are not "
             "included. The token is read only from --token-env, and token values are "
             "never printed."
@@ -605,7 +614,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--output-dir",
         required=True,
         metavar="DIR",
-        help="Directory where issues/ and manifest.json are written.",
+        help="Directory where issues/ or pull_requests/ plus manifest.json are written.",
+    )
+    github_metadata_parser.add_argument(
+        "--resource-type",
+        choices=("issue", "pull_request"),
+        default="issue",
+        help="GitHub metadata resource type to ingest. Defaults to issue.",
     )
     github_metadata_parser.add_argument(
         "--state",
@@ -1146,12 +1161,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             PageSyncDecision,
             classify_page_sync,
         )
-        from knowledge_adapters.confluence.manifest import (
-            build_manifest_entry,
-            manifest_path,
-            write_manifest,
-            write_manifest_with_context,
-        )
         from knowledge_adapters.confluence.models import ResolvedTarget
         from knowledge_adapters.confluence.normalize import normalize_to_markdown
         from knowledge_adapters.confluence.resolve import (
@@ -1161,6 +1170,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         from knowledge_adapters.confluence.traversal import TreeWalkProgress, walk_pages
         from knowledge_adapters.confluence.writer import markdown_path, write_markdown
+        from knowledge_adapters.manifest import (
+            build_manifest_entry,
+            manifest_path,
+            write_manifest,
+            write_manifest_with_context,
+        )
         from knowledge_adapters.manifest_stale import (
             find_stale_artifacts,
             load_previous_manifest_index,
@@ -2285,14 +2300,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.command == "local_files":
-        from knowledge_adapters.confluence.manifest import (
-            build_manifest_entry,
-            write_manifest,
-        )
         from knowledge_adapters.local_files.client import fetch_file
         from knowledge_adapters.local_files.config import LocalFilesConfig
         from knowledge_adapters.local_files.normalize import normalize_to_markdown
         from knowledge_adapters.local_files.writer import write_markdown
+        from knowledge_adapters.manifest import (
+            build_manifest_entry,
+            write_manifest,
+        )
         from knowledge_adapters.manifest_stale import (
             find_stale_artifacts,
             load_previous_manifest_index,
@@ -2422,20 +2437,26 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "github_metadata":
         import hashlib
 
-        from knowledge_adapters.confluence.manifest import write_manifest
         from knowledge_adapters.github_metadata.client import (
+            GitHubIssue,
             GitHubMetadataRequestError,
+            GitHubPullRequest,
             list_repository_issues,
+            list_repository_pull_requests,
             resolve_base_urls,
         )
         from knowledge_adapters.github_metadata.config import GitHubMetadataConfig
-        from knowledge_adapters.github_metadata.normalize import normalize_issue_to_markdown
-        from knowledge_adapters.github_metadata.writer import (
-            markdown_path as github_issue_markdown_path,
+        from knowledge_adapters.github_metadata.normalize import (
+            normalize_issue_to_markdown,
+            normalize_pull_request_to_markdown,
         )
         from knowledge_adapters.github_metadata.writer import (
-            write_markdown as write_github_issue_markdown,
+            markdown_path as github_metadata_markdown_path,
         )
+        from knowledge_adapters.github_metadata.writer import (
+            write_markdown as write_github_metadata_markdown,
+        )
+        from knowledge_adapters.manifest import write_manifest
         from knowledge_adapters.manifest_stale import (
             find_stale_artifacts,
             load_previous_manifest_index,
@@ -2443,6 +2464,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         github_metadata_config = GitHubMetadataConfig(
             repo=args.repo,
+            resource_type=args.resource_type,
             base_url=args.base_url,
             token_env=args.token_env,
             output_dir=args.output_dir,
@@ -2465,14 +2487,25 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         try:
             base_urls = resolve_base_urls(github_metadata_config.base_url)
-            issues = list_repository_issues(
-                repo=github_metadata_config.repo,
-                base_url=github_metadata_config.base_url,
-                token_env=github_metadata_config.token_env,
-                state=github_metadata_config.state,
-                since=github_metadata_config.since,
-                max_items=github_metadata_config.max_items,
-            )
+            records: tuple[GitHubIssue | GitHubPullRequest, ...]
+            if github_metadata_config.resource_type == "issue":
+                records = list_repository_issues(
+                    repo=github_metadata_config.repo,
+                    base_url=github_metadata_config.base_url,
+                    token_env=github_metadata_config.token_env,
+                    state=github_metadata_config.state,
+                    since=github_metadata_config.since,
+                    max_items=github_metadata_config.max_items,
+                )
+            else:
+                records = list_repository_pull_requests(
+                    repo=github_metadata_config.repo,
+                    base_url=github_metadata_config.base_url,
+                    token_env=github_metadata_config.token_env,
+                    state=github_metadata_config.state,
+                    since=github_metadata_config.since,
+                    max_items=github_metadata_config.max_items,
+                )
         except (GitHubMetadataRequestError, ValueError) as exc:
             exit_with_cli_error(str(exc), command="github_metadata")
 
@@ -2482,6 +2515,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"  api_root: {base_urls.api_root}")
         print(f"  token_env: {github_metadata_config.token_env}")
         print(f"  output_dir: {render_user_path(github_metadata_config.output_dir)}")
+        print(f"  resource_type: {github_metadata_config.resource_type}")
         print(f"  state: {github_metadata_config.state}")
         if github_metadata_config.since is not None:
             print(f"  since: {github_metadata_config.since}")
@@ -2497,44 +2531,55 @@ def main(argv: Sequence[str] | None = None) -> int:
             exit_with_cli_error(str(exc), command="github_metadata")
 
         print("\nPlan: GitHub metadata run")
-        print("  resource_type: issue")
-        print(f"  issues_planned: {len(issues)}")
+        resource_label = (
+            "issue" if github_metadata_config.resource_type == "issue" else "pull_request"
+        )
+        resource_count_label = (
+            "issues_planned"
+            if github_metadata_config.resource_type == "issue"
+            else "pull_requests_planned"
+        )
+        print(f"  resource_type: {github_metadata_config.resource_type}")
+        print(f"  {resource_count_label}: {len(records)}")
 
-        issue_markdowns: dict[int, str] = {}
+        record_markdowns: dict[int, str] = {}
         github_manifest_entries: list[dict[str, object]] = []
         github_written_output_paths: list[Path] = []
-        for issue in issues:
-            markdown = normalize_issue_to_markdown(
-                {
-                    "repo": issue.repo,
-                    "number": issue.number,
-                    "title": issue.title,
-                    "state": issue.state,
-                    "author": issue.author,
-                    "created_at": issue.created_at,
-                    "updated_at": issue.updated_at,
-                    "source_url": issue.source_url,
-                    "body": issue.body,
-                }
-            )
-            output_path = github_issue_markdown_path(
+        for record in records:
+            normalized_record = {
+                "repo": record.repo,
+                "number": record.number,
+                "title": record.title,
+                "state": record.state,
+                "author": record.author,
+                "created_at": record.created_at,
+                "updated_at": record.updated_at,
+                "source_url": record.source_url,
+                "body": record.body,
+            }
+            if github_metadata_config.resource_type == "issue":
+                markdown = normalize_issue_to_markdown(normalized_record)
+            else:
+                markdown = normalize_pull_request_to_markdown(normalized_record)
+            output_path = github_metadata_markdown_path(
                 github_metadata_config.output_dir,
-                issue.number,
+                github_metadata_config.resource_type,
+                record.number,
             )
-            issue_markdowns[issue.number] = markdown
+            record_markdowns[record.number] = markdown
             github_written_output_paths.append(output_path)
             github_manifest_entries.append(
                 {
-                    "canonical_id": issue.canonical_id,
-                    "source_url": issue.source_url,
-                    "title": issue.title,
-                    "repo": issue.repo,
-                    "resource_type": "issue",
-                    "number": issue.number,
-                    "state": issue.state,
-                    "created_at": issue.created_at,
-                    "updated_at": issue.updated_at,
-                    "author": issue.author,
+                    "canonical_id": record.canonical_id,
+                    "source_url": record.source_url,
+                    "title": record.title,
+                    "repo": record.repo,
+                    "resource_type": github_metadata_config.resource_type,
+                    "number": record.number,
+                    "state": record.state,
+                    "created_at": record.created_at,
+                    "updated_at": record.updated_at,
+                    "author": record.author,
                     "content_hash": hashlib.sha256(markdown.encode("utf-8")).hexdigest(),
                     "output_path": output_path.relative_to(
                         Path(github_metadata_config.output_dir)
@@ -2552,20 +2597,24 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         ]
 
-        for issue, output_path in zip(issues, github_written_output_paths, strict=True):
-            print(f"\n  issue: #{issue.number}")
-            print(f"  title: {issue.title}")
-            print(f"  source_url: {issue.source_url}")
+        for record, output_path in zip(records, github_written_output_paths, strict=True):
+            print(f"\n  {resource_label}: #{record.number}")
+            print(f"  title: {record.title}")
+            print(f"  source_url: {record.source_url}")
             print(f"  Artifact path: {render_user_path(output_path)}")
-            if issue.body:
+            if record.body:
                 print("  body_status: markdown/text with content")
             else:
-                print("  body_status: empty issue body; output will include an empty-body marker")
+                print(
+                    "  body_status: empty "
+                    f"{resource_label.replace('_', ' ')} body; output will include an "
+                    "empty-body marker"
+                )
             print(f"  action: {'would write' if github_metadata_config.dry_run else 'write'}")
 
         manifest_output_path = output_dir / "manifest.json"
         if github_metadata_config.dry_run:
-            print(f"\nSummary: would write {len(issues)}, would skip 0")
+            print(f"\nSummary: would write {len(records)}, would skip 0")
             print(f"  stale_artifacts: {len(stale_artifacts)}")
             print_stale_artifacts(github_metadata_config.output_dir, stale_artifacts)
             print(f"Manifest path: {render_user_path(manifest_output_path)}")
@@ -2573,11 +2622,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
 
         try:
-            for issue in issues:
-                write_github_issue_markdown(
+            for record in records:
+                write_github_metadata_markdown(
                     github_metadata_config.output_dir,
-                    issue.number,
-                    issue_markdowns[issue.number],
+                    github_metadata_config.resource_type,
+                    record.number,
+                    record_markdowns[record.number],
                 )
             manifest = write_manifest(
                 github_metadata_config.output_dir,
@@ -2592,7 +2642,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         for output_path in github_written_output_paths:
             print(f"\nWrote: {render_user_path(output_path)}")
-        print(f"\nSummary: wrote {len(issues)}, skipped 0")
+        print(f"\nSummary: wrote {len(records)}, skipped 0")
         print(f"  stale_artifacts: {len(stale_artifacts)}")
         print_stale_artifacts(github_metadata_config.output_dir, stale_artifacts)
         print(f"Manifest path: {render_user_path(manifest)}")
@@ -2602,10 +2652,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "git_repo":
         import hashlib
 
-        from knowledge_adapters.confluence.manifest import (
-            build_manifest_entry,
-            write_manifest,
-        )
         from knowledge_adapters.git_repo.client import fetch_repo_snapshot
         from knowledge_adapters.git_repo.config import GitRepoConfig
         from knowledge_adapters.git_repo.normalize import normalize_to_markdown
@@ -2614,6 +2660,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         from knowledge_adapters.git_repo.writer import (
             write_markdown as write_git_repo_markdown,
+        )
+        from knowledge_adapters.manifest import (
+            build_manifest_entry,
+            write_manifest,
         )
         from knowledge_adapters.manifest_stale import (
             find_stale_artifacts,

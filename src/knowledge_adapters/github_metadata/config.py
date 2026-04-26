@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+SUPPORTED_RESOURCE_TYPES = frozenset({"issue", "pull_request"})
+
 
 @dataclass(frozen=True)
 class GitHubMetadataConfig:
@@ -12,9 +14,9 @@ class GitHubMetadataConfig:
     repo: str
     token_env: str
     output_dir: str
+    resource_type: str = "issue"
     base_url: str | None = None
     state: str = "open"
     since: str | None = None
     max_items: int | None = None
     dry_run: bool = False
-

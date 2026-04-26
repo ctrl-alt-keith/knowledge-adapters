@@ -14,10 +14,19 @@ from knowledge_adapters.cli import main
 from knowledge_adapters.github_metadata.client import (
     issue_list_api_url,
     list_repository_issues,
+    list_repository_pull_requests,
+    pull_request_list_api_url,
     resolve_base_urls,
 )
-from knowledge_adapters.github_metadata.normalize import EMPTY_BODY_MARKER
-from tests.cli_output_assertions import assert_dry_run_summary, assert_write_summary
+from knowledge_adapters.github_metadata.normalize import (
+    EMPTY_BODY_MARKER,
+    EMPTY_PULL_REQUEST_BODY_MARKER,
+)
+from tests.cli_output_assertions import (
+    assert_dry_run_summary,
+    assert_stale_artifacts,
+    assert_write_summary,
+)
 
 
 class _FakeGitHubResponse:
@@ -76,6 +85,28 @@ def _issue(
     return payload
 
 
+def _pull_request(
+    number: int,
+    *,
+    title: str | None = None,
+    body: str | None = "Body",
+    state: str = "open",
+    author: str | None = "alice",
+    updated_at: str | None = None,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "number": number,
+        "title": title or f"Pull Request {number}",
+        "state": state,
+        "created_at": f"2026-04-{number:02d}T00:00:00Z",
+        "updated_at": updated_at or f"2026-04-{number:02d}T01:00:00Z",
+        "body": body,
+    }
+    if author is not None:
+        payload["user"] = {"login": author}
+    return payload
+
+
 def _install_fake_urlopen(
     monkeypatch: MonkeyPatch,
     responses: Mapping[str, _FakeGitHubResponse],
@@ -99,6 +130,15 @@ def test_github_metadata_resolves_github_and_ghe_base_urls() -> None:
             since=None,
         )
         == "https://api.github.com/repos/octo/project/issues?state=open&per_page=100"
+    )
+    assert (
+        pull_request_list_api_url(
+            api_root=github_urls.api_root,
+            owner="octo",
+            repo_name="project",
+            state="open",
+        )
+        == "https://api.github.com/repos/octo/project/pulls?state=open&per_page=100"
     )
 
     ghe_web_urls = resolve_base_urls("https://github.example.com")
@@ -172,6 +212,47 @@ def test_github_metadata_paginates_filters_prs_orders_and_limits_after_filtering
         "github_metadata:github.com:octo/project:issue:1",
         "github_metadata:github.com:octo/project:issue:3",
         "github_metadata:github.com:octo/project:issue:4",
+    ]
+
+
+def test_github_metadata_pull_requests_paginate_filter_since_and_limit(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GH_TOKEN", "secret-token")
+    first_url = pull_request_list_api_url(
+        api_root="https://api.github.com",
+        owner="octo",
+        repo_name="project",
+        state="all",
+    )
+    second_url = "https://api.github.com/repos/octo/project/pulls?state=all&per_page=100&page=2"
+    fake_urlopen = _install_fake_urlopen(
+        monkeypatch,
+        {
+            first_url: _FakeGitHubResponse(
+                [
+                    _pull_request(9, updated_at="2025-12-31T23:59:59Z"),
+                    _pull_request(4),
+                ],
+                headers={"Link": f'<{second_url}>; rel="next"'},
+            ),
+            second_url: _FakeGitHubResponse([_pull_request(7), _pull_request(2)]),
+        },
+    )
+
+    pull_requests = list_repository_pull_requests(
+        repo="octo/project",
+        token_env="GH_TOKEN",
+        state="all",
+        since="2026-01-01T00:00:00Z",
+        max_items=2,
+    )
+
+    assert fake_urlopen.calls == [first_url, second_url]
+    assert [pull_request.number for pull_request in pull_requests] == [2, 4]
+    assert [pull_request.canonical_id for pull_request in pull_requests] == [
+        "github_metadata:github.com:octo/project:pull_request:2",
+        "github_metadata:github.com:octo/project:pull_request:4",
     ]
 
 
@@ -312,3 +393,162 @@ def test_github_metadata_cli_dry_run_does_not_write_files(
     assert "source_url: https://github.example.com/octo/project/issues/5" in captured.out
     assert_dry_run_summary(captured.out, would_write=1, would_skip=0)
     assert not output_dir.exists()
+
+
+def test_github_metadata_cli_writes_pull_request_artifacts_and_manifest(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("GH_TOKEN", "secret-token")
+    first_url = pull_request_list_api_url(
+        api_root="https://api.github.com",
+        owner="octo",
+        repo_name="project",
+        state="open",
+    )
+    _install_fake_urlopen(
+        monkeypatch,
+        {
+            first_url: _FakeGitHubResponse(
+                [
+                    _pull_request(8, title="Empty PR body", body=None, author=None),
+                    _pull_request(4, title="Add API docs", body="Implements docs.\n"),
+                ]
+            )
+        },
+    )
+    output_dir = tmp_path / "out"
+
+    exit_code = main(
+        [
+            "github_metadata",
+            "--repo",
+            "octo/project",
+            "--token-env",
+            "GH_TOKEN",
+            "--resource-type",
+            "pull_request",
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "resource_type: pull_request" in captured.out
+    assert "pull_requests_planned: 2" in captured.out
+    assert_write_summary(captured.out, wrote=2, skipped=0)
+
+    pr_4_path = output_dir / "pull_requests" / "4.md"
+    pr_8_path = output_dir / "pull_requests" / "8.md"
+    assert pr_4_path.exists()
+    assert pr_8_path.exists()
+    pr_4_markdown = pr_4_path.read_text(encoding="utf-8")
+    pr_8_markdown = pr_8_path.read_text(encoding="utf-8")
+    assert "# Pull Request #4: Add API docs" in pr_4_markdown
+    assert "Implements docs." in pr_4_markdown
+    assert EMPTY_PULL_REQUEST_BODY_MARKER in pr_8_markdown
+
+    manifest_payload = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert isinstance(manifest_payload["generated_at"], str)
+    assert manifest_payload["files"] == [
+        {
+            "canonical_id": "github_metadata:github.com:octo/project:pull_request:4",
+            "source_url": "https://github.com/octo/project/pull/4",
+            "title": "Add API docs",
+            "repo": "octo/project",
+            "resource_type": "pull_request",
+            "number": 4,
+            "state": "open",
+            "created_at": "2026-04-04T00:00:00Z",
+            "updated_at": "2026-04-04T01:00:00Z",
+            "author": "alice",
+            "content_hash": hashlib.sha256(pr_4_markdown.encode("utf-8")).hexdigest(),
+            "output_path": "pull_requests/4.md",
+        },
+        {
+            "canonical_id": "github_metadata:github.com:octo/project:pull_request:8",
+            "source_url": "https://github.com/octo/project/pull/8",
+            "title": "Empty PR body",
+            "repo": "octo/project",
+            "resource_type": "pull_request",
+            "number": 8,
+            "state": "open",
+            "created_at": "2026-04-08T00:00:00Z",
+            "updated_at": "2026-04-08T01:00:00Z",
+            "author": None,
+            "content_hash": hashlib.sha256(pr_8_markdown.encode("utf-8")).hexdigest(),
+            "output_path": "pull_requests/8.md",
+        },
+    ]
+
+
+def test_github_metadata_pull_request_dry_run_reports_stale_artifacts(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("GH_TOKEN", "secret-token")
+    first_url = pull_request_list_api_url(
+        api_root="https://api.github.com",
+        owner="octo",
+        repo_name="project",
+        state="open",
+    )
+    _install_fake_urlopen(
+        monkeypatch,
+        {first_url: _FakeGitHubResponse([_pull_request(7, title="Current PR")])},
+    )
+    output_dir = tmp_path / "out"
+    stale_pull_request = output_dir / "pull_requests" / "5.md"
+    stale_pull_request.parent.mkdir(parents=True, exist_ok=True)
+    stale_pull_request.write_text("legacy artifact\n", encoding="utf-8")
+    (output_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-04-01T00:00:00Z",
+                "files": [
+                    {
+                        "canonical_id": "github_metadata:github.com:octo/project:pull_request:5",
+                        "source_url": "https://github.com/octo/project/pull/5",
+                        "title": "Legacy PR",
+                        "repo": "octo/project",
+                        "resource_type": "pull_request",
+                        "number": 5,
+                        "state": "open",
+                        "created_at": "2026-04-05T00:00:00Z",
+                        "updated_at": "2026-04-05T01:00:00Z",
+                        "author": "alice",
+                        "content_hash": "legacy",
+                        "output_path": "pull_requests/5.md",
+                    }
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(
+        [
+            "github_metadata",
+            "--repo",
+            "octo/project",
+            "--token-env",
+            "GH_TOKEN",
+            "--resource-type",
+            "pull_request",
+            "--output-dir",
+            str(output_dir),
+            "--dry-run",
+        ]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert_dry_run_summary(captured.out, would_write=1, would_skip=0)
+    assert_stale_artifacts(captured.out, count=1, artifact_paths=[stale_pull_request])
+    assert stale_pull_request.read_text(encoding="utf-8") == "legacy artifact\n"
+    assert not (output_dir / "pull_requests" / "7.md").exists()
