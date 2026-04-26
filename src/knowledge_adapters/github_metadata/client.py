@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from urllib import parse, request
 from urllib.error import HTTPError, URLError
@@ -39,11 +39,22 @@ class GitHubIssue:
     updated_at: str
     source_url: str
     body: str
+    comments: tuple[GitHubIssueComment, ...] = ()
 
     @property
     def canonical_id(self) -> str:
         """Return the issue canonical ID."""
         return f"github_metadata:{self.host}:{self.repo}:issue:{self.number}"
+
+
+@dataclass(frozen=True)
+class GitHubIssueComment:
+    """One normalized GitHub issue comment record."""
+
+    author: str | None
+    created_at: str
+    updated_at: str
+    body: str
 
 
 @dataclass(frozen=True)
@@ -220,6 +231,7 @@ def list_repository_issues(
     state: str = "open",
     since: str | None = None,
     max_items: int | None = None,
+    include_issue_comments: bool = False,
 ) -> tuple[GitHubIssue, ...]:
     """List normalized issues for one repository through the REST API."""
     owner, repo_name, normalized_repo = validate_repo(repo)
@@ -265,9 +277,27 @@ def list_repository_issues(
         next_url = _next_link_url(link_header)
 
     ordered_issues = tuple(sorted(issues, key=lambda issue: issue.number))
-    if normalized_max_items is None:
-        return ordered_issues
-    return ordered_issues[:normalized_max_items]
+    selected_issues = (
+        ordered_issues if normalized_max_items is None else ordered_issues[:normalized_max_items]
+    )
+    if not include_issue_comments:
+        return selected_issues
+
+    return tuple(
+        replace(
+            issue,
+            comments=_list_issue_comments(
+                issue_number=issue.number,
+                owner=owner,
+                repo_name=repo_name,
+                repo=normalized_repo,
+                api_root=base_urls.api_root,
+                token=token,
+                token_env=token_env_name,
+            ),
+        )
+        for issue in selected_issues
+    )
 
 
 def list_repository_pull_requests(
@@ -426,6 +456,96 @@ def _map_pull_request(
         created_at=created_at,
         updated_at=updated_at,
         source_url=source_url,
+        body=body,
+    )
+
+
+def issue_comments_api_url(
+    *,
+    api_root: str,
+    owner: str,
+    repo_name: str,
+    issue_number: int,
+) -> str:
+    """Build the first issue comments API URL."""
+    encoded_owner = parse.quote(owner, safe="")
+    encoded_repo = parse.quote(repo_name, safe="")
+    query = parse.urlencode({"per_page": _PAGE_SIZE})
+    return (
+        f"{api_root.rstrip('/')}/repos/{encoded_owner}/{encoded_repo}/issues/"
+        f"{issue_number}/comments?{query}"
+    )
+
+
+def _list_issue_comments(
+    *,
+    issue_number: int,
+    owner: str,
+    repo_name: str,
+    repo: str,
+    api_root: str,
+    token: str,
+    token_env: str,
+) -> tuple[GitHubIssueComment, ...]:
+    next_url: str | None = issue_comments_api_url(
+        api_root=api_root,
+        owner=owner,
+        repo_name=repo_name,
+        issue_number=issue_number,
+    )
+    seen_urls: set[str] = set()
+    comments: list[GitHubIssueComment] = []
+    while next_url is not None:
+        if next_url in seen_urls:
+            raise ValueError("Response error: repeated GitHub issue comments pagination URL.")
+        seen_urls.add(next_url)
+
+        payload, link_header = _request_json_list(
+            next_url,
+            token=token,
+            token_env=token_env,
+            repo=repo,
+            api_root=api_root,
+        )
+        for item in payload:
+            comments.append(_map_issue_comment(item))
+        next_url = _next_link_url(link_header)
+
+    return tuple(
+        sorted(
+            comments,
+            key=lambda comment: (
+                comment.created_at,
+                comment.updated_at,
+                "" if comment.author is None else comment.author,
+                comment.body,
+            ),
+        )
+    )
+
+
+def _map_issue_comment(payload: dict[str, object]) -> GitHubIssueComment:
+    created_at = _require_string(payload, "created_at")
+    updated_at = _require_string(payload, "updated_at")
+    body_value = payload.get("body")
+    if body_value is None:
+        body = ""
+    elif isinstance(body_value, str):
+        body = body_value
+    else:
+        raise ValueError("Response error: invalid issue comment body.")
+
+    user = payload.get("user")
+    author: str | None = None
+    if isinstance(user, dict):
+        login = user.get("login")
+        if isinstance(login, str) and login:
+            author = login
+
+    return GitHubIssueComment(
+        author=author,
+        created_at=created_at,
+        updated_at=updated_at,
         body=body,
     )
 

@@ -19,4 +19,5 @@ class GitHubMetadataConfig:
     state: str = "open"
     since: str | None = None
     max_items: int | None = None
+    include_issue_comments: bool = False
     dry_run: bool = False

@@ -12,6 +12,7 @@ from pytest import CaptureFixture, MonkeyPatch
 
 from knowledge_adapters.cli import main
 from knowledge_adapters.github_metadata.client import (
+    issue_comments_api_url,
     issue_list_api_url,
     list_repository_issues,
     list_repository_pull_requests,
@@ -100,6 +101,24 @@ def _pull_request(
         "state": state,
         "created_at": f"2026-04-{number:02d}T00:00:00Z",
         "updated_at": updated_at or f"2026-04-{number:02d}T01:00:00Z",
+        "body": body,
+    }
+    if author is not None:
+        payload["user"] = {"login": author}
+    return payload
+
+
+def _issue_comment(
+    number: int,
+    *,
+    body: str | None = "Comment",
+    author: str | None = "alice",
+    created_at: str | None = None,
+    updated_at: str | None = None,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "created_at": created_at or f"2026-04-{number:02d}T02:00:00Z",
+        "updated_at": updated_at or f"2026-04-{number:02d}T03:00:00Z",
         "body": body,
     }
     if author is not None:
@@ -256,6 +275,84 @@ def test_github_metadata_pull_requests_paginate_filter_since_and_limit(
     ]
 
 
+def test_github_metadata_issue_comments_paginate_and_sort_deterministically(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GH_TOKEN", "secret-token")
+    issues_url = issue_list_api_url(
+        api_root="https://api.github.com",
+        owner="octo",
+        repo_name="project",
+        state="open",
+        since=None,
+    )
+    issue_1_comments_url = issue_comments_api_url(
+        api_root="https://api.github.com",
+        owner="octo",
+        repo_name="project",
+        issue_number=1,
+    )
+    issue_1_comments_page_2_url = (
+        "https://api.github.com/repos/octo/project/issues/1/comments?per_page=100&page=2"
+    )
+    issue_2_comments_url = issue_comments_api_url(
+        api_root="https://api.github.com",
+        owner="octo",
+        repo_name="project",
+        issue_number=2,
+    )
+    fake_urlopen = _install_fake_urlopen(
+        monkeypatch,
+        {
+            issues_url: _FakeGitHubResponse([_issue(2), _issue(1)]),
+            issue_1_comments_url: _FakeGitHubResponse(
+                [
+                    _issue_comment(
+                        1,
+                        body="Second chronologically",
+                        created_at="2026-04-01T05:00:00Z",
+                        updated_at="2026-04-01T05:30:00Z",
+                    )
+                ],
+                headers={"Link": f'<{issue_1_comments_page_2_url}>; rel="next"'},
+            ),
+            issue_1_comments_page_2_url: _FakeGitHubResponse(
+                [
+                    _issue_comment(
+                        1,
+                        body="First chronologically",
+                        author="bob",
+                        created_at="2026-04-01T04:00:00Z",
+                        updated_at="2026-04-01T04:30:00Z",
+                    )
+                ]
+            ),
+            issue_2_comments_url: _FakeGitHubResponse([_issue_comment(2, body=None, author=None)]),
+        },
+    )
+
+    issues = list_repository_issues(
+        repo="octo/project",
+        token_env="GH_TOKEN",
+        include_issue_comments=True,
+    )
+
+    assert fake_urlopen.calls == [
+        issues_url,
+        issue_1_comments_url,
+        issue_1_comments_page_2_url,
+        issue_2_comments_url,
+    ]
+    assert [issue.number for issue in issues] == [1, 2]
+    assert [comment.body for comment in issues[0].comments] == [
+        "First chronologically",
+        "Second chronologically",
+    ]
+    assert issues[0].comments[0].author == "bob"
+    assert issues[1].comments[0].body == ""
+    assert issues[1].comments[0].author is None
+
+
 def test_github_metadata_cli_writes_issue_artifacts_and_manifest(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -312,6 +409,7 @@ def test_github_metadata_cli_writes_issue_artifacts_and_manifest(
     issue_7_markdown = issue_7_path.read_text(encoding="utf-8")
     assert "# Issue #2: Useful bug" in issue_2_markdown
     assert "Bug details." in issue_2_markdown
+    assert "## Comments" not in issue_2_markdown
     assert EMPTY_BODY_MARKER in issue_7_markdown
 
     manifest_payload = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
@@ -346,6 +444,91 @@ def test_github_metadata_cli_writes_issue_artifacts_and_manifest(
             "output_path": "issues/7.md",
         },
     ]
+
+
+def test_github_metadata_cli_writes_issue_comments_when_enabled(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("GH_TOKEN", "secret-token")
+    issues_url = issue_list_api_url(
+        api_root="https://api.github.com",
+        owner="octo",
+        repo_name="project",
+        state="open",
+        since=None,
+    )
+    issue_2_comments_url = issue_comments_api_url(
+        api_root="https://api.github.com",
+        owner="octo",
+        repo_name="project",
+        issue_number=2,
+    )
+    issue_7_comments_url = issue_comments_api_url(
+        api_root="https://api.github.com",
+        owner="octo",
+        repo_name="project",
+        issue_number=7,
+    )
+    fake_urlopen = _install_fake_urlopen(
+        monkeypatch,
+        {
+            issues_url: _FakeGitHubResponse(
+                [
+                    _issue(7, title="Follow-up", body="Body for issue 7.\n"),
+                    _issue(2, title="Useful bug", body="Bug details.\n"),
+                ]
+            ),
+            issue_2_comments_url: _FakeGitHubResponse(
+                [
+                    _issue_comment(
+                        2,
+                        body="Later comment",
+                        created_at="2026-04-02T04:00:00Z",
+                        updated_at="2026-04-02T05:00:00Z",
+                    ),
+                    _issue_comment(
+                        2,
+                        body="Earlier comment",
+                        author="bob",
+                        created_at="2026-04-02T03:00:00Z",
+                        updated_at="2026-04-02T03:30:00Z",
+                    ),
+                ]
+            ),
+            issue_7_comments_url: _FakeGitHubResponse([]),
+        },
+    )
+    output_dir = tmp_path / "out"
+
+    exit_code = main(
+        [
+            "github_metadata",
+            "--repo",
+            "octo/project",
+            "--token-env",
+            "GH_TOKEN",
+            "--output-dir",
+            str(output_dir),
+            "--include-issue-comments",
+        ]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "include_issue_comments: true" in captured.out
+    assert_write_summary(captured.out, wrote=2, skipped=0)
+    assert fake_urlopen.calls == [issues_url, issue_2_comments_url, issue_7_comments_url]
+
+    issue_2_markdown = (output_dir / "issues" / "2.md").read_text(encoding="utf-8")
+    issue_7_markdown = (output_dir / "issues" / "7.md").read_text(encoding="utf-8")
+    assert "## Comments" in issue_2_markdown
+    assert "### Comment 1" in issue_2_markdown
+    assert "- author: bob" in issue_2_markdown
+    assert "Earlier comment" in issue_2_markdown
+    assert issue_2_markdown.index("Earlier comment") < issue_2_markdown.index("Later comment")
+    assert "## Comments" not in issue_7_markdown
 
 
 def test_github_metadata_cli_dry_run_does_not_write_files(

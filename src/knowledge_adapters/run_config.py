@@ -52,6 +52,7 @@ _GITHUB_METADATA_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
         "base_url",
         "dry_run",
         "enabled",
+        "include_issue_comments",
         "max_items",
         "repo",
         "resource_type",
@@ -614,6 +615,15 @@ def _build_github_metadata_argv(
                 f"Run {name!r} in {config_path} must set 'max_items' to a positive integer."
             )
         argv.extend(["--max-items", str(max_items)])
+
+    if _optional_bool(
+        run_config,
+        "include_issue_comments",
+        index=index,
+        config_path=config_path,
+        default=False,
+    ):
+        argv.append("--include-issue-comments")
 
     if _optional_bool(run_config, "dry_run", index=index, config_path=config_path, default=False):
         argv.append("--dry-run")
