@@ -9,7 +9,13 @@ from pytest import CaptureFixture, MonkeyPatch
 
 import knowledge_adapters.cli as cli
 from knowledge_adapters.cli import main
-from knowledge_adapters.run_config import ConfiguredRun, load_run_config, select_runs
+from knowledge_adapters.run_config import (
+    ConfiguredBundle,
+    ConfiguredRun,
+    load_run_config,
+    select_bundle,
+    select_runs,
+)
 
 
 class _FakeHTTPResponse:
@@ -120,6 +126,117 @@ runs:
             dry_run=False,
         ),
     )
+
+
+def test_load_run_config_supports_named_bundle_referencing_one_run(tmp_path: Path) -> None:
+    config_path = tmp_path / "runs.yaml"
+    baseline_manifest = tmp_path / "baseline" / "manifest.json"
+    config_path.write_text(
+        f"""
+runs:
+  - name: team-notes
+    type: local_files
+    file_path: ./inputs/team-notes.txt
+    output_dir: ./artifacts/local/team-notes
+bundles:
+  - name: review-pack
+    runs: team-notes
+    output: ./bundles/review-pack.md
+    max_bytes: 250000
+    order: input
+    header_mode: minimal
+    include:
+      - "team-*"
+    exclude:
+      - "*draft*"
+    changed_only: true
+    baseline_manifest: {baseline_manifest}
+    stale_mode: flag
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    run_config = load_run_config(config_path)
+
+    assert run_config.bundles == (
+        ConfiguredBundle(
+            name="review-pack",
+            inputs=(str((tmp_path / "artifacts" / "local" / "team-notes").resolve()),),
+            output=str((tmp_path / "bundles" / "review-pack.md").resolve()),
+            max_bytes=250000,
+            order="input",
+            header_mode="minimal",
+            include_patterns=("team-*",),
+            exclude_patterns=("*draft*",),
+            changed_only=True,
+            baseline_manifest=str(baseline_manifest),
+            stale_mode="flag",
+        ),
+    )
+
+
+def test_load_run_config_supports_named_bundle_referencing_multiple_runs(tmp_path: Path) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: team-notes
+    type: local_files
+    file_path: ./inputs/team-notes.txt
+    output_dir: ./artifacts/local/team-notes
+  - name: docs-tree
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-tree
+bundles:
+  - name: merged-review
+    runs:
+      - team-notes
+      - docs-tree
+    output: ./bundles/merged-review.md
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    run_config = load_run_config(config_path)
+
+    assert run_config.bundles == (
+        ConfiguredBundle(
+            name="merged-review",
+            inputs=(
+                str((tmp_path / "artifacts" / "local" / "team-notes").resolve()),
+                str((tmp_path / "artifacts" / "confluence" / "docs-tree").resolve()),
+            ),
+            output=str((tmp_path / "bundles" / "merged-review.md").resolve()),
+        ),
+    )
+
+
+def test_load_run_config_rejects_unknown_named_bundle_run_reference(tmp_path: Path) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: team-notes
+    type: local_files
+    file_path: ./inputs/team-notes.txt
+    output_dir: ./artifacts/local/team-notes
+bundles:
+  - name: review-pack
+    runs:
+      - team-notes
+      - missing-run
+    output: ./bundles/review-pack.md
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="references unknown run name 'missing-run'"):
+        load_run_config(config_path)
 
 
 def test_load_run_config_supports_git_repo_filters_and_ref(tmp_path: Path) -> None:
@@ -552,6 +669,30 @@ runs:
         select_runs(run_config, only_names=("missing-run",))
 
 
+def test_select_bundle_rejects_unknown_named_bundle(tmp_path: Path) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: team-notes
+    type: local_files
+    file_path: ./notes.txt
+    output_dir: ./artifacts
+bundles:
+  - name: review-pack
+    runs: team-notes
+    output: ./bundles/review-pack.md
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    run_config = load_run_config(config_path)
+
+    with pytest.raises(ValueError, match="Unknown bundle name 'missing-bundle'"):
+        select_bundle(run_config, name="missing-bundle")
+
+
 @pytest.mark.parametrize(
     ("field_name", "field_block", "expected_fragment"),
     [
@@ -711,6 +852,38 @@ runs:
             "last_modified": "1970-01-01T00:00:00Z",
         }
     ]
+
+
+def test_run_command_executes_explicit_input_bundle_run(tmp_path: Path) -> None:
+    source_file = tmp_path / "inputs" / "team-notes.txt"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text("Ship it.\n", encoding="utf-8")
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: team-notes
+    type: local_files
+    file_path: ./inputs/team-notes.txt
+    output_dir: ./artifacts/local/team-notes
+  - name: team-notes-bundle
+    type: bundle
+    inputs:
+      - ./artifacts/local/team-notes
+    output: ./bundles/team-notes.md
+    header_mode: minimal
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(["run", str(config_path)])
+
+    assert exit_code == 0
+    bundle_path = tmp_path / "bundles" / "team-notes.md"
+    assert bundle_path.exists()
+    assert "## team-notes.txt" in bundle_path.read_text(encoding="utf-8")
+    assert "Ship it." in bundle_path.read_text(encoding="utf-8")
 
 
 def test_run_command_skips_disabled_runs_by_default(

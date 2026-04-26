@@ -143,6 +143,7 @@ BUNDLE_HELP_EXAMPLES = """Examples:
   knowledge-adapters bundle ./artifacts/confluence --output ./bundle.md
   knowledge-adapters bundle ./artifacts/a ./artifacts/b --output ./bundle.md
   knowledge-adapters bundle ./artifacts/manifest.json --output ./bundle.md
+  knowledge-adapters bundle --config ./runs.yaml --bundle review-pack
   knowledge-adapters bundle ./artifacts --header-mode minimal --output ./bundle.md
   knowledge-adapters bundle ./artifacts --include "team-*" --exclude "*draft*" --output ./bundle.md
   knowledge-adapters bundle ./artifacts --max-bytes 250000 --output ./bundle.md
@@ -681,36 +682,54 @@ def build_parser() -> argparse.ArgumentParser:
         "bundle",
         help="Combine existing artifacts into one prompt-ready markdown file.",
         description=(
-            "Combine existing artifacts into one prompt-ready markdown file. Accept one "
-            "or more output directories or manifest files as input. Bundle output keeps "
-            "the original artifacts unchanged, removes duplicate canonical_id entries by "
-            "keeping the first artifact discovered from the provided inputs, and orders "
-            "the final sections using the selected deterministic ordering mode. Header "
-            "modes control how much manifest metadata appears above each document. Optional "
-            "glob-style include and exclude filters match canonical_id, title, "
-            "output_path, and source_url. If no --include filters are provided, all "
-            "artifacts start included. Exclude filters apply after include matching and "
-            "win on conflicts. With --changed-only, a baseline manifest is used to keep "
-            "only artifacts with new canonical_id values or changed content_hash values. "
-            "With --stale-mode, explicit stale metadata in bundle manifests can include, "
-            "exclude, or flag stale artifacts without inferring stale state from disk. "
-            "With --max-bytes, bundle output is split into deterministic numbered "
-            "markdown files and sections are kept intact when possible."
+            "Combine existing artifacts into one prompt-ready markdown file. Use either "
+            "direct input paths or a named bundle from runs.yaml. Direct input mode "
+            "accepts one or more output directories or manifest files as input. Bundle "
+            "output keeps the original artifacts unchanged, removes duplicate "
+            "canonical_id entries by keeping the first artifact discovered from the "
+            "provided inputs, and orders the final sections using the selected "
+            "deterministic ordering mode. Header modes control how much manifest "
+            "metadata appears above each document. Optional glob-style include and "
+            "exclude filters match canonical_id, title, output_path, and source_url. "
+            "If no --include filters are provided, all artifacts start included. "
+            "Exclude filters apply after include matching and win on conflicts. With "
+            "--changed-only, a baseline manifest is used to keep only artifacts with "
+            "new canonical_id values or changed content_hash values. With --stale-mode, "
+            "explicit stale metadata in bundle manifests can include, exclude, or flag "
+            "stale artifacts without inferring stale state from disk. With --max-bytes, "
+            "bundle output is split into deterministic numbered markdown files and "
+            "sections are kept intact when possible."
         ),
         epilog=BUNDLE_HELP_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     bundle_parser.add_argument(
         "inputs",
-        nargs="+",
+        nargs="*",
         metavar="INPUT",
-        help="One or more adapter output directories or manifest files to bundle.",
+        help=(
+            "One or more adapter output directories or manifest files to bundle. "
+            "Omit when using --config and --bundle."
+        ),
+    )
+    bundle_parser.add_argument(
+        "--config",
+        metavar="RUNS_YAML",
+        help="Load a named bundle definition from runs.yaml. Requires --bundle.",
+    )
+    bundle_parser.add_argument(
+        "--bundle",
+        dest="bundle_name",
+        metavar="NAME",
+        help="Named bundle entry to render from --config. Requires --config.",
     )
     bundle_parser.add_argument(
         "--output",
-        required=True,
         metavar="FILE",
-        help="Markdown file to write with the bundled artifact content.",
+        help=(
+            "Markdown file to write with the bundled artifact content. Required for "
+            "direct input mode; named bundles use their configured output."
+        ),
     )
     bundle_parser.add_argument(
         "--max-bytes",
@@ -2203,8 +2222,65 @@ def main(argv: Sequence[str] | None = None) -> int:
             write_bundle,
             write_split_bundle,
         )
+        from knowledge_adapters.run_config import load_run_config, select_bundle
 
-        output_path_input = Path(args.output).expanduser()
+        named_bundle_mode = args.config is not None or args.bundle_name is not None
+        if named_bundle_mode:
+            if args.config is None or args.bundle_name is None:
+                exit_with_cli_error(
+                    "Named bundle mode requires both --config and --bundle.",
+                    command="bundle",
+                )
+            if args.inputs:
+                exit_with_cli_error(
+                    "Named bundle mode does not accept direct INPUT paths.",
+                    command="bundle",
+                )
+            if args.output is not None:
+                exit_with_cli_error(
+                    "Named bundle mode uses the bundle output from runs.yaml and does not "
+                    "accept --output.",
+                    command="bundle",
+                )
+            try:
+                run_config = load_run_config(args.config)
+                configured_bundle = select_bundle(run_config, name=args.bundle_name)
+            except ValueError as exc:
+                exit_with_cli_error(str(exc), command="bundle")
+            bundle_inputs = configured_bundle.inputs
+            bundle_output = configured_bundle.output
+            bundle_max_bytes = configured_bundle.max_bytes
+            bundle_order = configured_bundle.order
+            bundle_header_mode = configured_bundle.header_mode
+            bundle_include = configured_bundle.include_patterns
+            bundle_exclude = configured_bundle.exclude_patterns
+            bundle_changed_only = configured_bundle.changed_only
+            bundle_baseline_manifest = configured_bundle.baseline_manifest
+            bundle_stale_mode = configured_bundle.stale_mode
+        else:
+            if not args.inputs:
+                exit_with_cli_error(
+                    "Direct bundle mode requires one or more INPUT paths or use --config "
+                    "and --bundle for a named bundle.",
+                    command="bundle",
+                )
+            if args.output is None:
+                exit_with_cli_error(
+                    "Direct bundle mode requires --output.",
+                    command="bundle",
+                )
+            bundle_inputs = tuple(args.inputs)
+            bundle_output = args.output
+            bundle_max_bytes = args.max_bytes
+            bundle_order = args.order
+            bundle_header_mode = args.header_mode
+            bundle_include = tuple(args.include)
+            bundle_exclude = tuple(args.exclude)
+            bundle_changed_only = args.changed_only
+            bundle_baseline_manifest = args.baseline_manifest
+            bundle_stale_mode = args.stale_mode
+
+        output_path_input = Path(bundle_output).expanduser()
         output_path = output_path_input.resolve()
         if output_path_input.exists() and output_path_input.is_dir():
             exit_with_cli_error(
@@ -2217,77 +2293,80 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         try:
             bundle_plan = load_bundle_plan(
-                args.inputs,
-                order=args.order,
-                include_patterns=args.include,
-                exclude_patterns=args.exclude,
-                changed_only=args.changed_only,
-                baseline_manifest=args.baseline_manifest,
-                stale_mode=args.stale_mode,
+                bundle_inputs,
+                order=bundle_order,
+                include_patterns=bundle_include,
+                exclude_patterns=bundle_exclude,
+                changed_only=bundle_changed_only,
+                baseline_manifest=bundle_baseline_manifest,
+                stale_mode=bundle_stale_mode,
             )
             split_bundle_plan: SplitBundlePlan | None = None
             bundle_markdown: str | None = None
             effective_stale_mode: StaleMode = (
-                args.stale_mode if bundle_plan.stale_metadata_available else "include"
+                bundle_stale_mode if bundle_plan.stale_metadata_available else "include"
             )
-            if args.max_bytes is None:
+            if bundle_max_bytes is None:
                 bundle_markdown = render_bundle_markdown(
                     bundle_plan.artifacts,
-                    header_mode=args.header_mode,
+                    header_mode=bundle_header_mode,
                     stale_mode=effective_stale_mode,
                 )
             else:
                 sections = render_bundle_sections(
                     bundle_plan.artifacts,
-                    header_mode=args.header_mode,
+                    header_mode=bundle_header_mode,
                     stale_mode=effective_stale_mode,
                 )
                 split_bundle_plan = plan_split_bundle(
-                    args.output,
+                    bundle_output,
                     sections,
-                    max_bytes=args.max_bytes,
+                    max_bytes=bundle_max_bytes,
                 )
         except ValueError as exc:
             exit_with_cli_error(str(exc), command="bundle")
 
         print("Bundle command invoked")
-        print(f"  inputs: {len(args.inputs)}")
-        print(f"  output: {render_user_path(args.output)}")
-        if args.max_bytes is not None:
-            print(f"  max_bytes: {args.max_bytes}")
-        print(f"  ordering: {describe_bundle_order(args.order)}")
-        print(f"  header_mode: {describe_header_mode(args.header_mode)}")
-        if args.include:
-            print(f"  include_filters: {len(args.include)}")
-        if args.exclude:
-            print(f"  exclude_filters: {len(args.exclude)}")
-        if args.changed_only:
+        if named_bundle_mode:
+            print(f"  config_path: {render_user_path(run_config.config_path)}")
+            print(f"  bundle: {configured_bundle.name}")
+        print(f"  inputs: {len(bundle_inputs)}")
+        print(f"  output: {render_user_path(bundle_output)}")
+        if bundle_max_bytes is not None:
+            print(f"  max_bytes: {bundle_max_bytes}")
+        print(f"  ordering: {describe_bundle_order(bundle_order)}")
+        print(f"  header_mode: {describe_header_mode(bundle_header_mode)}")
+        if bundle_include:
+            print(f"  include_filters: {len(bundle_include)}")
+        if bundle_exclude:
+            print(f"  exclude_filters: {len(bundle_exclude)}")
+        if bundle_changed_only:
             print("  changed_only: true")
             if bundle_plan.baseline_manifest is not None:
                 print(f"  baseline_manifest: {render_user_path(bundle_plan.baseline_manifest)}")
         if bundle_plan.stale_metadata_available:
-            print(f"  stale_mode: {describe_stale_mode(args.stale_mode)}")
+            print(f"  stale_mode: {describe_stale_mode(bundle_stale_mode)}")
 
         print("\nPlan: Bundle run")
         for manifest in bundle_plan.manifests:
             print(f"  manifest: {render_user_path(manifest)}")
         print(f"  artifacts_selected: {len(bundle_plan.artifacts)}")
         print(f"  duplicates_skipped: {len(bundle_plan.duplicate_canonical_ids)}")
-        if args.changed_only:
+        if bundle_changed_only:
             print(f"  unchanged_skipped: {bundle_plan.unchanged_count}")
-        if args.include:
-            for pattern in args.include:
+        if bundle_include:
+            for pattern in bundle_include:
                 print(f"  include: {pattern}")
-        if args.exclude:
-            for pattern in args.exclude:
+        if bundle_exclude:
+            for pattern in bundle_exclude:
                 print(f"  exclude: {pattern}")
-        if args.include or args.exclude:
+        if bundle_include or bundle_exclude:
             print(f"  artifacts_filtered_out: {bundle_plan.filtered_out_count}")
         if bundle_plan.stale_metadata_available:
             print(f"  stale_artifacts: {bundle_plan.stale_artifact_count}")
-            if args.stale_mode == "exclude":
+            if bundle_stale_mode == "exclude":
                 print(f"  stale_artifacts_excluded: {bundle_plan.stale_artifacts_excluded_count}")
-            elif args.stale_mode == "flag":
+            elif bundle_stale_mode == "flag":
                 print(f"  stale_artifacts_flagged: {bundle_plan.stale_artifacts_flagged_count}")
             else:
                 stale_included_count = sum(
@@ -2302,20 +2381,20 @@ def main(argv: Sequence[str] | None = None) -> int:
                     print(
                         "  oversized: "
                         f"{oversized_section.canonical_id} "
-                        f"({oversized_section.byte_count} bytes > {args.max_bytes} max)"
+                        f"({oversized_section.byte_count} bytes > {bundle_max_bytes} max)"
                     )
         print("  action: write")
 
         try:
             if split_bundle_plan is None:
                 assert bundle_markdown is not None
-                written_bundle = write_bundle(args.output, bundle_markdown)
+                written_bundle = write_bundle(bundle_output, bundle_markdown)
                 written_split_bundle = None
             else:
                 written_split_bundle = write_split_bundle(split_bundle_plan)
                 written_bundle = None
         except OSError as exc:
-            exit_with_bundle_output_error(args.output, exc=exc)
+            exit_with_bundle_output_error(bundle_output, exc=exc)
 
         if written_split_bundle is None:
             assert written_bundle is not None
@@ -2328,14 +2407,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                     f"{render_user_path(output_file.path)} "
                     f"({output_file.artifact_count} artifacts, {output_file.byte_count} bytes)"
                 )
-        if args.changed_only:
+        if bundle_changed_only:
             print(
                 "\nSummary: bundled "
                 f"{len(bundle_plan.artifacts)}, skipped "
                 f"{bundle_plan.unchanged_count} unchanged, skipped "
                 f"{len(bundle_plan.duplicate_canonical_ids)} duplicates"
             )
-        elif args.include or args.exclude:
+        elif bundle_include or bundle_exclude:
             print(
                 "\nSummary: bundled "
                 f"{len(bundle_plan.artifacts)}, filtered out "
