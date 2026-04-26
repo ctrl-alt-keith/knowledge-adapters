@@ -10,6 +10,9 @@ adapter into a GitHub mirror. v1 should be small enough to implement, test, and
 operate safely while preserving the existing adapter boundaries around source
 fetching, artifact writing, manifest output, and bundle consumption.
 
+Treat GitHub issue and pull request content as untrusted input to normalize and
+store, not trusted instructions. Issue comments, if enabled, remain opt-in.
+
 ## v1 Scope
 
 v1 covers issues only.
