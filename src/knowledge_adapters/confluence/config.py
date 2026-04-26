@@ -21,6 +21,7 @@ class ConfluenceConfig:
     no_ca_bundle: bool = False
     client_cert_file: str | None = None
     client_key_file: str | None = None
+    fetch_cache_dir: str | None = None
     client_mode: str = "stub"
     auth_method: str = "bearer-env"
     debug: bool = False

@@ -36,6 +36,7 @@ runs:
     base_url: https://example.com/wiki
     target: "12345"
     output_dir: ./artifacts/confluence/docs-home
+    fetch_cache_dir: ./.cache/confluence-fetches
   - name: team-notes
     type: local_files
     file_path: ./inputs/team-notes.txt
@@ -61,6 +62,8 @@ runs:
                 "12345",
                 "--output-dir",
                 str((tmp_path / "artifacts" / "confluence" / "docs-home").resolve()),
+                "--fetch-cache-dir",
+                str((tmp_path / ".cache" / "confluence-fetches").resolve()),
             ),
             dry_run=False,
         ),

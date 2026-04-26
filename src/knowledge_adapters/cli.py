@@ -167,6 +167,7 @@ _CONFLUENCE_REAL_ONLY_INPUT_FLAGS = (
     "--no-ca-bundle",
     "--client-cert-file",
     "--client-key-file",
+    "--fetch-cache-dir",
 )
 
 
@@ -421,6 +422,13 @@ def build_parser() -> argparse.ArgumentParser:
     confluence_parser.add_argument(
         "--client-key-file",
         help=argparse.SUPPRESS,
+    )
+    confluence_parser.add_argument(
+        "--fetch-cache-dir",
+        help=(
+            "Opt-in directory for caching raw Confluence full-page fetch payloads. "
+            "Disabled when omitted."
+        ),
     )
     confluence_parser.add_argument(
         "--client-mode",
@@ -1199,14 +1207,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             ConfluenceRequestError,
             fetch_page,
             fetch_real_page,
+            fetch_real_page_raw,
             fetch_real_page_summary,
             list_real_child_page_ids,
             list_real_space_page_ids,
+            map_real_page_payload,
         )
         from knowledge_adapters.confluence.config import (
             ConfluenceConfig,
             validate_explicit_tls_paths,
             validate_selected_real_tls_paths,
+        )
+        from knowledge_adapters.confluence.fetch_cache import (
+            ConfluenceFetchCache,
+            prepare_fetch_cache_dir,
         )
         from knowledge_adapters.confluence.incremental import (
             PageSyncDecision,
@@ -1242,6 +1256,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             no_ca_bundle=args.no_ca_bundle,
             client_cert_file=args.client_cert_file,
             client_key_file=args.client_key_file,
+            fetch_cache_dir=args.fetch_cache_dir,
             client_mode=args.client_mode,
             auth_method=args.auth_method,
             debug=args.debug,
@@ -1259,6 +1274,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ),
                 command="confluence",
             )
+        fetch_cache: ConfluenceFetchCache | None = None
+        if confluence_config.fetch_cache_dir is not None:
+            try:
+                fetch_cache = ConfluenceFetchCache(
+                    prepare_fetch_cache_dir(confluence_config.fetch_cache_dir),
+                    base_url=confluence_config.base_url,
+                )
+            except ValueError as exc:
+                exit_with_cli_error(str(exc), command="confluence")
         if confluence_config.max_depth < 0:
             exit_with_cli_error(
                 "--max-depth must be greater than or equal to 0.",
@@ -1352,22 +1376,44 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return kwargs
 
             def selected_fetch_page(resolved_target: ResolvedTarget) -> dict[str, object]:
-                return fetch_real_page(
+                if fetch_cache is None:
+                    return fetch_real_page(
+                        resolved_target,
+                        base_url=confluence_config.base_url,
+                        auth_method=confluence_config.auth_method,
+                        **real_client_tls_kwargs(),
+                    )
+
+                page_id = resolved_target.page_id
+                if page_id:
+                    cached_page = fetch_cache.load_page(page_id)
+                    if cached_page is not None:
+                        return cached_page
+
+                raw_payload = fetch_real_page_raw(
                     resolved_target,
                     base_url=confluence_config.base_url,
                     auth_method=confluence_config.auth_method,
                     **real_client_tls_kwargs(),
                 )
+                if not page_id:
+                    raise ValueError("Response error: canonical_id mismatch.")
+                page = map_real_page_payload(raw_payload, page_id)
+                fetch_cache.store_page(page, raw_payload)
+                return page
 
             def selected_fetch_page_summary(
                 resolved_target: ResolvedTarget,
             ) -> dict[str, object]:
-                return fetch_real_page_summary(
+                page = fetch_real_page_summary(
                     resolved_target,
                     base_url=confluence_config.base_url,
                     auth_method=confluence_config.auth_method,
                     **real_client_tls_kwargs(),
                 )
+                if fetch_cache is not None:
+                    fetch_cache.record_metadata(page)
+                return page
 
             def selected_list_child_page_ids(
                 resolved_target: ResolvedTarget,
@@ -1582,6 +1628,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             if stale_count is not None:
                 summary_lines.append(f"    stale_artifacts: {stale_count}")
+            if fetch_cache is not None:
+                summary_lines.append(f"    cache_hits: {fetch_cache.stats.hits}")
+                summary_lines.append(f"    cache_misses: {fetch_cache.stats.misses}")
             print("  Summary:")
             for line in summary_lines:
                 print(line)
@@ -1601,6 +1650,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"  unchanged_pages: {unchanged_count}")
             if stale_count is not None:
                 print(f"  stale_artifacts: {stale_count}")
+            if fetch_cache is not None:
+                print(f"  cache_hits: {fetch_cache.stats.hits}")
+                print(f"  cache_misses: {fetch_cache.stats.misses}")
             print(f"  pages_written: {write_count}")
             print(f"  pages_skipped: {skip_count}")
 

@@ -27,6 +27,7 @@ runs:
     # Real mode with bearer auth from CONFLUENCE_BEARER_TOKEN.
     # client_mode: real
     # auth_method: bearer-env
+    # fetch_cache_dir: ./.cache/knowledge-adapters
     # dry_run: true
     # Optional TLS override for an internal CA.
     # ca_bundle: ./certs/internal-ca.pem
