@@ -187,11 +187,55 @@ runs:
     )
 
 
+def test_load_run_config_supports_github_metadata_release_resource_type(tmp_path: Path) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: repo-releases
+    type: github_metadata
+    repo: octo/project
+    resource_type: release
+    token_env: GH_TOKEN
+    since: 2026-01-01T00:00:00Z
+    max_items: 10
+    output_dir: ./artifacts/github/repo-releases
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    run_config = load_run_config(config_path)
+
+    assert run_config.runs == (
+        ConfiguredRun(
+            name="repo-releases",
+            run_type="github_metadata",
+            argv=(
+                "github_metadata",
+                "--repo",
+                "octo/project",
+                "--token-env",
+                "GH_TOKEN",
+                "--output-dir",
+                str((tmp_path / "artifacts" / "github" / "repo-releases").resolve()),
+                "--resource-type",
+                "release",
+                "--since",
+                "2026-01-01T00:00:00Z",
+                "--max-items",
+                "10",
+            ),
+            dry_run=False,
+        ),
+    )
+
+
 @pytest.mark.parametrize(
     ("field_block", "expected_fragment"),
     [
         ("state: merged", "unsupported 'state' value"),
-        ("resource_type: release", "unsupported 'resource_type' value"),
+        ("resource_type: milestone", "unsupported 'resource_type' value"),
         ("max_items: 0", "'max_items' to a positive integer"),
     ],
 )

@@ -47,7 +47,8 @@ def test_top_level_help_introduces_shared_cli_flow(tmp_path: Path) -> None:
         "Normalize selected UTF-8 text files from a Git repository into shared artifacts." in stdout
     )
     assert (
-        "Normalize GitHub issue or pull request metadata from one repository into shared artifacts."
+        "Normalize GitHub issue, pull request, or release metadata from one repository "
+        "into shared artifacts."
         in stdout
     )
     assert "Normalize one local UTF-8 text file into shared artifacts." in stdout
@@ -171,16 +172,19 @@ def test_github_metadata_cli_help_includes_resource_type_guidance(tmp_path: Path
     stdout = normalize_whitespace(result.stdout)
 
     assert result.returncode == 0, result.stderr
-    assert "Fetch issues or pull requests from one GitHub or GitHub Enterprise repository" in stdout
+    assert (
+        "Fetch issues, pull requests, or releases from one GitHub or GitHub Enterprise repository"
+        in stdout
+    )
     assert "Issue mode filters out pull requests returned by the issues endpoint." in stdout
-    assert "under issues/ or pull_requests/." in stdout
+    assert "under issues/, pull_requests/, or releases/." in stdout
     assert "Issue comments can be included optionally in issue mode." in stdout
-    assert "Pull request comments, releases, timelines, reactions, reviews, checks" in stdout
+    assert "Pull request comments, release assets, changelog generation, timelines" in stdout
     assert "--repo OWNER/NAME" in stdout
     assert "--base-url BASE_URL" in stdout
     assert "--token-env ENV_VAR" in stdout
     assert "--output-dir DIR" in stdout
-    assert "--resource-type {issue,pull_request}" in stdout
+    assert "--resource-type {issue,pull_request,release}" in stdout
     assert "--state {open,closed,all}" in stdout
     assert "--since SINCE" in stdout
     assert "--max-items N" in stdout

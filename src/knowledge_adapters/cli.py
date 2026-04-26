@@ -111,6 +111,12 @@ GITHUB_METADATA_HELP_EXAMPLES = """Examples:
   GITHUB_TOKEN=... knowledge-adapters github_metadata \\
     --repo example/project \\
     --token-env GITHUB_TOKEN \\
+    --resource-type release \\
+    --output-dir ./artifacts \\
+    --dry-run
+  GITHUB_TOKEN=... knowledge-adapters github_metadata \\
+    --repo example/project \\
+    --token-env GITHUB_TOKEN \\
     --state all \\
     --since 2026-01-01T00:00:00Z \\
     --max-items 25 \\
@@ -572,18 +578,19 @@ def build_parser() -> argparse.ArgumentParser:
     github_metadata_parser = subparsers.add_parser(
         "github_metadata",
         help=(
-            "Normalize GitHub issue or pull request metadata from one repository into "
-            "shared artifacts."
+            "Normalize GitHub issue, pull request, or release metadata from one "
+            "repository into shared artifacts."
         ),
         description=(
-            "Fetch issues or pull requests from one GitHub or GitHub Enterprise "
-            "repository through the REST API and normalize one markdown artifact per "
-            "record under issues/ or pull_requests/. Issue mode filters out pull "
-            "requests returned by the issues endpoint. Issue comments can be included "
-            "optionally in issue mode. Pull request comments, releases, timelines, "
-            "reactions, reviews, checks, GraphQL, attachments, and live sync are not "
-            "included. The token is read only from --token-env, and token values are "
-            "never printed."
+            "Fetch issues, pull requests, or releases from one GitHub or GitHub "
+            "Enterprise repository through the REST API and normalize one markdown "
+            "artifact per record under issues/, pull_requests/, or releases/. Issue "
+            "mode filters out pull requests returned by the issues endpoint. Issue "
+            "comments can be included optionally in issue mode. Pull request "
+            "comments, release assets, changelog generation, timelines, reactions, "
+            "reviews, checks, GraphQL, attachments, and live sync are not included. "
+            "The token is read only from --token-env, and token values are never "
+            "printed."
         ),
         epilog=GITHUB_METADATA_HELP_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -615,11 +622,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--output-dir",
         required=True,
         metavar="DIR",
-        help="Directory where issues/ or pull_requests/ plus manifest.json are written.",
+        help=(
+            "Directory where issues/, pull_requests/, or releases/ plus "
+            "manifest.json are written."
+        ),
     )
     github_metadata_parser.add_argument(
         "--resource-type",
-        choices=("issue", "pull_request"),
+        choices=("issue", "pull_request", "release"),
         default="issue",
         help="GitHub metadata resource type to ingest. Defaults to issue.",
     )
@@ -627,24 +637,27 @@ def build_parser() -> argparse.ArgumentParser:
         "--state",
         choices=("open", "closed", "all"),
         default="open",
-        help="Issue state filter for the REST API. Defaults to open.",
+        help="Issue or pull request state filter for the REST API. Ignored for release.",
     )
     github_metadata_parser.add_argument(
         "--since",
-        help="ISO 8601 timestamp for issues updated at or after that time.",
+        help=(
+            "ISO 8601 timestamp for issues or pull requests updated, or releases "
+            "published, at or after that time."
+        ),
     )
     github_metadata_parser.add_argument(
         "--max-items",
         type=_parse_positive_int,
         metavar="N",
-        help="Positive issue limit applied after filtering out pull requests.",
+        help="Positive record limit applied after filtering.",
     )
     github_metadata_parser.add_argument(
         "--include-issue-comments",
         action="store_true",
         help=(
             "Fetch issue comments and append them to issue artifacts. Ignored for "
-            "pull_request resource type."
+            "pull_request and release resource types."
         ),
     )
     github_metadata_parser.add_argument(
@@ -2450,14 +2463,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             GitHubIssue,
             GitHubMetadataRequestError,
             GitHubPullRequest,
+            GitHubRelease,
             list_repository_issues,
             list_repository_pull_requests,
+            list_repository_releases,
             resolve_base_urls,
         )
         from knowledge_adapters.github_metadata.config import GitHubMetadataConfig
         from knowledge_adapters.github_metadata.normalize import (
             normalize_issue_to_markdown,
             normalize_pull_request_to_markdown,
+            normalize_release_to_markdown,
         )
         from knowledge_adapters.github_metadata.writer import (
             markdown_path as github_metadata_markdown_path,
@@ -2497,7 +2513,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         try:
             base_urls = resolve_base_urls(github_metadata_config.base_url)
-            records: tuple[GitHubIssue | GitHubPullRequest, ...]
+            records: tuple[GitHubIssue | GitHubPullRequest | GitHubRelease, ...]
             if github_metadata_config.resource_type == "issue":
                 records = list_repository_issues(
                     repo=github_metadata_config.repo,
@@ -2508,12 +2524,20 @@ def main(argv: Sequence[str] | None = None) -> int:
                     max_items=github_metadata_config.max_items,
                     include_issue_comments=github_metadata_config.include_issue_comments,
                 )
-            else:
+            elif github_metadata_config.resource_type == "pull_request":
                 records = list_repository_pull_requests(
                     repo=github_metadata_config.repo,
                     base_url=github_metadata_config.base_url,
                     token_env=github_metadata_config.token_env,
                     state=github_metadata_config.state,
+                    since=github_metadata_config.since,
+                    max_items=github_metadata_config.max_items,
+                )
+            else:
+                records = list_repository_releases(
+                    repo=github_metadata_config.repo,
+                    base_url=github_metadata_config.base_url,
+                    token_env=github_metadata_config.token_env,
                     since=github_metadata_config.since,
                     max_items=github_metadata_config.max_items,
                 )
@@ -2527,7 +2551,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"  token_env: {github_metadata_config.token_env}")
         print(f"  output_dir: {render_user_path(github_metadata_config.output_dir)}")
         print(f"  resource_type: {github_metadata_config.resource_type}")
-        print(f"  state: {github_metadata_config.state}")
+        if github_metadata_config.resource_type != "release":
+            print(f"  state: {github_metadata_config.state}")
         if github_metadata_config.since is not None:
             print(f"  since: {github_metadata_config.since}")
         if github_metadata_config.max_items is not None:
@@ -2547,34 +2572,36 @@ def main(argv: Sequence[str] | None = None) -> int:
             exit_with_cli_error(str(exc), command="github_metadata")
 
         print("\nPlan: GitHub metadata run")
-        resource_label = (
-            "issue" if github_metadata_config.resource_type == "issue" else "pull_request"
-        )
-        resource_count_label = (
-            "issues_planned"
-            if github_metadata_config.resource_type == "issue"
-            else "pull_requests_planned"
-        )
+        if github_metadata_config.resource_type == "issue":
+            resource_label = "issue"
+            resource_count_label = "issues_planned"
+        elif github_metadata_config.resource_type == "pull_request":
+            resource_label = "pull_request"
+            resource_count_label = "pull_requests_planned"
+        else:
+            resource_label = "release"
+            resource_count_label = "releases_planned"
         print(f"  resource_type: {github_metadata_config.resource_type}")
         print(f"  {resource_count_label}: {len(records)}")
 
-        record_markdowns: dict[int, str] = {}
+        record_markdowns: dict[str, str] = {}
         github_manifest_entries: list[dict[str, object]] = []
         github_written_output_paths: list[Path] = []
         for record in records:
-            normalized_record = {
-                "repo": record.repo,
-                "number": record.number,
-                "title": record.title,
-                "state": record.state,
-                "author": record.author,
-                "created_at": record.created_at,
-                "updated_at": record.updated_at,
-                "source_url": record.source_url,
-                "body": record.body,
-            }
             if github_metadata_config.resource_type == "issue":
                 assert isinstance(record, GitHubIssue)
+                record_identifier = record.number
+                normalized_record = {
+                    "repo": record.repo,
+                    "number": record.number,
+                    "title": record.title,
+                    "state": record.state,
+                    "author": record.author,
+                    "created_at": record.created_at,
+                    "updated_at": record.updated_at,
+                    "source_url": record.source_url,
+                    "body": record.body,
+                }
                 if record.comments:
                     normalized_record["comments"] = [
                         {
@@ -2586,17 +2613,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         for comment in record.comments
                     ]
                 markdown = normalize_issue_to_markdown(normalized_record)
-            else:
-                markdown = normalize_pull_request_to_markdown(normalized_record)
-            output_path = github_metadata_markdown_path(
-                github_metadata_config.output_dir,
-                github_metadata_config.resource_type,
-                record.number,
-            )
-            record_markdowns[record.number] = markdown
-            github_written_output_paths.append(output_path)
-            github_manifest_entries.append(
-                {
+                manifest_entry = {
                     "canonical_id": record.canonical_id,
                     "source_url": record.source_url,
                     "title": record.title,
@@ -2608,6 +2625,77 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "updated_at": record.updated_at,
                     "author": record.author,
                     "content_hash": hashlib.sha256(markdown.encode("utf-8")).hexdigest(),
+                }
+            elif github_metadata_config.resource_type == "pull_request":
+                assert isinstance(record, GitHubPullRequest)
+                record_identifier = record.number
+                normalized_record = {
+                    "repo": record.repo,
+                    "number": record.number,
+                    "title": record.title,
+                    "state": record.state,
+                    "author": record.author,
+                    "created_at": record.created_at,
+                    "updated_at": record.updated_at,
+                    "source_url": record.source_url,
+                    "body": record.body,
+                }
+                markdown = normalize_pull_request_to_markdown(normalized_record)
+                manifest_entry = {
+                    "canonical_id": record.canonical_id,
+                    "source_url": record.source_url,
+                    "title": record.title,
+                    "repo": record.repo,
+                    "resource_type": github_metadata_config.resource_type,
+                    "number": record.number,
+                    "state": record.state,
+                    "created_at": record.created_at,
+                    "updated_at": record.updated_at,
+                    "author": record.author,
+                    "content_hash": hashlib.sha256(markdown.encode("utf-8")).hexdigest(),
+                }
+            else:
+                assert isinstance(record, GitHubRelease)
+                record_identifier = record.release_id
+                normalized_record = {
+                    "repo": record.repo,
+                    "release_id": record.release_id,
+                    "tag_name": record.tag_name,
+                    "title": record.title,
+                    "author": record.author,
+                    "created_at": record.created_at,
+                    "published_at": record.published_at,
+                    "draft": record.draft,
+                    "prerelease": record.prerelease,
+                    "source_url": record.source_url,
+                    "body": record.body,
+                }
+                markdown = normalize_release_to_markdown(normalized_record)
+                manifest_entry = {
+                    "canonical_id": record.canonical_id,
+                    "source_url": record.source_url,
+                    "title": record.title,
+                    "repo": record.repo,
+                    "resource_type": github_metadata_config.resource_type,
+                    "release_id": record.release_id,
+                    "tag_name": record.tag_name,
+                    "created_at": record.created_at,
+                    "published_at": record.published_at,
+                    "author": record.author,
+                    "draft": record.draft,
+                    "prerelease": record.prerelease,
+                    "content_hash": hashlib.sha256(markdown.encode("utf-8")).hexdigest(),
+                }
+            output_path = github_metadata_markdown_path(
+                github_metadata_config.output_dir,
+                github_metadata_config.resource_type,
+                record_identifier,
+            )
+            record_markdowns[record.canonical_id] = markdown
+            github_written_output_paths.append(output_path)
+            github_manifest_entries.append(
+                {
+                    **manifest_entry,
                     "output_path": output_path.relative_to(
                         Path(github_metadata_config.output_dir)
                     ).as_posix(),
@@ -2625,7 +2713,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         ]
 
         for record, output_path in zip(records, github_written_output_paths, strict=True):
-            print(f"\n  {resource_label}: #{record.number}")
+            if isinstance(record, GitHubRelease):
+                print(f"\n  {resource_label}: {record.tag_name}")
+            else:
+                print(f"\n  {resource_label}: #{record.number}")
             print(f"  title: {record.title}")
             print(f"  source_url: {record.source_url}")
             print(f"  Artifact path: {render_user_path(output_path)}")
@@ -2650,11 +2741,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         try:
             for record in records:
+                record_identifier = (
+                    record.release_id if isinstance(record, GitHubRelease) else record.number
+                )
                 write_github_metadata_markdown(
                     github_metadata_config.output_dir,
                     github_metadata_config.resource_type,
-                    record.number,
-                    record_markdowns[record.number],
+                    record_identifier,
+                    record_markdowns[record.canonical_id],
                 )
             manifest = write_manifest(
                 github_metadata_config.output_dir,

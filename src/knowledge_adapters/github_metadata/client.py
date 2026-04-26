@@ -78,6 +78,29 @@ class GitHubPullRequest:
         return f"github_metadata:{self.host}:{self.repo}:pull_request:{self.number}"
 
 
+@dataclass(frozen=True)
+class GitHubRelease:
+    """One normalized GitHub release record."""
+
+    repo: str
+    host: str
+    release_id: int
+    tag_name: str
+    title: str
+    author: str | None
+    created_at: str
+    published_at: str | None
+    source_url: str
+    body: str
+    draft: bool
+    prerelease: bool
+
+    @property
+    def canonical_id(self) -> str:
+        """Return the release canonical ID."""
+        return f"github_metadata:{self.host}:{self.repo}:release:{self.release_id}"
+
+
 class GitHubMetadataRequestError(RuntimeError):
     """Stable request failure for github_metadata API reads."""
 
@@ -223,6 +246,19 @@ def pull_request_list_api_url(
     )
 
 
+def release_list_api_url(
+    *,
+    api_root: str,
+    owner: str,
+    repo_name: str,
+) -> str:
+    """Build the first repository releases API URL."""
+    encoded_owner = parse.quote(owner, safe="")
+    encoded_repo = parse.quote(repo_name, safe="")
+    query = parse.urlencode({"per_page": _PAGE_SIZE})
+    return f"{api_root.rstrip('/')}/repos/{encoded_owner}/{encoded_repo}/releases?{query}"
+
+
 def list_repository_issues(
     *,
     repo: str,
@@ -364,6 +400,75 @@ def list_repository_pull_requests(
     return ordered_pull_requests[:normalized_max_items]
 
 
+def list_repository_releases(
+    *,
+    repo: str,
+    token_env: str,
+    base_url: str | None = None,
+    since: str | None = None,
+    max_items: int | None = None,
+) -> tuple[GitHubRelease, ...]:
+    """List normalized releases for one repository through the REST API."""
+    owner, repo_name, normalized_repo = validate_repo(repo)
+    normalized_since = validate_since(since)
+    normalized_max_items = validate_max_items(max_items)
+    base_urls = resolve_base_urls(base_url)
+    token_env_name, token = resolve_token(token_env)
+
+    next_url: str | None = release_list_api_url(
+        api_root=base_urls.api_root,
+        owner=owner,
+        repo_name=repo_name,
+    )
+    seen_urls: set[str] = set()
+    releases: list[GitHubRelease] = []
+    while next_url is not None:
+        if next_url in seen_urls:
+            raise ValueError("Response error: repeated GitHub releases pagination URL.")
+        seen_urls.add(next_url)
+
+        payload, link_header = _request_json_list(
+            next_url,
+            token=token,
+            token_env=token_env_name,
+            repo=normalized_repo,
+            api_root=base_urls.api_root,
+        )
+        for item in payload:
+            releases.append(
+                _map_release(
+                    item,
+                    repo=normalized_repo,
+                    owner=owner,
+                    repo_name=repo_name,
+                    base_urls=base_urls,
+                )
+            )
+        next_url = _next_link_url(link_header)
+
+    ordered_releases = tuple(
+        sorted(
+            releases,
+            key=lambda release: (
+                "" if release.published_at is None else release.published_at,
+                release.tag_name,
+                release.release_id,
+            ),
+        )
+    )
+    if normalized_since is not None:
+        since_cutoff = _parse_timestamp(normalized_since)
+        ordered_releases = tuple(
+            release
+            for release in ordered_releases
+            if release.published_at is not None
+            and _parse_timestamp(release.published_at) >= since_cutoff
+        )
+    if normalized_max_items is None:
+        return ordered_releases
+    return ordered_releases[:normalized_max_items]
+
+
 def _map_issue(
     payload: dict[str, object],
     *,
@@ -460,6 +565,59 @@ def _map_pull_request(
     )
 
 
+def _map_release(
+    payload: dict[str, object],
+    *,
+    repo: str,
+    owner: str,
+    repo_name: str,
+    base_urls: GitHubMetadataBaseUrls,
+) -> GitHubRelease:
+    release_id = payload.get("id")
+    if not isinstance(release_id, int) or isinstance(release_id, bool):
+        raise ValueError("Response error: invalid release id.")
+
+    tag_name = _require_string(payload, "tag_name")
+    created_at = _require_string(payload, "created_at")
+    published_at = _optional_string(payload, "published_at")
+    title = _optional_string(payload, "name") or ""
+    draft = _require_bool(payload, "draft")
+    prerelease = _require_bool(payload, "prerelease")
+    body_value = payload.get("body")
+    if body_value is None:
+        body = ""
+    elif isinstance(body_value, str):
+        body = body_value
+    else:
+        raise ValueError("Response error: invalid release body.")
+
+    user = payload.get("user")
+    author: str | None = None
+    if isinstance(user, dict):
+        login = user.get("login")
+        if isinstance(login, str) and login:
+            author = login
+
+    encoded_owner = parse.quote(owner, safe="")
+    encoded_repo = parse.quote(repo_name, safe="")
+    encoded_tag = parse.quote(tag_name, safe="")
+    source_url = f"{base_urls.web_root}/{encoded_owner}/{encoded_repo}/releases/tag/{encoded_tag}"
+    return GitHubRelease(
+        repo=repo,
+        host=base_urls.host,
+        release_id=release_id,
+        tag_name=tag_name,
+        title=title,
+        author=author,
+        created_at=created_at,
+        published_at=published_at,
+        source_url=source_url,
+        body=body,
+        draft=draft,
+        prerelease=prerelease,
+    )
+
+
 def issue_comments_api_url(
     *,
     api_root: str,
@@ -553,6 +711,22 @@ def _map_issue_comment(payload: dict[str, object]) -> GitHubIssueComment:
 def _require_string(payload: dict[str, object], key: str) -> str:
     value = payload.get(key)
     if not isinstance(value, str):
+        raise ValueError(f"Response error: missing or invalid {key}.")
+    return value
+
+
+def _optional_string(payload: dict[str, object], key: str) -> str | None:
+    value = payload.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"Response error: missing or invalid {key}.")
+    return value
+
+
+def _require_bool(payload: dict[str, object], key: str) -> bool:
+    value = payload.get(key)
+    if not isinstance(value, bool):
         raise ValueError(f"Response error: missing or invalid {key}.")
     return value
 
