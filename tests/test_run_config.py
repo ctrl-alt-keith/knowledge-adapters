@@ -80,6 +80,48 @@ runs:
     )
 
 
+def test_load_run_config_supports_bundle_stale_mode(tmp_path: Path) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: stale-review-bundle
+    type: bundle
+    inputs:
+      - ./artifacts/confluence/docs-tree
+    output: ./bundles/docs-tree.md
+    stale_mode: flag
+    header_mode: minimal
+    include:
+      - "pages/*"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    run_config = load_run_config(config_path)
+
+    assert run_config.runs == (
+        ConfiguredRun(
+            name="stale-review-bundle",
+            run_type="bundle",
+            argv=(
+                "bundle",
+                str((tmp_path / "artifacts" / "confluence" / "docs-tree").resolve()),
+                "--output",
+                str((tmp_path / "bundles" / "docs-tree.md").resolve()),
+                "--header-mode",
+                "minimal",
+                "--stale-mode",
+                "flag",
+                "--include",
+                "pages/*",
+            ),
+            dry_run=False,
+        ),
+    )
+
+
 def test_load_run_config_supports_git_repo_filters_and_ref(tmp_path: Path) -> None:
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()

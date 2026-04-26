@@ -45,3 +45,12 @@ runs:
     # client_key_file: ./certs/confluence-client.key
     # Optional TLS override for an internal CA.
     # ca_bundle: ./certs/internal-ca.pem
+
+  # Optional bundle example. stale_mode is only applied when input manifests
+  # include explicit stale-artifact metadata.
+  - name: eng-space-tree-bundle
+    type: bundle
+    inputs:
+      - ./artifacts/confluence/eng-space-tree
+    output: ./artifacts/bundles/eng-space-tree.md
+    stale_mode: flag
