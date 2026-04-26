@@ -270,6 +270,28 @@ After `make dev`, the repo-local CLI entrypoint for this checkout is:
 .venv/bin/knowledge-adapters
 ```
 
+## Integration Tests
+
+Use the normal fast local loop when you are iterating on unit, contract, and
+CLI behavior that does not need a live subprocess:
+
+```bash
+.venv/bin/pytest -m "not integration"
+```
+
+Run the integration slice explicitly when you want to exercise real adapter
+wiring against the local Confluence stub:
+
+```bash
+.venv/bin/pytest -m integration
+```
+
+These integration tests start [`tools/confluence_stub/app.py`](./tools/confluence_stub/app.py)
+locally with `uvicorn`, talk only to `localhost`, and use committed stub data
+from [`tools/confluence_stub/data/pages.json`](./tools/confluence_stub/data/pages.json)
+so the responses stay deterministic and do not require real Confluence
+credentials.
+
 Common commands:
 
 ```bash
