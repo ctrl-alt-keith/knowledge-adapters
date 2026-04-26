@@ -12,7 +12,7 @@ from tests.artifact_assertions import (
     assert_markdown_document,
     manifest_file,
 )
-from tests.integration.conftest import ConfluenceStubServer
+from tests.integration.helpers import ConfluenceStubServer
 
 
 def _confluence_argv(
@@ -128,6 +128,9 @@ def test_confluence_cli_reuses_fetch_cache_on_second_fetch(
     assert "cache_misses: 1" in first_run.out
     assert len(list(cache_dir.rglob("page.json"))) == 1
 
+    # Downgrade the local manifest to simulate stale local metadata while the
+    # remote summary still matches the cached full payload. That forces the
+    # real summary-plus-full-fetch path on the second run and verifies cache reuse.
     _set_manifest_page_version(output_dir, page_version=0)
 
     second_exit_code = main(

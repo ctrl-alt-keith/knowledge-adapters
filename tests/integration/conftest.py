@@ -5,21 +5,16 @@ import subprocess
 import sys
 import time
 from collections.abc import Iterator
-from dataclasses import dataclass
 from pathlib import Path
 from urllib import request
 from urllib.error import HTTPError, URLError
 
 import pytest
 
+from tests.integration.helpers import ConfluenceStubServer
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STUB_DIR = REPO_ROOT / "tools" / "confluence_stub"
-
-
-@dataclass(frozen=True)
-class ConfluenceStubServer:
-    base_url: str
-    log_path: Path
 
 
 def _find_available_port() -> int:
