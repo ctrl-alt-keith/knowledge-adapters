@@ -579,7 +579,8 @@ def build_parser() -> argparse.ArgumentParser:
             "Fetch issues or pull requests from one GitHub or GitHub Enterprise "
             "repository through the REST API and normalize one markdown artifact per "
             "record under issues/ or pull_requests/. Issue mode filters out pull "
-            "requests returned by the issues endpoint. Comments, releases, timelines, "
+            "requests returned by the issues endpoint. Issue comments can be included "
+            "optionally in issue mode. Pull request comments, releases, timelines, "
             "reactions, reviews, checks, GraphQL, attachments, and live sync are not "
             "included. The token is read only from --token-env, and token values are "
             "never printed."
@@ -637,6 +638,14 @@ def build_parser() -> argparse.ArgumentParser:
         type=_parse_positive_int,
         metavar="N",
         help="Positive issue limit applied after filtering out pull requests.",
+    )
+    github_metadata_parser.add_argument(
+        "--include-issue-comments",
+        action="store_true",
+        help=(
+            "Fetch issue comments and append them to issue artifacts. Ignored for "
+            "pull_request resource type."
+        ),
     )
     github_metadata_parser.add_argument(
         "--dry-run",
@@ -2471,6 +2480,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             state=args.state,
             since=args.since,
             max_items=args.max_items,
+            include_issue_comments=args.include_issue_comments,
             dry_run=args.dry_run,
         )
 
@@ -2496,6 +2506,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     state=github_metadata_config.state,
                     since=github_metadata_config.since,
                     max_items=github_metadata_config.max_items,
+                    include_issue_comments=github_metadata_config.include_issue_comments,
                 )
             else:
                 records = list_repository_pull_requests(
@@ -2521,6 +2532,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"  since: {github_metadata_config.since}")
         if github_metadata_config.max_items is not None:
             print(f"  max_items: {github_metadata_config.max_items}")
+        if (
+            github_metadata_config.resource_type == "issue"
+            and github_metadata_config.include_issue_comments
+        ):
+            print("  include_issue_comments: true")
         print(f"  run_mode: {'dry-run' if github_metadata_config.dry_run else 'write'}")
 
         try:
@@ -2558,6 +2574,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "body": record.body,
             }
             if github_metadata_config.resource_type == "issue":
+                assert isinstance(record, GitHubIssue)
+                if record.comments:
+                    normalized_record["comments"] = [
+                        {
+                            "author": comment.author,
+                            "created_at": comment.created_at,
+                            "updated_at": comment.updated_at,
+                            "body": comment.body,
+                        }
+                        for comment in record.comments
+                    ]
                 markdown = normalize_issue_to_markdown(normalized_record)
             else:
                 markdown = normalize_pull_request_to_markdown(normalized_record)

@@ -147,6 +147,7 @@ runs:
     state: all
     since: 2026-01-01T00:00:00Z
     max_items: 25
+    include_issue_comments: true
     output_dir: ./artifacts/github/repo-issues
     dry_run: true
 """.strip()
@@ -178,6 +179,7 @@ runs:
                 "2026-01-01T00:00:00Z",
                 "--max-items",
                 "25",
+                "--include-issue-comments",
                 "--dry-run",
             ),
             dry_run=True,

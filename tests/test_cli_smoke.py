@@ -174,7 +174,8 @@ def test_github_metadata_cli_help_includes_resource_type_guidance(tmp_path: Path
     assert "Fetch issues or pull requests from one GitHub or GitHub Enterprise repository" in stdout
     assert "Issue mode filters out pull requests returned by the issues endpoint." in stdout
     assert "under issues/ or pull_requests/." in stdout
-    assert "Comments, releases, timelines, reactions, reviews, checks" in stdout
+    assert "Issue comments can be included optionally in issue mode." in stdout
+    assert "Pull request comments, releases, timelines, reactions, reviews, checks" in stdout
     assert "--repo OWNER/NAME" in stdout
     assert "--base-url BASE_URL" in stdout
     assert "--token-env ENV_VAR" in stdout
@@ -183,6 +184,7 @@ def test_github_metadata_cli_help_includes_resource_type_guidance(tmp_path: Path
     assert "--state {open,closed,all}" in stdout
     assert "--since SINCE" in stdout
     assert "--max-items N" in stdout
+    assert "--include-issue-comments" in stdout
     assert "--dry-run" in stdout
     assert "token value is read from the environment only and is never printed" in stdout
     assert "knowledge-adapters github_metadata" in stdout
