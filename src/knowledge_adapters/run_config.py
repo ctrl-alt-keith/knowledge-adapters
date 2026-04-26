@@ -62,6 +62,7 @@ _CONFLUENCE_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
         "debug",
         "dry_run",
         "enabled",
+        "fetch_cache_dir",
         "max_depth",
         "output_dir",
         "space_key",
@@ -527,6 +528,20 @@ def _build_confluence_argv(
             [
                 "--client-key-file",
                 resolved_client_key_file,
+            ]
+        )
+
+    fetch_cache_dir = _optional_string(
+        run_config,
+        "fetch_cache_dir",
+        index=index,
+        config_path=config_path,
+    )
+    if fetch_cache_dir is not None:
+        argv.extend(
+            [
+                "--fetch-cache-dir",
+                _resolve_path_string(fetch_cache_dir, config_path=config_path),
             ]
         )
 

@@ -376,6 +376,36 @@ def _request_json(
     return raw_payload
 
 
+def fetch_real_page_raw(
+    target: ResolvedTarget,
+    *,
+    base_url: str,
+    auth_method: str,
+    ca_bundle: str | None = None,
+    no_ca_bundle: bool = False,
+    client_cert_file: str | None = None,
+    client_key_file: str | None = None,
+) -> dict[str, object]:
+    """Fetch one raw Confluence full-page payload through the real client path."""
+    page_id = target.page_id
+    if not page_id:
+        raise ValueError("Response error: canonical_id mismatch.")
+
+    return _request_json(
+        _content_api_url(base_url, page_id, expand="body.storage,_links,version"),
+        auth_method=auth_method,
+        ca_bundle=ca_bundle,
+        no_ca_bundle=no_ca_bundle,
+        client_cert_file=client_cert_file,
+        client_key_file=client_key_file,
+    )
+
+
+def map_real_page_payload(payload: dict[str, object], requested_page_id: str) -> dict[str, object]:
+    """Map a raw Confluence full-page payload into the adapter page shape."""
+    return _map_real_page(payload, requested_page_id)
+
+
 def fetch_real_page(
     target: ResolvedTarget,
     *,
@@ -391,8 +421,9 @@ def fetch_real_page(
     if not page_id:
         raise ValueError("Response error: canonical_id mismatch.")
 
-    raw_payload = _request_json(
-        _content_api_url(base_url, page_id, expand="body.storage,_links,version"),
+    raw_payload = fetch_real_page_raw(
+        target,
+        base_url=base_url,
         auth_method=auth_method,
         ca_bundle=ca_bundle,
         no_ca_bundle=no_ca_bundle,
