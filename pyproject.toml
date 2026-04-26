@@ -37,6 +37,9 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+  "integration: local integration tests that exercise real adapter wiring against deterministic stubs",
+]
 
 [tool.ruff]
 line-length = 100
