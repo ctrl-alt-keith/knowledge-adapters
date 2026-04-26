@@ -10,7 +10,11 @@ from pytest import CaptureFixture
 from knowledge_adapters.cli import main
 from knowledge_adapters.git_repo.writer import markdown_path
 from tests.artifact_assertions import assert_markdown_document
-from tests.cli_output_assertions import assert_dry_run_summary, assert_write_summary
+from tests.cli_output_assertions import (
+    assert_dry_run_summary,
+    assert_stale_artifacts,
+    assert_write_summary,
+)
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -237,3 +241,118 @@ def test_git_repo_cli_uses_requested_ref_for_artifact_content_and_manifest(
     manifest_payload = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest_payload["files"][0]["ref"] == "v1.0.0"
     assert manifest_payload["files"][0]["commit_sha"] == first_commit
+
+
+def test_git_repo_cli_reports_stale_artifacts_when_output_paths_change(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    repo_dir = tmp_path / "repo"
+    _init_repo(repo_dir)
+    _write_text(repo_dir / "README.md", "# Repo\n")
+    commit_sha = _commit_all(repo_dir, "initial import")
+    output_dir = tmp_path / "out"
+    stale_output = output_dir / "pages" / "README.md.md"
+    stale_output.parent.mkdir(parents=True, exist_ok=True)
+    stale_output.write_text("legacy artifact\n", encoding="utf-8")
+    (output_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-04-20T00:00:00Z",
+                "files": [
+                    {
+                        "canonical_id": f"{repo_dir}@{commit_sha}:README.md",
+                        "source_url": str(repo_dir),
+                        "output_path": "pages/README.md.md",
+                        "title": "README.md",
+                        "content_hash": "legacy-hash",
+                        "path": "README.md",
+                        "ref": "main",
+                        "commit_sha": commit_sha,
+                    }
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(
+        [
+            "git_repo",
+            "--repo-url",
+            str(repo_dir),
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert_write_summary(captured.out, wrote=1, skipped=0, stale_artifacts=1)
+    assert_stale_artifacts(
+        captured.out,
+        count=1,
+        artifact_paths=[stale_output],
+    )
+    assert stale_output.read_text(encoding="utf-8") == "legacy artifact\n"
+    assert (output_dir / "pages" / "README.md").exists()
+
+
+def test_git_repo_cli_dry_run_reports_stale_artifacts_when_files_disappear(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    repo_dir = tmp_path / "repo"
+    _init_repo(repo_dir)
+    _write_text(repo_dir / "README.md", "# Repo\n")
+    _write_text(repo_dir / "docs" / "guide.txt", "Guide text.\n")
+    _commit_all(repo_dir, "initial import")
+    output_dir = tmp_path / "out"
+
+    first_exit_code = main(
+        [
+            "git_repo",
+            "--repo-url",
+            str(repo_dir),
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+
+    assert first_exit_code == 0
+    capsys.readouterr()
+
+    stale_output = output_dir / "pages" / "docs" / "guide.txt.md"
+    assert stale_output.exists()
+    guide_contents = stale_output.read_text(encoding="utf-8")
+
+    (repo_dir / "docs" / "guide.txt").unlink()
+    _commit_all(repo_dir, "remove guide")
+
+    exit_code = main(
+        [
+            "git_repo",
+            "--repo-url",
+            str(repo_dir),
+            "--output-dir",
+            str(output_dir),
+            "--dry-run",
+        ]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert_dry_run_summary(captured.out, would_write=1, would_skip=0)
+    assert_stale_artifacts(
+        captured.out,
+        count=1,
+        artifact_paths=[stale_output],
+    )
+    assert stale_output.read_text(encoding="utf-8") == guide_contents
+    manifest_payload = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert [entry["path"] for entry in manifest_payload["files"]] == [
+        "README.md",
+        "docs/guide.txt",
+    ]

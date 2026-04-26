@@ -206,9 +206,7 @@ def _parse_only_run_names(value: str) -> tuple[str, ...]:
         seen_names.add(name)
 
     if not parsed_names:
-        raise argparse.ArgumentTypeError(
-            "expected one or more comma-separated run names."
-        )
+        raise argparse.ArgumentTypeError("expected one or more comma-separated run names.")
 
     return tuple(parsed_names)
 
@@ -252,10 +250,7 @@ def exit_with_output_error(
         )
 
     exit_with_cli_error(
-        (
-            f"Could not write output under {resolved_output_dir}. "
-            "Verify --output-dir and try again."
-        ),
+        (f"Could not write output under {resolved_output_dir}. Verify --output-dir and try again."),
         command=command,
     )
 
@@ -289,10 +284,7 @@ def exit_with_bundle_output_error(output_path: str | Path, *, exc: OSError) -> N
         )
 
     exit_with_cli_error(
-        (
-            f"Could not write bundle output {resolved_output_path}. "
-            "Verify --output and try again."
-        ),
+        (f"Could not write bundle output {resolved_output_path}. Verify --output and try again."),
         command="bundle",
     )
 
@@ -358,8 +350,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--base-url",
         required=True,
         help=(
-            "Base Confluence URL for validating full page URLs and building "
-            "canonical source URLs."
+            "Base Confluence URL for validating full page URLs and building canonical source URLs."
         ),
     )
     confluence_parser.add_argument(
@@ -372,10 +363,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     confluence_parser.add_argument(
         "--space-key",
-        help=(
-            "Confluence space key for bounded real-mode discovery of all pages "
-            "in one space."
-        ),
+        help=("Confluence space key for bounded real-mode discovery of all pages in one space."),
     )
     confluence_parser.add_argument(
         "--space-url",
@@ -828,6 +816,28 @@ def render_user_path(path: str | Path) -> str:
     return str(Path(path).expanduser().resolve())
 
 
+def print_stale_artifacts(
+    output_dir: str | Path,
+    stale_artifacts: Sequence[tuple[str, str]],
+) -> None:
+    """Print a preview of stale artifacts that remain on disk."""
+    if not stale_artifacts:
+        return
+
+    stale_preview_limit = 5
+    output_dir_path = Path(output_dir)
+    print("  Stale artifacts:")
+    for canonical_id, relative_output_path in stale_artifacts[:stale_preview_limit]:
+        print(
+            "    "
+            f"{render_user_path(output_dir_path / relative_output_path)} "
+            f"(canonical_id: {canonical_id})"
+        )
+    remaining_count = len(stale_artifacts) - stale_preview_limit
+    if remaining_count > 0:
+        print(f"    ... and {remaining_count} more")
+
+
 def print_dry_run_complete() -> None:
     """Print a consistent dry-run completion message."""
     print("\nDry run complete. No files written.")
@@ -925,9 +935,7 @@ def _execute_configured_run(
     captured_stderr: TextIO,
 ) -> int:
     """Execute one configured run while teeing nested stdout into the parent CLI."""
-    with redirect_stdout(_TeeStream(sys.stdout, captured_stdout)), redirect_stderr(
-        captured_stderr
-    ):
+    with redirect_stdout(_TeeStream(sys.stdout, captured_stdout)), redirect_stderr(captured_stderr):
         return main(argv)
 
 
@@ -953,9 +961,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ()
             if args.only is not None
             else tuple(
-                configured_run
-                for configured_run in run_config.runs
-                if not configured_run.enabled
+                configured_run for configured_run in run_config.runs if not configured_run.enabled
             )
         )
 
@@ -1074,10 +1080,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 dry_run_runs += 1
                 total_would_write += summary.wrote
                 total_would_skip += summary.skipped
-                print(
-                    f"Run summary: would write {summary.wrote}, "
-                    f"would skip {summary.skipped}"
-                )
+                print(f"Run summary: would write {summary.wrote}, would skip {summary.skipped}")
             else:
                 write_runs += 1
                 total_wrote += summary.wrote
@@ -1142,8 +1145,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         from knowledge_adapters.confluence.incremental import (
             PageSyncDecision,
             classify_page_sync,
-            find_stale_artifacts,
-            load_previous_manifest_index,
         )
         from knowledge_adapters.confluence.manifest import (
             build_manifest_entry,
@@ -1160,6 +1161,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         from knowledge_adapters.confluence.traversal import TreeWalkProgress, walk_pages
         from knowledge_adapters.confluence.writer import markdown_path, write_markdown
+        from knowledge_adapters.manifest_stale import (
+            find_stale_artifacts,
+            load_previous_manifest_index,
+        )
 
         confluence_config = ConfluenceConfig(
             base_url=args.base_url,
@@ -1194,8 +1199,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 command="confluence",
             )
         space_mode = (
-            confluence_config.space_key is not None
-            or confluence_config.space_url is not None
+            confluence_config.space_key is not None or confluence_config.space_url is not None
         )
         explicit_max_depth = "--max-depth" in raw_argv
         resolved_space_key: str | None = None
@@ -1385,13 +1389,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                     )
                 if resolved_tls_inputs.client_cert_file:
                     tls_inputs.append(
-                        "client_cert_file="
-                        f"{render_user_path(resolved_tls_inputs.client_cert_file)}"
+                        f"client_cert_file={render_user_path(resolved_tls_inputs.client_cert_file)}"
                     )
                 if resolved_tls_inputs.client_key_file:
                     tls_inputs.append(
-                        "client_key_file="
-                        f"{render_user_path(resolved_tls_inputs.client_key_file)}"
+                        f"client_key_file={render_user_path(resolved_tls_inputs.client_key_file)}"
                     )
                 print(f"  auth_method: {confluence_config.auth_method}")
                 print(
@@ -1428,9 +1430,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     if isinstance(page_version, int) and not isinstance(page_version, bool)
                     else None
                 ),
-                last_modified=(
-                    str(page["last_modified"]) if page.get("last_modified") else None
-                ),
+                last_modified=(str(page["last_modified"]) if page.get("last_modified") else None),
             )
 
         def _display_output_path(path: Path) -> str:
@@ -1451,6 +1451,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             page_decision: PageSyncDecision,
             action: str,
             dry_run: bool,
+            stale_count: int | None = None,
             markdown: str | None = None,
         ) -> None:
             print("\nPlan: Confluence run")
@@ -1473,6 +1474,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     unchanged_count=1 if page_decision.status == "unchanged" else 0,
                     write_count=write_count,
                     skip_count=skip_count,
+                    stale_count=stale_count,
                 )
             if markdown is not None:
                 print()
@@ -1501,8 +1503,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 summary_lines.append(f"    pages_in_plan: {total_pages}")
             else:
                 summary_lines.append(
-                    "    pages_in_plan: "
-                    f"{total_pages} (root 1, descendants {descendant_count})"
+                    f"    pages_in_plan: {total_pages} (root 1, descendants {descendant_count})"
                 )
             summary_lines.extend(
                 [
@@ -1536,24 +1537,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(f"  stale_artifacts: {stale_count}")
             print(f"  pages_written: {write_count}")
             print(f"  pages_skipped: {skip_count}")
-
-        def _print_stale_artifacts(
-            stale_artifacts: list[tuple[str, str]],
-        ) -> None:
-            if not stale_artifacts:
-                return
-
-            stale_preview_limit = 5
-            print("  Stale artifacts:")
-            for canonical_id, relative_output_path in stale_artifacts[:stale_preview_limit]:
-                print(
-                    "    "
-                    f"{_display_output_path(output_dir / relative_output_path)} "
-                    f"(canonical_id: {canonical_id})"
-                )
-            remaining_count = len(stale_artifacts) - stale_preview_limit
-            if remaining_count > 0:
-                print(f"    ... and {remaining_count} more")
 
         def _print_stub_tree_mode_note() -> None:
             if not (confluence_config.tree and confluence_config.client_mode == "stub"):
@@ -1627,9 +1610,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
 
             _print_confluence_invocation()
-            space_page_records: list[
-                tuple[dict[str, object], Path, PageSyncDecision, str]
-            ] = []
+            space_page_records: list[tuple[dict[str, object], Path, PageSyncDecision, str]] = []
             for page in pages:
                 canonical_id = str(page.get("canonical_id") or "")
                 output_path = markdown_path(confluence_config.output_dir, canonical_id)
@@ -1646,10 +1627,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 for artifact in find_stale_artifacts(
                     confluence_config.output_dir,
                     previous_manifest_index,
-                    current_page_ids=[
-                        str(page.get("canonical_id") or "")
-                        for page, _output_path, _page_decision, _action in space_page_records
-                    ],
                     current_output_paths=[
                         output_path.relative_to(Path(confluence_config.output_dir)).as_posix()
                         for _page, output_path, _page_decision, _action in space_page_records
@@ -1695,7 +1672,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     space_key=resolved_space_key,
                     discovered_count=len(discovered_page_ids),
                 )
-                _print_stale_artifacts(stale_artifacts)
+                print_stale_artifacts(confluence_config.output_dir, stale_artifacts)
                 for _page, output_path, page_decision, action in space_page_records:
                     print(
                         "  would "
@@ -1769,9 +1746,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         )
                         continue
 
-                    page_to_write = space_pages_to_write[
-                        str(page.get("canonical_id") or "")
-                    ]
+                    page_to_write = space_pages_to_write[str(page.get("canonical_id") or "")]
                     markdown = normalize_to_markdown(page_to_write)
                     write_markdown(
                         confluence_config.output_dir,
@@ -1799,7 +1774,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 skip_count=skip_count,
                 stale_count=len(stale_artifacts),
             )
-            _print_stale_artifacts(stale_artifacts)
+            print_stale_artifacts(confluence_config.output_dir, stale_artifacts)
             print(f"Manifest: {_display_output_path(manifest)}")
             print_write_complete(output_dir)
             return 0
@@ -1817,10 +1792,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if previous_manifest_index is None
                 else selected_fetch_page_summary
             )
-            print(
-                "Tree progress: "
-                f"traversal started, max_depth {confluence_config.max_depth}"
-            )
+            print(f"Tree progress: traversal started, max_depth {confluence_config.max_depth}")
             if confluence_config.client_mode == "real":
                 try:
                     root_page_id, pages = walk_pages(
@@ -1862,10 +1834,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 for artifact in find_stale_artifacts(
                     confluence_config.output_dir,
                     previous_manifest_index,
-                    current_page_ids=[
-                        str(page.get("canonical_id") or "")
-                        for page, _output_path, _page_decision, _action in page_records
-                    ],
                     current_output_paths=[
                         output_path.relative_to(Path(confluence_config.output_dir)).as_posix()
                         for _page, output_path, _page_decision, _action in page_records
@@ -1910,7 +1878,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     skip_count=skip_count,
                     stale_count=len(stale_artifacts),
                 )
-                _print_stale_artifacts(stale_artifacts)
+                print_stale_artifacts(confluence_config.output_dir, stale_artifacts)
                 for _page, output_path, page_decision, action in page_records:
                     print(
                         "  would "
@@ -2017,7 +1985,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 skip_count=skip_count,
                 stale_count=len(stale_artifacts),
             )
-            _print_stale_artifacts(stale_artifacts)
+            print_stale_artifacts(confluence_config.output_dir, stale_artifacts)
             print(f"Manifest: {_display_output_path(manifest)}")
             print_write_complete(output_dir)
             return 0
@@ -2053,6 +2021,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             page=page,
             output_path=output_path,
         )
+        stale_artifacts = [
+            (artifact.canonical_id, artifact.output_path)
+            for artifact in find_stale_artifacts(
+                confluence_config.output_dir,
+                previous_manifest_index,
+                current_output_paths=[
+                    output_path.relative_to(Path(confluence_config.output_dir)).as_posix()
+                ],
+            )
+        ]
         action = "skip" if page_decision.status == "unchanged" else "write"
 
         if confluence_config.dry_run:
@@ -2075,8 +2053,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 page_decision=page_decision,
                 action=action,
                 dry_run=True,
+                stale_count=len(stale_artifacts),
                 markdown=planned_markdown,
             )
+            print_stale_artifacts(confluence_config.output_dir, stale_artifacts)
             print_dry_run_complete()
             return 0
 
@@ -2088,6 +2068,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             page_decision=page_decision,
             action=action,
             dry_run=False,
+            stale_count=len(stale_artifacts),
         )
 
         try:
@@ -2139,7 +2120,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             unchanged_count=1 if page_decision.status == "unchanged" else 0,
             write_count=write_count,
             skip_count=skip_count,
+            stale_count=len(stale_artifacts),
         )
+        print_stale_artifacts(confluence_config.output_dir, stale_artifacts)
         print(f"Manifest: {_display_output_path(manifest)}")
         print_write_complete(output_dir)
         return 0
@@ -2209,10 +2192,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.changed_only:
             print("  changed_only: true")
             if bundle_plan.baseline_manifest is not None:
-                print(
-                    "  baseline_manifest: "
-                    f"{render_user_path(bundle_plan.baseline_manifest)}"
-                )
+                print(f"  baseline_manifest: {render_user_path(bundle_plan.baseline_manifest)}")
 
         print("\nPlan: Bundle run")
         for manifest in bundle_plan.manifests:
@@ -2305,9 +2285,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.command == "local_files":
-        from knowledge_adapters.confluence.incremental import (
-            load_previous_manifest_output_index,
-        )
         from knowledge_adapters.confluence.manifest import (
             build_manifest_entry,
             write_manifest,
@@ -2316,6 +2293,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         from knowledge_adapters.local_files.config import LocalFilesConfig
         from knowledge_adapters.local_files.normalize import normalize_to_markdown
         from knowledge_adapters.local_files.writer import write_markdown
+        from knowledge_adapters.manifest_stale import (
+            find_stale_artifacts,
+            load_previous_manifest_index,
+            load_previous_manifest_output_index,
+        )
 
         local_files_config = LocalFilesConfig(
             file_path=args.file_path,
@@ -2354,6 +2336,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         planned_output_path = output_path.relative_to(output_dir).as_posix()
 
         try:
+            previous_manifest_index = load_previous_manifest_index(local_files_config.output_dir)
             previous_manifest_output_index = load_previous_manifest_output_index(
                 local_files_config.output_dir
             )
@@ -2371,6 +2354,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 prior_source_path=prior_source_path,
                 current_source_path=current_source_path,
             )
+        stale_artifacts = [
+            (artifact.canonical_id, artifact.output_path)
+            for artifact in find_stale_artifacts(
+                local_files_config.output_dir,
+                previous_manifest_index,
+                current_output_paths=[planned_output_path],
+            )
+        ]
 
         print("\nPlan: Local files run")
         print(f"  resolved_file_path: {resolved_input_path}")
@@ -2388,6 +2379,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"  action: {'would write' if local_files_config.dry_run else 'write'}")
         if local_files_config.dry_run:
             print("  Summary: would write 1, would skip 0")
+            print(f"  stale_artifacts: {len(stale_artifacts)}")
+            print_stale_artifacts(local_files_config.output_dir, stale_artifacts)
             print()
             print(markdown)
             print_dry_run_complete()
@@ -2419,6 +2412,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         print(f"\nWrote: {render_user_path(output_path)}")
         print("\nSummary: wrote 1, skipped 0")
+        print(f"  stale_artifacts: {len(stale_artifacts)}")
+        print_stale_artifacts(local_files_config.output_dir, stale_artifacts)
         print(f"Artifact path: {render_user_path(output_path)}")
         print(f"Manifest path: {render_user_path(manifest)}")
         print_write_complete(output_dir)
@@ -2440,6 +2435,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         from knowledge_adapters.github_metadata.writer import (
             write_markdown as write_github_issue_markdown,
+        )
+        from knowledge_adapters.manifest_stale import (
+            find_stale_artifacts,
+            load_previous_manifest_index,
         )
 
         github_metadata_config = GitHubMetadataConfig(
@@ -2490,6 +2489,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"  max_items: {github_metadata_config.max_items}")
         print(f"  run_mode: {'dry-run' if github_metadata_config.dry_run else 'write'}")
 
+        try:
+            previous_manifest_index = load_previous_manifest_index(
+                github_metadata_config.output_dir
+            )
+        except RuntimeError as exc:
+            exit_with_cli_error(str(exc), command="github_metadata")
+
         print("\nPlan: GitHub metadata run")
         print("  resource_type: issue")
         print(f"  issues_planned: {len(issues)}")
@@ -2535,6 +2541,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                     ).as_posix(),
                 }
             )
+        stale_artifacts = [
+            (artifact.canonical_id, artifact.output_path)
+            for artifact in find_stale_artifacts(
+                github_metadata_config.output_dir,
+                previous_manifest_index,
+                current_output_paths=[
+                    str(entry["output_path"]) for entry in github_manifest_entries
+                ],
+            )
+        ]
 
         for issue, output_path in zip(issues, github_written_output_paths, strict=True):
             print(f"\n  issue: #{issue.number}")
@@ -2545,13 +2561,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print("  body_status: markdown/text with content")
             else:
                 print("  body_status: empty issue body; output will include an empty-body marker")
-            print(
-                f"  action: {'would write' if github_metadata_config.dry_run else 'write'}"
-            )
+            print(f"  action: {'would write' if github_metadata_config.dry_run else 'write'}")
 
         manifest_output_path = output_dir / "manifest.json"
         if github_metadata_config.dry_run:
             print(f"\nSummary: would write {len(issues)}, would skip 0")
+            print(f"  stale_artifacts: {len(stale_artifacts)}")
+            print_stale_artifacts(github_metadata_config.output_dir, stale_artifacts)
             print(f"Manifest path: {render_user_path(manifest_output_path)}")
             print_dry_run_complete()
             return 0
@@ -2577,6 +2593,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         for output_path in github_written_output_paths:
             print(f"\nWrote: {render_user_path(output_path)}")
         print(f"\nSummary: wrote {len(issues)}, skipped 0")
+        print(f"  stale_artifacts: {len(stale_artifacts)}")
+        print_stale_artifacts(github_metadata_config.output_dir, stale_artifacts)
         print(f"Manifest path: {render_user_path(manifest)}")
         print_write_complete(output_dir)
         return 0
@@ -2596,6 +2614,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         from knowledge_adapters.git_repo.writer import (
             write_markdown as write_git_repo_markdown,
+        )
+        from knowledge_adapters.manifest_stale import (
+            find_stale_artifacts,
+            load_previous_manifest_index,
         )
 
         git_repo_config = GitRepoConfig(
@@ -2636,9 +2658,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         requested_ref_label = (
             git_repo_config.ref if git_repo_config.ref is not None else "(default branch)"
         )
-        print(
-            f"  requested_ref: {requested_ref_label}"
-        )
+        print(f"  requested_ref: {requested_ref_label}")
         if git_repo_config.subdir is not None:
             print(f"  subdir: {git_repo_config.subdir}")
         if git_repo_config.include:
@@ -2646,6 +2666,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         if git_repo_config.exclude:
             print(f"  exclude: {', '.join(git_repo_config.exclude)}")
         print(f"  run_mode: {'dry-run' if git_repo_config.dry_run else 'write'}")
+
+        try:
+            previous_manifest_index = load_previous_manifest_index(git_repo_config.output_dir)
+        except RuntimeError as exc:
+            exit_with_cli_error(str(exc), command="git_repo")
 
         print("\nPlan: Git repo run")
         print(f"  working_dir: {render_user_path(snapshot.repo_dir)}")
@@ -2684,6 +2709,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             )
             written_output_paths.append(output_path)
+        stale_artifacts = [
+            (artifact.canonical_id, artifact.output_path)
+            for artifact in find_stale_artifacts(
+                git_repo_config.output_dir,
+                previous_manifest_index,
+                current_output_paths=[str(entry["output_path"]) for entry in manifest_entries],
+            )
+        ]
 
         for repo_file, output_path in zip(snapshot.files, written_output_paths, strict=True):
             print(f"\n  path: {repo_file.repo_path}")
@@ -2714,6 +2747,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "\nSummary: would write "
                 f"{len(snapshot.files)}, would skip {len(snapshot.skipped_files)}"
             )
+            print(f"  stale_artifacts: {len(stale_artifacts)}")
+            print_stale_artifacts(git_repo_config.output_dir, stale_artifacts)
             print(f"Manifest path: {render_user_path(manifest_output_path)}")
             print_dry_run_complete()
             return 0
@@ -2750,10 +2785,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"\nWrote: {render_user_path(output_path)}")
         for skipped_file in snapshot.skipped_files:
             print(f"\nSkipped: {skipped_file.repo_path} ({skipped_file.reason})")
-        print(
-            "\nSummary: wrote "
-            f"{len(snapshot.files)}, skipped {len(snapshot.skipped_files)}"
-        )
+        print(f"\nSummary: wrote {len(snapshot.files)}, skipped {len(snapshot.skipped_files)}")
+        print(f"  stale_artifacts: {len(stale_artifacts)}")
+        print_stale_artifacts(git_repo_config.output_dir, stale_artifacts)
         print(f"Manifest path: {render_user_path(manifest)}")
         print_write_complete(output_dir)
         return 0

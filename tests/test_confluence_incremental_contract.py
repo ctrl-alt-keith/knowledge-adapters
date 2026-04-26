@@ -201,12 +201,13 @@ def test_incremental_dry_run_without_manifest_marks_all_pages_as_write(
 
 
 @pytest.mark.parametrize(
-    ("manifest_entry", "materialize_file", "expected_output"),
+    ("manifest_entry", "materialize_file", "expected_output", "stale_count"),
     [
         (
             _manifest_entry_for_page("100"),
             True,
             "would skip {path} (unchanged)",
+            0,
         ),
         (
             {
@@ -216,6 +217,7 @@ def test_incremental_dry_run_without_manifest_marks_all_pages_as_write(
             },
             True,
             "would write {path} (new: prior manifest entry missing entirely)",
+            0,
         ),
         (
             {
@@ -225,6 +227,7 @@ def test_incremental_dry_run_without_manifest_marks_all_pages_as_write(
             },
             True,
             "would write {path} (changed: output_path changed)",
+            1,
         ),
         (
             {
@@ -234,6 +237,7 @@ def test_incremental_dry_run_without_manifest_marks_all_pages_as_write(
             },
             False,
             "would write {path} (changed: prior artifact missing, so safe rewrite)",
+            0,
         ),
     ],
 )
@@ -244,6 +248,7 @@ def test_incremental_dry_run_uses_manifest_identity_and_file_existence_for_skip(
     manifest_entry: dict[str, object],
     materialize_file: bool,
     expected_output: str,
+    stale_count: int,
 ) -> None:
     output_dir = tmp_path / "out"
     original_manifest = _write_previous_manifest(
@@ -270,6 +275,9 @@ def test_incremental_dry_run_uses_manifest_identity_and_file_existence_for_skip(
     is_skip = "would skip" in expected_line
     write_count = 1 if is_skip else 2
     skip_count = 1 if is_skip else 0
+    stale_artifact_paths = []
+    if stale_count > 0:
+        stale_artifact_paths.append(output_dir / str(manifest_entry["output_path"]))
     assert_tree_confluence_dry_run_summary(
         captured.out,
         root_page_id="100",
@@ -278,6 +286,8 @@ def test_incremental_dry_run_uses_manifest_identity_and_file_existence_for_skip(
         unique_pages=2,
         write_count=write_count,
         skip_count=skip_count,
+        stale_count=stale_count,
+        stale_artifact_paths=stale_artifact_paths,
     )
     assert expected_line in captured.out
     if materialize_file and manifest_entry["output_path"] == "pages/100.md":
@@ -313,8 +323,7 @@ def test_incremental_dry_run_reports_both_would_write_and_would_skip_without_wri
     captured = capsys.readouterr()
     assert f"would skip {existing_page} (unchanged)" in captured.out
     assert (
-        f"would write {_page_path(output_dir, '200')} "
-        "(new: prior manifest entry missing entirely)"
+        f"would write {_page_path(output_dir, '200')} (new: prior manifest entry missing entirely)"
     ) in captured.out
     assert_dry_run_summary(
         captured.out,
@@ -453,8 +462,7 @@ def test_incremental_normal_run_rewrites_pages_when_source_metadata_changes(
 
     captured = capsys.readouterr()
     assert (
-        f"Wrote: {_page_path(output_dir, '100')} "
-        "(changed: page_version changed)"
+        f"Wrote: {_page_path(output_dir, '100')} (changed: page_version changed)"
     ) in captured.out
     assert_write_summary(
         captured.out,
@@ -656,12 +664,10 @@ def test_incremental_normal_run_handles_larger_mixed_write_and_skip_set(
     assert f"Skipped: {_page_path(output_dir, '100')} (unchanged)" in captured.out
     assert f"Skipped: {_page_path(output_dir, '300')} (unchanged)" in captured.out
     assert (
-        f"Wrote: {_page_path(output_dir, '200')} "
-        "(new: prior manifest entry missing entirely)"
+        f"Wrote: {_page_path(output_dir, '200')} (new: prior manifest entry missing entirely)"
     ) in captured.out
     assert (
-        f"Wrote: {_page_path(output_dir, '400')} "
-        "(new: prior manifest entry missing entirely)"
+        f"Wrote: {_page_path(output_dir, '400')} (new: prior manifest entry missing entirely)"
     ) in captured.out
     assert_write_summary(
         captured.out,
@@ -865,10 +871,7 @@ def test_incremental_dry_run_reports_last_modified_rewrite_reason(
     assert exit_code == 0
 
     captured = capsys.readouterr()
-    assert (
-        f"would write {existing_page} "
-        "(changed: last_modified changed)"
-    ) in captured.out
+    assert (f"would write {existing_page} (changed: last_modified changed)") in captured.out
 
 
 def test_incremental_dry_run_summary_reports_mixed_write_and_skip_counts(
