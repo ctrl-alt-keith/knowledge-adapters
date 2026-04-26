@@ -9,6 +9,14 @@ from pathlib import Path
 
 import yaml  # type: ignore[import-untyped]
 
+from knowledge_adapters.bundle import (
+    BUNDLE_ORDER_CHOICES,
+    DEFAULT_BUNDLE_ORDER,
+    DEFAULT_HEADER_MODE,
+    DEFAULT_STALE_MODE,
+    HEADER_MODE_CHOICES,
+    STALE_MODE_CHOICES,
+)
 from knowledge_adapters.confluence.auth import CONFLUENCE_CA_BUNDLE_ENV, SUPPORTED_AUTH_METHODS
 from knowledge_adapters.confluence.config import validate_explicit_tls_paths
 from knowledge_adapters.confluence.resolve import (
@@ -19,12 +27,14 @@ from knowledge_adapters.confluence.resolve import (
 )
 from knowledge_adapters.github_metadata.config import SUPPORTED_RESOURCE_TYPES
 
-SUPPORTED_RUN_TYPES = frozenset({"confluence", "git_repo", "github_metadata", "local_files"})
+SUPPORTED_RUN_TYPES = frozenset(
+    {"bundle", "confluence", "git_repo", "github_metadata", "local_files"}
+)
 _SUPPORTED_CONFLUENCE_CLIENT_MODES = frozenset({"real", "stub"})
 _SUPPORTED_GITHUB_METADATA_STATES = frozenset({"open", "closed", "all"})
 _SUPPORTED_GITHUB_METADATA_RESOURCE_TYPES = SUPPORTED_RESOURCE_TYPES
 
-_COMMON_REQUIRED_KEYS = frozenset({"name", "type", "output_dir"})
+_COMMON_REQUIRED_KEYS = frozenset({"name", "type"})
 _CONFLUENCE_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
     {
         "auth_method",
@@ -37,15 +47,33 @@ _CONFLUENCE_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
         "dry_run",
         "enabled",
         "max_depth",
+        "output_dir",
         "space_key",
         "space_url",
         "target",
         "tree",
     }
 )
-_LOCAL_FILES_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset({"dry_run", "enabled", "file_path"})
+_BUNDLE_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
+    {
+        "baseline_manifest",
+        "changed_only",
+        "enabled",
+        "exclude",
+        "header_mode",
+        "include",
+        "inputs",
+        "max_bytes",
+        "order",
+        "output",
+        "stale_mode",
+    }
+)
+_LOCAL_FILES_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
+    {"dry_run", "enabled", "file_path", "output_dir"}
+)
 _GIT_REPO_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
-    {"dry_run", "enabled", "exclude", "include", "ref", "repo_url", "subdir"}
+    {"dry_run", "enabled", "exclude", "include", "output_dir", "ref", "repo_url", "subdir"}
 )
 _GITHUB_METADATA_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
     {
@@ -54,6 +82,7 @@ _GITHUB_METADATA_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
         "enabled",
         "include_issue_comments",
         "max_items",
+        "output_dir",
         "repo",
         "resource_type",
         "since",
@@ -201,6 +230,23 @@ def _parse_run(
             run_type=run_type,
             argv=argv,
             dry_run=dry_run,
+            enabled=enabled,
+        )
+
+    if run_type == "bundle":
+        argv = _build_bundle_argv(run_config, name=name, config_path=config_path)
+        enabled = _optional_bool(
+            run_config,
+            "enabled",
+            index=index,
+            config_path=config_path,
+            default=True,
+        )
+        return ConfiguredRun(
+            name=name,
+            run_type=run_type,
+            argv=argv,
+            dry_run=False,
             enabled=enabled,
         )
 
@@ -431,6 +477,121 @@ def _build_confluence_argv(
                 "greater than or equal to 0."
             )
         argv.extend(["--max-depth", str(max_depth)])
+
+    return tuple(argv)
+
+
+def _build_bundle_argv(
+    run_config: dict[str, object],
+    *,
+    name: str,
+    config_path: Path,
+) -> tuple[str, ...]:
+    _reject_unknown_keys(
+        run_config,
+        allowed_keys=_BUNDLE_ALLOWED_KEYS,
+        name=name,
+        config_path=config_path,
+    )
+    index = _run_index(name=name, config_path=config_path)
+    inputs = tuple(
+        _resolve_path_string(input_path, config_path=config_path)
+        for input_path in _required_string_sequence(
+            run_config,
+            "inputs",
+            index=index,
+            config_path=config_path,
+        )
+    )
+    output = _resolve_path_string(
+        _require_string(run_config, "output", index=index, config_path=config_path),
+        config_path=config_path,
+    )
+    argv: list[str] = [
+        "bundle",
+        *inputs,
+        "--output",
+        output,
+    ]
+
+    max_bytes = run_config.get("max_bytes")
+    if max_bytes is not None:
+        if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1:
+            raise ValueError(
+                f"Run {name!r} in {config_path} must set 'max_bytes' to a positive integer."
+            )
+        argv.extend(["--max-bytes", str(max_bytes)])
+
+    order = _optional_string(run_config, "order", index=index, config_path=config_path)
+    if order is not None:
+        if order not in BUNDLE_ORDER_CHOICES:
+            supported_values = " or ".join(repr(value) for value in BUNDLE_ORDER_CHOICES)
+            raise ValueError(
+                f"Run {name!r} in {config_path} has unsupported 'order' value "
+                f"{order!r}. Use {supported_values}."
+            )
+        if order != DEFAULT_BUNDLE_ORDER:
+            argv.extend(["--order", order])
+
+    header_mode = _optional_string(run_config, "header_mode", index=index, config_path=config_path)
+    if header_mode is not None:
+        if header_mode not in HEADER_MODE_CHOICES:
+            supported_values = " or ".join(repr(value) for value in HEADER_MODE_CHOICES)
+            raise ValueError(
+                f"Run {name!r} in {config_path} has unsupported 'header_mode' value "
+                f"{header_mode!r}. Use {supported_values}."
+            )
+        if header_mode != DEFAULT_HEADER_MODE:
+            argv.extend(["--header-mode", header_mode])
+
+    stale_mode = _optional_string(run_config, "stale_mode", index=index, config_path=config_path)
+    if stale_mode is not None:
+        if stale_mode not in STALE_MODE_CHOICES:
+            supported_values = " or ".join(repr(value) for value in STALE_MODE_CHOICES)
+            raise ValueError(
+                f"Run {name!r} in {config_path} has unsupported 'stale_mode' value "
+                f"{stale_mode!r}. Use {supported_values}."
+            )
+        if stale_mode != DEFAULT_STALE_MODE:
+            argv.extend(["--stale-mode", stale_mode])
+
+    for include_pattern in _optional_string_sequence(
+        run_config,
+        "include",
+        index=index,
+        config_path=config_path,
+    ):
+        argv.extend(["--include", include_pattern])
+    for exclude_pattern in _optional_string_sequence(
+        run_config,
+        "exclude",
+        index=index,
+        config_path=config_path,
+    ):
+        argv.extend(["--exclude", exclude_pattern])
+
+    changed_only = _optional_bool(
+        run_config,
+        "changed_only",
+        index=index,
+        config_path=config_path,
+        default=False,
+    )
+    baseline_manifest = _optional_string(
+        run_config,
+        "baseline_manifest",
+        index=index,
+        config_path=config_path,
+    )
+    if changed_only:
+        argv.append("--changed-only")
+    if baseline_manifest is not None:
+        argv.extend(
+            [
+                "--baseline-manifest",
+                _resolve_path_string(baseline_manifest, config_path=config_path),
+            ]
+        )
 
     return tuple(argv)
 
@@ -731,6 +892,27 @@ def _optional_string_sequence(
             )
         normalized_values.append(item.strip())
     return tuple(normalized_values)
+
+
+def _required_string_sequence(
+    run_config: dict[str, object],
+    key: str,
+    *,
+    index: int | str,
+    config_path: Path,
+) -> tuple[str, ...]:
+    if key not in run_config:
+        raise ValueError(
+            f"Run {index!r} in {config_path} must define {key!r} as a non-empty string "
+            "or list of non-empty strings."
+        )
+
+    return _optional_string_sequence(
+        run_config,
+        key,
+        index=index,
+        config_path=config_path,
+    )
 
 
 def _optional_bool(

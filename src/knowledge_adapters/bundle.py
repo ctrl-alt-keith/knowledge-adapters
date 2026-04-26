@@ -14,6 +14,7 @@ from knowledge_adapters.manifest import manifest_path
 
 BundleOrder = Literal["canonical_id", "manifest", "input"]
 HeaderMode = Literal["minimal", "full"]
+StaleMode = Literal["include", "exclude", "flag"]
 
 DEFAULT_BUNDLE_ORDER: BundleOrder = "canonical_id"
 BUNDLE_ORDER_CHOICES: tuple[BundleOrder, ...] = ("canonical_id", "manifest", "input")
@@ -28,6 +29,13 @@ HEADER_MODE_CHOICES: tuple[HeaderMode, ...] = ("minimal", "full")
 HEADER_MODE_LABELS: dict[HeaderMode, str] = {
     "minimal": "title plus source URL",
     "full": "title, source URL, canonical_id, and optional manifest metadata",
+}
+DEFAULT_STALE_MODE: StaleMode = "include"
+STALE_MODE_CHOICES: tuple[StaleMode, ...] = ("include", "exclude", "flag")
+STALE_MODE_LABELS: dict[StaleMode, str] = {
+    "include": "include stale artifacts when explicit stale metadata is present",
+    "exclude": "exclude stale artifacts when explicit stale metadata is present",
+    "flag": "include and mark stale artifacts when explicit stale metadata is present",
 }
 BUNDLE_SECTION_SEPARATOR = "\n\n---\n\n"
 
@@ -45,6 +53,7 @@ class BundleArtifact:
     ref: str | None
     content_hash: str | None
     artifact_path: Path
+    is_stale: bool = False
 
 
 @dataclass(frozen=True)
@@ -57,6 +66,11 @@ class BundlePlan:
     filtered_out_count: int = 0
     unchanged_count: int = 0
     baseline_manifest: Path | None = None
+    stale_metadata_available: bool = False
+    stale_artifact_count: int = 0
+    stale_artifacts_excluded_count: int = 0
+    stale_artifacts_flagged_count: int = 0
+    stale_mode: StaleMode = DEFAULT_STALE_MODE
 
 
 @dataclass(frozen=True)
@@ -111,6 +125,29 @@ class _BaselineManifestEntry:
     artifact_path: Path
 
 
+@dataclass(frozen=True)
+class _LoadedBundleManifest:
+    """Bundle artifacts plus optional explicit stale metadata from one manifest."""
+
+    artifacts: tuple[BundleArtifact, ...]
+    stale_metadata_available: bool
+    stale_artifact_count: int
+
+
+@dataclass(frozen=True)
+class _ExplicitStaleEntry:
+    """One explicitly reported stale artifact from manifest metadata."""
+
+    canonical_id: str
+    output_path: str
+    source_url: str | None
+    title: str | None
+    fetched_at: str | None
+    path: str | None
+    ref: str | None
+    content_hash: str | None
+
+
 def describe_bundle_order(order: BundleOrder) -> str:
     """Return the human-readable description for one bundle ordering mode."""
     return BUNDLE_ORDER_LABELS[order]
@@ -121,6 +158,11 @@ def describe_header_mode(mode: HeaderMode) -> str:
     return HEADER_MODE_LABELS[mode]
 
 
+def describe_stale_mode(mode: StaleMode) -> str:
+    """Return the human-readable description for one stale handling mode."""
+    return STALE_MODE_LABELS[mode]
+
+
 def load_bundle_plan(
     inputs: Sequence[str | Path],
     *,
@@ -129,11 +171,17 @@ def load_bundle_plan(
     exclude_patterns: Sequence[str] = (),
     changed_only: bool = False,
     baseline_manifest: str | Path | None = None,
+    stale_mode: StaleMode = DEFAULT_STALE_MODE,
 ) -> BundlePlan:
     """Load artifacts from output directories or manifest files."""
     if order not in BUNDLE_ORDER_CHOICES:
         raise ValueError(
             f"Unsupported bundle order {order!r}. Choose one of: {', '.join(BUNDLE_ORDER_CHOICES)}."
+        )
+    if stale_mode not in STALE_MODE_CHOICES:
+        raise ValueError(
+            f"Unsupported stale mode {stale_mode!r}. "
+            f"Choose one of: {', '.join(STALE_MODE_CHOICES)}."
         )
     if changed_only and baseline_manifest is None:
         raise ValueError("Bundle --changed-only requires --baseline-manifest.")
@@ -144,12 +192,19 @@ def load_bundle_plan(
     artifacts_by_id: dict[str, BundleArtifact] = {}
     artifact_positions: dict[str, _BundleArtifactPosition] = {}
     duplicate_canonical_ids: list[str] = []
+    stale_metadata_available = False
+    stale_artifact_count = 0
 
     for input_index, raw_input in enumerate(inputs):
         manifest = _resolve_manifest_input(raw_input)
         manifests.append(manifest)
         manifest_index = len(manifests) - 1
-        for manifest_entry_index, artifact in enumerate(_load_bundle_artifacts(manifest)):
+        loaded_manifest = _load_bundle_artifacts(manifest)
+        stale_metadata_available = (
+            stale_metadata_available or loaded_manifest.stale_metadata_available
+        )
+        stale_artifact_count += loaded_manifest.stale_artifact_count
+        for manifest_entry_index, artifact in enumerate(loaded_manifest.artifacts):
             if artifact.canonical_id in artifacts_by_id:
                 duplicate_canonical_ids.append(artifact.canonical_id)
                 continue
@@ -181,6 +236,16 @@ def load_bundle_plan(
         include_patterns=include_patterns,
         exclude_patterns=exclude_patterns,
     )
+    selected_artifacts, stale_artifacts_excluded_count = _handle_stale_bundle_artifacts(
+        selected_artifacts,
+        stale_metadata_available=stale_metadata_available,
+        stale_mode=stale_mode,
+    )
+    stale_artifacts_flagged_count = (
+        sum(1 for artifact in selected_artifacts if artifact.is_stale)
+        if stale_metadata_available and stale_mode == "flag"
+        else 0
+    )
 
     return BundlePlan(
         manifests=tuple(manifests),
@@ -189,6 +254,11 @@ def load_bundle_plan(
         filtered_out_count=filtered_out_count,
         unchanged_count=unchanged_count,
         baseline_manifest=baseline_manifest_path,
+        stale_metadata_available=stale_metadata_available,
+        stale_artifact_count=stale_artifact_count,
+        stale_artifacts_excluded_count=stale_artifacts_excluded_count,
+        stale_artifacts_flagged_count=stale_artifacts_flagged_count,
+        stale_mode=stale_mode,
     )
 
 
@@ -196,10 +266,11 @@ def render_bundle_markdown(
     artifacts: Sequence[BundleArtifact],
     *,
     header_mode: HeaderMode = DEFAULT_HEADER_MODE,
+    stale_mode: StaleMode = DEFAULT_STALE_MODE,
 ) -> str:
     """Render bundle output with stable separators and metadata lines."""
     return _render_bundle_sections_markdown(
-        render_bundle_sections(artifacts, header_mode=header_mode)
+        render_bundle_sections(artifacts, header_mode=header_mode, stale_mode=stale_mode)
     )
 
 
@@ -207,12 +278,18 @@ def render_bundle_sections(
     artifacts: Sequence[BundleArtifact],
     *,
     header_mode: HeaderMode = DEFAULT_HEADER_MODE,
+    stale_mode: StaleMode = DEFAULT_STALE_MODE,
 ) -> tuple[BundleSection, ...]:
     """Render bundle output as stable artifact-level sections."""
     if header_mode not in HEADER_MODE_CHOICES:
         raise ValueError(
             f"Unsupported bundle header mode {header_mode!r}. "
             f"Choose one of: {', '.join(HEADER_MODE_CHOICES)}."
+        )
+    if stale_mode not in STALE_MODE_CHOICES:
+        raise ValueError(
+            f"Unsupported stale mode {stale_mode!r}. "
+            f"Choose one of: {', '.join(STALE_MODE_CHOICES)}."
         )
 
     sections: list[BundleSection] = []
@@ -225,6 +302,7 @@ def render_bundle_sections(
                     artifact,
                     content=content,
                     header_mode=header_mode,
+                    flag_stale=stale_mode == "flag",
                 ),
             )
         )
@@ -306,7 +384,7 @@ def _resolve_manifest_input(raw_input: str | Path) -> Path:
     return resolved_path
 
 
-def _load_bundle_artifacts(manifest: Path) -> tuple[BundleArtifact, ...]:
+def _load_bundle_artifacts(manifest: Path) -> _LoadedBundleManifest:
     try:
         payload = json.loads(manifest.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -316,6 +394,10 @@ def _load_bundle_artifacts(manifest: Path) -> tuple[BundleArtifact, ...]:
     if not isinstance(files, list):
         raise ValueError(f"Bundle manifest {manifest} is invalid: expected a files list.")
 
+    stale_entries = _load_explicit_stale_entries(payload, manifest=manifest)
+    stale_entry_keys = frozenset(
+        (entry.canonical_id, entry.output_path) for entry in stale_entries
+    )
     artifacts: list[BundleArtifact] = []
     manifest_ids: set[str] = set()
     manifest_output_paths: set[str] = set()
@@ -333,6 +415,7 @@ def _load_bundle_artifacts(manifest: Path) -> tuple[BundleArtifact, ...]:
         path = _optional_manifest_string(entry, "path", manifest=manifest)
         ref = _optional_manifest_string(entry, "ref", manifest=manifest)
         content_hash = _optional_manifest_string(entry, "content_hash", manifest=manifest)
+        entry_stale = _optional_manifest_bool(entry, "stale", manifest=manifest)
         if not isinstance(canonical_id, str) or not isinstance(source_url, str):
             raise ValueError(
                 f"Bundle manifest {manifest} is invalid: files entries must include "
@@ -358,6 +441,10 @@ def _load_bundle_artifacts(manifest: Path) -> tuple[BundleArtifact, ...]:
 
         manifest_ids.add(canonical_id)
         manifest_output_paths.add(output_path)
+        is_stale = (
+            entry_stale is True
+            or (canonical_id, output_path) in stale_entry_keys
+        )
         artifacts.append(
             BundleArtifact(
                 canonical_id=canonical_id,
@@ -369,10 +456,47 @@ def _load_bundle_artifacts(manifest: Path) -> tuple[BundleArtifact, ...]:
                 ref=ref,
                 content_hash=content_hash,
                 artifact_path=(manifest.parent / output_path).resolve(),
+                is_stale=is_stale,
             )
         )
 
-    return tuple(artifacts)
+    for stale_entry in stale_entries:
+        canonical_id = stale_entry.canonical_id
+        output_path = stale_entry.output_path
+        if canonical_id in manifest_ids or output_path in manifest_output_paths:
+            continue
+
+        if stale_entry.source_url is None:
+            continue
+
+        manifest_ids.add(canonical_id)
+        manifest_output_paths.add(output_path)
+        artifacts.append(
+            BundleArtifact(
+                canonical_id=canonical_id,
+                source_url=stale_entry.source_url,
+                title=stale_entry.title,
+                output_path=output_path,
+                fetched_at=stale_entry.fetched_at,
+                path=stale_entry.path,
+                ref=stale_entry.ref,
+                content_hash=stale_entry.content_hash,
+                artifact_path=(manifest.parent / output_path).resolve(),
+                is_stale=True,
+            )
+        )
+
+    per_entry_stale_count = sum(
+        1
+        for artifact in artifacts
+        if artifact.is_stale
+        and (artifact.canonical_id, artifact.output_path) not in stale_entry_keys
+    )
+    return _LoadedBundleManifest(
+        artifacts=tuple(artifacts),
+        stale_metadata_available=bool(stale_entries) or per_entry_stale_count > 0,
+        stale_artifact_count=len(stale_entry_keys) + per_entry_stale_count,
+    )
 
 
 def _load_baseline_manifest_entries(manifest: Path) -> dict[str, _BaselineManifestEntry]:
@@ -472,12 +596,15 @@ def _render_bundle_header_lines(
     artifact: BundleArtifact,
     *,
     header_mode: HeaderMode,
+    flag_stale: bool,
 ) -> tuple[str, ...]:
     title = artifact.title or artifact.canonical_id
     lines = [
         f"## {title}",
         f"source_url: {artifact.source_url}",
     ]
+    if flag_stale and artifact.is_stale:
+        lines.append("stale: true")
     if header_mode == "minimal":
         return tuple(lines)
     if header_mode == "full":
@@ -502,10 +629,15 @@ def _render_bundle_section_markdown(
     *,
     content: str,
     header_mode: HeaderMode,
+    flag_stale: bool,
 ) -> str:
     return "\n".join(
         (
-            *_render_bundle_header_lines(artifact, header_mode=header_mode),
+            *_render_bundle_header_lines(
+                artifact,
+                header_mode=header_mode,
+                flag_stale=flag_stale,
+            ),
             "",
             content.rstrip("\n"),
         )
@@ -624,6 +756,26 @@ def _filter_bundle_artifacts(
     return tuple(selected_artifacts), filtered_out_count
 
 
+def _handle_stale_bundle_artifacts(
+    artifacts: Sequence[BundleArtifact],
+    *,
+    stale_metadata_available: bool,
+    stale_mode: StaleMode,
+) -> tuple[tuple[BundleArtifact, ...], int]:
+    if not stale_metadata_available or stale_mode != "exclude":
+        return tuple(artifacts), 0
+
+    selected_artifacts: list[BundleArtifact] = []
+    excluded_count = 0
+    for artifact in artifacts:
+        if artifact.is_stale:
+            excluded_count += 1
+            continue
+        selected_artifacts.append(artifact)
+
+    return tuple(selected_artifacts), excluded_count
+
+
 def _artifact_matches_patterns(
     artifact: BundleArtifact,
     patterns: Sequence[str],
@@ -639,6 +791,71 @@ def _artifact_matches_patterns(
         for pattern in patterns
         for value in artifact_values
     )
+
+
+def _load_explicit_stale_entries(
+    payload: object,
+    *,
+    manifest: Path,
+) -> tuple[_ExplicitStaleEntry, ...]:
+    if not isinstance(payload, dict) or "stale_artifacts" not in payload:
+        return ()
+
+    stale_artifacts = payload.get("stale_artifacts")
+    if not isinstance(stale_artifacts, list):
+        raise ValueError(
+            f"Bundle manifest {manifest} is invalid: stale_artifacts must be a list."
+        )
+
+    entries: list[_ExplicitStaleEntry] = []
+    seen_keys: set[tuple[str, str]] = set()
+    for entry in stale_artifacts:
+        if not isinstance(entry, dict):
+            raise ValueError(
+                f"Bundle manifest {manifest} is invalid: stale_artifacts entries "
+                "must be objects."
+            )
+        canonical_id = entry.get("canonical_id")
+        output_path = entry.get("output_path")
+        if not isinstance(canonical_id, str) or not isinstance(output_path, str):
+            raise ValueError(
+                f"Bundle manifest {manifest} is invalid: stale_artifacts entries must "
+                "include string canonical_id and output_path values."
+            )
+        key = (canonical_id, output_path)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        entries.append(
+            _ExplicitStaleEntry(
+                canonical_id=canonical_id,
+                output_path=output_path,
+                source_url=_optional_manifest_string(entry, "source_url", manifest=manifest),
+                title=_optional_manifest_string(entry, "title", manifest=manifest),
+                fetched_at=_optional_manifest_string(entry, "fetched_at", manifest=manifest),
+                path=_optional_manifest_string(entry, "path", manifest=manifest),
+                ref=_optional_manifest_string(entry, "ref", manifest=manifest),
+                content_hash=_optional_manifest_string(entry, "content_hash", manifest=manifest),
+            )
+        )
+
+    return tuple(entries)
+
+
+def _optional_manifest_bool(
+    entry: dict[str, object],
+    field_name: str,
+    *,
+    manifest: Path,
+) -> bool | None:
+    value = entry.get(field_name)
+    if value is None:
+        return None
+    if not isinstance(value, bool):
+        raise ValueError(
+            f"Bundle manifest {manifest} is invalid: {field_name} values must be booleans."
+        )
+    return value
 
 
 def _optional_manifest_string(

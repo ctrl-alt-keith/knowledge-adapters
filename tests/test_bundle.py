@@ -4,12 +4,16 @@ import json
 from pathlib import Path
 
 import pytest
+from pytest import CaptureFixture
 
 from knowledge_adapters.bundle import (
     DEFAULT_BUNDLE_ORDER,
     DEFAULT_HEADER_MODE,
+    DEFAULT_STALE_MODE,
     ORDERING_RULE,
+    StaleMode,
     describe_bundle_order,
+    describe_stale_mode,
     load_bundle_plan,
     plan_split_bundle,
     render_bundle_markdown,
@@ -17,6 +21,7 @@ from knowledge_adapters.bundle import (
     write_bundle,
     write_split_bundle,
 )
+from knowledge_adapters.cli import main
 
 
 def _write_output_dir(
@@ -24,6 +29,7 @@ def _write_output_dir(
     *,
     files: list[dict[str, object]],
     artifact_contents: dict[str, str],
+    stale_artifacts: list[dict[str, object]] | None = None,
 ) -> Path:
     (output_dir / "pages").mkdir(parents=True, exist_ok=True)
     for relative_path, content in artifact_contents.items():
@@ -32,17 +38,13 @@ def _write_output_dir(
         artifact_path.write_text(content, encoding="utf-8")
 
     manifest = output_dir / "manifest.json"
-    manifest.write_text(
-        json.dumps(
-            {
-                "generated_at": "2026-04-24T00:00:00Z",
-                "files": files,
-            },
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
+    payload: dict[str, object] = {
+        "generated_at": "2026-04-24T00:00:00Z",
+        "files": files,
+    }
+    if stale_artifacts is not None:
+        payload["stale_artifacts"] = stale_artifacts
+    manifest.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     return manifest
 
 
@@ -351,6 +353,193 @@ def test_load_bundle_plan_changed_only_treats_missing_baseline_file_as_changed(
 
     assert [artifact.canonical_id for artifact in plan.artifacts] == ["alpha"]
     assert plan.unchanged_count == 0
+
+
+def test_bundle_stale_mode_is_ignored_without_explicit_stale_metadata(tmp_path: Path) -> None:
+    output_dir = tmp_path / "artifacts"
+    _write_output_dir(
+        output_dir,
+        files=[
+            {
+                "canonical_id": "alpha",
+                "source_url": "https://example.com/alpha",
+                "output_path": "pages/alpha.md",
+                "title": "Alpha",
+            }
+        ],
+        artifact_contents={
+            "pages/alpha.md": "# Alpha\n\nAlpha content.\n",
+        },
+    )
+
+    default_plan = load_bundle_plan((output_dir,))
+    flagged_plan = load_bundle_plan((output_dir,), stale_mode="flag")
+
+    assert DEFAULT_STALE_MODE == "include"
+    assert default_plan.stale_metadata_available is False
+    assert flagged_plan.stale_metadata_available is False
+    assert default_plan.stale_artifact_count == 0
+    assert [artifact.canonical_id for artifact in flagged_plan.artifacts] == ["alpha"]
+    assert render_bundle_markdown(flagged_plan.artifacts, stale_mode="flag") == (
+        render_bundle_markdown(default_plan.artifacts)
+    )
+
+
+@pytest.mark.parametrize(
+    ("stale_mode", "expected_ids", "expected_excluded", "expected_flagged"),
+    [
+        ("include", ["alpha", "legacy"], 0, 0),
+        ("exclude", ["alpha"], 1, 0),
+        ("flag", ["alpha", "legacy"], 0, 1),
+    ],
+)
+def test_load_bundle_plan_handles_explicit_stale_metadata_by_mode(
+    tmp_path: Path,
+    stale_mode: StaleMode,
+    expected_ids: list[str],
+    expected_excluded: int,
+    expected_flagged: int,
+) -> None:
+    output_dir = tmp_path / "artifacts"
+    _write_output_dir(
+        output_dir,
+        files=[
+            {
+                "canonical_id": "alpha",
+                "source_url": "https://example.com/alpha",
+                "output_path": "pages/alpha.md",
+                "title": "Alpha",
+            }
+        ],
+        stale_artifacts=[
+            {
+                "canonical_id": "legacy",
+                "source_url": "https://example.com/legacy",
+                "output_path": "pages/legacy.md",
+                "title": "Legacy",
+            }
+        ],
+        artifact_contents={
+            "pages/alpha.md": "# Alpha\n\nAlpha content.\n",
+            "pages/legacy.md": "# Legacy\n\nLegacy content.\n",
+        },
+    )
+
+    first_plan = load_bundle_plan((output_dir,), stale_mode=stale_mode)
+    second_plan = load_bundle_plan((output_dir,), stale_mode=stale_mode)
+
+    assert first_plan.stale_metadata_available is True
+    assert first_plan.stale_artifact_count == 1
+    assert first_plan.stale_artifacts_excluded_count == expected_excluded
+    assert first_plan.stale_artifacts_flagged_count == expected_flagged
+    assert [artifact.canonical_id for artifact in first_plan.artifacts] == expected_ids
+    assert [artifact.canonical_id for artifact in second_plan.artifacts] == expected_ids
+    assert render_bundle_markdown(
+        first_plan.artifacts,
+        stale_mode=stale_mode,
+    ) == render_bundle_markdown(
+        second_plan.artifacts,
+        stale_mode=stale_mode,
+    )
+
+
+def test_render_bundle_markdown_flags_stale_artifacts_when_requested(tmp_path: Path) -> None:
+    output_dir = tmp_path / "artifacts"
+    _write_output_dir(
+        output_dir,
+        files=[
+            {
+                "canonical_id": "alpha",
+                "source_url": "https://example.com/alpha",
+                "output_path": "pages/alpha.md",
+                "title": "Alpha",
+            },
+            {
+                "canonical_id": "legacy",
+                "source_url": "https://example.com/legacy",
+                "output_path": "pages/legacy.md",
+                "title": "Legacy",
+                "stale": True,
+            },
+        ],
+        artifact_contents={
+            "pages/alpha.md": "# Alpha\n\nAlpha content.\n",
+            "pages/legacy.md": "# Legacy\n\nLegacy content.\n",
+        },
+    )
+
+    plan = load_bundle_plan((output_dir,), stale_mode="flag")
+
+    assert render_bundle_markdown(plan.artifacts, stale_mode="flag") == (
+        """## Alpha
+source_url: https://example.com/alpha
+canonical_id: alpha
+
+# Alpha
+
+Alpha content.
+
+---
+
+## Legacy
+source_url: https://example.com/legacy
+stale: true
+canonical_id: legacy
+
+# Legacy
+
+Legacy content.
+"""
+    )
+
+
+def test_bundle_cli_reports_stale_handling_when_metadata_is_available(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    output_dir = tmp_path / "artifacts"
+    bundle_path = tmp_path / "bundle.md"
+    _write_output_dir(
+        output_dir,
+        files=[
+            {
+                "canonical_id": "alpha",
+                "source_url": "https://example.com/alpha",
+                "output_path": "pages/alpha.md",
+                "title": "Alpha",
+            },
+            {
+                "canonical_id": "legacy",
+                "source_url": "https://example.com/legacy",
+                "output_path": "pages/legacy.md",
+                "title": "Legacy",
+                "stale": True,
+            },
+        ],
+        artifact_contents={
+            "pages/alpha.md": "# Alpha\n",
+            "pages/legacy.md": "# Legacy\n",
+        },
+    )
+
+    exit_code = main(
+        [
+            "bundle",
+            str(output_dir),
+            "--output",
+            str(bundle_path),
+            "--stale-mode",
+            "exclude",
+        ]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert describe_stale_mode("exclude") in captured.out
+    assert "stale_artifacts: 1" in captured.out
+    assert "stale_artifacts_excluded: 1" in captured.out
+    assert "Summary: bundled 1, skipped 0 duplicates" in captured.out
+    assert "Legacy" not in bundle_path.read_text(encoding="utf-8")
 
 
 def test_load_bundle_plan_changed_only_requires_baseline_manifest(tmp_path: Path) -> None:

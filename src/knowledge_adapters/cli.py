@@ -17,9 +17,13 @@ from knowledge_adapters.bundle import (
     BUNDLE_ORDER_CHOICES,
     DEFAULT_BUNDLE_ORDER,
     DEFAULT_HEADER_MODE,
+    DEFAULT_STALE_MODE,
     HEADER_MODE_CHOICES,
+    STALE_MODE_CHOICES,
+    StaleMode,
     describe_bundle_order,
     describe_header_mode,
+    describe_stale_mode,
 )
 from knowledge_adapters.confluence.auth import SUPPORTED_AUTH_METHODS, resolve_tls_inputs
 
@@ -142,11 +146,15 @@ BUNDLE_HELP_EXAMPLES = """Examples:
   knowledge-adapters bundle ./artifacts --header-mode minimal --output ./bundle.md
   knowledge-adapters bundle ./artifacts --include "team-*" --exclude "*draft*" --output ./bundle.md
   knowledge-adapters bundle ./artifacts --max-bytes 250000 --output ./bundle.md
+  knowledge-adapters bundle ./artifacts --stale-mode flag --output ./bundle.md
   knowledge-adapters bundle ./artifacts --changed-only \\
     --baseline-manifest ./prior/manifest.json --output ./bundle.md
 """
 
 _WRITE_SUMMARY_RE = re.compile(r"Summary: wrote (?P<wrote>\d+), skipped (?P<skipped>\d+)")
+_BUNDLE_SUMMARY_RE = re.compile(
+    r"Summary: bundled (?P<bundled>\d+)(?:, .*?skipped (?P<skipped>\d+) duplicates)?"
+)
 _DRY_RUN_SUMMARY_RE = re.compile(
     r"Summary: would write (?P<wrote>\d+), would skip (?P<skipped>\d+)"
 )
@@ -684,6 +692,8 @@ def build_parser() -> argparse.ArgumentParser:
             "artifacts start included. Exclude filters apply after include matching and "
             "win on conflicts. With --changed-only, a baseline manifest is used to keep "
             "only artifacts with new canonical_id values or changed content_hash values. "
+            "With --stale-mode, explicit stale metadata in bundle manifests can include, "
+            "exclude, or flag stale artifacts without inferring stale state from disk. "
             "With --max-bytes, bundle output is split into deterministic numbered "
             "markdown files and sections are kept intact when possible."
         ),
@@ -766,6 +776,17 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Prior manifest.json to compare by canonical_id and content_hash when "
             "--changed-only is set."
+        ),
+    )
+    bundle_parser.add_argument(
+        "--stale-mode",
+        choices=STALE_MODE_CHOICES,
+        default=DEFAULT_STALE_MODE,
+        help=(
+            "How to handle artifacts marked by explicit stale metadata: include keeps "
+            "the default bundle behavior; exclude skips stale artifacts; flag includes "
+            "stale artifacts with a visible stale marker. Ignored when no stale "
+            "metadata is available."
         ),
     )
 
@@ -899,6 +920,14 @@ def _parse_multi_run_summary(output: str) -> MultiRunSummary:
             dry_run=True,
             wrote=int(match.group("wrote")),
             skipped=int(match.group("skipped")),
+        )
+
+    if match := _BUNDLE_SUMMARY_RE.search(output):
+        skipped = match.group("skipped")
+        return MultiRunSummary(
+            dry_run=False,
+            wrote=int(match.group("bundled")),
+            skipped=int(skipped) if skipped is not None else 0,
         )
 
     dry_run_write_match = _DRY_RUN_BLOCK_WRITE_RE.search(output)
@@ -2194,18 +2223,24 @@ def main(argv: Sequence[str] | None = None) -> int:
                 exclude_patterns=args.exclude,
                 changed_only=args.changed_only,
                 baseline_manifest=args.baseline_manifest,
+                stale_mode=args.stale_mode,
             )
             split_bundle_plan: SplitBundlePlan | None = None
             bundle_markdown: str | None = None
+            effective_stale_mode: StaleMode = (
+                args.stale_mode if bundle_plan.stale_metadata_available else "include"
+            )
             if args.max_bytes is None:
                 bundle_markdown = render_bundle_markdown(
                     bundle_plan.artifacts,
                     header_mode=args.header_mode,
+                    stale_mode=effective_stale_mode,
                 )
             else:
                 sections = render_bundle_sections(
                     bundle_plan.artifacts,
                     header_mode=args.header_mode,
+                    stale_mode=effective_stale_mode,
                 )
                 split_bundle_plan = plan_split_bundle(
                     args.output,
@@ -2230,6 +2265,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("  changed_only: true")
             if bundle_plan.baseline_manifest is not None:
                 print(f"  baseline_manifest: {render_user_path(bundle_plan.baseline_manifest)}")
+        if bundle_plan.stale_metadata_available:
+            print(f"  stale_mode: {describe_stale_mode(args.stale_mode)}")
 
         print("\nPlan: Bundle run")
         for manifest in bundle_plan.manifests:
@@ -2246,6 +2283,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(f"  exclude: {pattern}")
         if args.include or args.exclude:
             print(f"  artifacts_filtered_out: {bundle_plan.filtered_out_count}")
+        if bundle_plan.stale_metadata_available:
+            print(f"  stale_artifacts: {bundle_plan.stale_artifact_count}")
+            if args.stale_mode == "exclude":
+                print(f"  stale_artifacts_excluded: {bundle_plan.stale_artifacts_excluded_count}")
+            elif args.stale_mode == "flag":
+                print(f"  stale_artifacts_flagged: {bundle_plan.stale_artifacts_flagged_count}")
+            else:
+                stale_included_count = sum(
+                    1 for artifact in bundle_plan.artifacts if artifact.is_stale
+                )
+                print(f"  stale_artifacts_included: {stale_included_count}")
         if split_bundle_plan is not None:
             print(f"  output_files: {len(split_bundle_plan.output_files)}")
             if split_bundle_plan.oversized_sections:
