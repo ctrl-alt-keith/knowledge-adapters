@@ -1274,8 +1274,8 @@ def test_confluence_help_lists_supported_auth_methods_and_examples(
     assert_contains_normalized(stdout, "In tree mode, dry-run previews the root page and")
     assert "artifact paths used in write mode" in stdout
     assert "same resolve, plan, and write flow" in stdout
-    assert "'real' fetches from" in stdout
-    assert "using --auth-method" in stdout
+    assert "'real' fetches from Confluence" in stdout
+    assert "--auth-method AUTH_METHOD" in stdout
     assert "contract-tested live fetches" in stdout
     assert "The CLI resolves either input into one canonical page" in stdout
     assert "source URL for artifact and manifest reporting" in stdout
