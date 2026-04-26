@@ -28,7 +28,8 @@ Use extra care before asking Codex to drive:
 ## Repo-Specific Working Agreement
 
 `AGENTS.md` is the canonical source for task completion requirements in this
-repo. In practice, that means:
+repo. If there is any overlap or inconsistency, `AGENTS.md` takes precedence.
+In practice, that means:
 
 1. start from `main` and work on a new branch
 2. keep the branch scoped to one PR-sized change
