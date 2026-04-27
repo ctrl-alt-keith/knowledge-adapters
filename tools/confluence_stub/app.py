@@ -16,6 +16,7 @@ class Page:
     version: int
     last_modified: str
     content: str
+    child_page_ids: tuple[str, ...]
 
 
 app = FastAPI(title="Confluence Stub")
@@ -36,6 +37,7 @@ def _load_pages() -> list[Page]:
         version = raw_page.get("version")
         last_modified = raw_page.get("last_modified")
         content = raw_page.get("content")
+        child_page_ids = raw_page.get("child_page_ids", [])
         if not isinstance(page_id, str) or not page_id:
             raise ValueError("Each stub page must include a non-empty string id.")
         if not isinstance(title, str) or not title:
@@ -46,6 +48,13 @@ def _load_pages() -> list[Page]:
             raise ValueError(f"Stub page {page_id} must include a non-empty last_modified.")
         if not isinstance(content, str):
             raise ValueError(f"Stub page {page_id} must include string content.")
+        if not isinstance(child_page_ids, list) or any(
+            not isinstance(child_page_id, str) or not child_page_id
+            for child_page_id in child_page_ids
+        ):
+            raise ValueError(
+                f"Stub page {page_id} must include child_page_ids as a list of strings."
+            )
 
         pages.append(
             Page(
@@ -54,6 +63,7 @@ def _load_pages() -> list[Page]:
                 version=version,
                 last_modified=last_modified,
                 content=content,
+                child_page_ids=tuple(child_page_ids),
             )
         )
 
@@ -151,3 +161,16 @@ def get_page(
         version=version,
         last_modified=last_modified,
     )
+
+
+@app.get("/rest/api/content/{page_id}/child/page")
+def list_child_pages(
+    page_id: str,
+    request: Request,
+) -> dict[str, object]:
+    page = _find_page(page_id)
+    child_pages = [_find_page(child_page_id) for child_page_id in page.child_page_ids]
+    return {
+        "results": [_summary_payload(request, child_page) for child_page in child_pages],
+        "size": len(child_pages),
+    }
