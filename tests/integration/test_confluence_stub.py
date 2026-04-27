@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -12,6 +15,7 @@ from tests.artifact_assertions import (
     assert_markdown_document,
     manifest_file,
 )
+from tests.cli_output_assertions import assert_contains_normalized, assert_write_summary
 from tests.integration.helpers import ConfluenceStubServer
 
 
@@ -248,5 +252,89 @@ def test_confluence_cli_traverses_tree_through_real_client_path(
                 page_version=2,
                 last_modified="2026-04-20T12:45:00Z",
             ),
+        ],
+    )
+
+
+@pytest.mark.integration
+def test_run_cli_executes_configured_confluence_run_against_stub(
+    tmp_path: Path,
+    confluence_stub_server: ConfluenceStubServer,
+) -> None:
+    output_dir = tmp_path / "artifacts"
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        f"""
+runs:
+  - name: docs-home
+    type: confluence
+    client_mode: real
+    base_url: "{confluence_stub_server.base_url}"
+    target: "12345"
+    output_dir: "{output_dir}"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    repo_root = Path(__file__).resolve().parents[2]
+    repo_local_cli = repo_root / ".venv" / "bin" / "knowledge-adapters"
+    cli_command = (
+        [str(repo_local_cli)]
+        if repo_local_cli.exists()
+        else [sys.executable, "-m", "knowledge_adapters.cli"]
+    )
+    env = os.environ.copy()
+    env["CONFLUENCE_BEARER_TOKEN"] = "stub-token"
+
+    result = subprocess.run(
+        [*cli_command, "run", str(config_path)],
+        cwd=tmp_path,
+        capture_output=True,
+        check=False,
+        env=env,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Config-driven run invoked" in result.stdout
+    assert "Run 1/1 started: docs-home (confluence)" in result.stdout
+    assert "Run 1/1 completed: docs-home (confluence)" in result.stdout
+    assert "Aggregate summary:" in result.stdout
+    assert "runs_completed: 1" in result.stdout
+    assert "write_runs: 1" in result.stdout
+    assert "dry_run_runs: 0" in result.stdout
+    assert "wrote: 1" in result.stdout
+    assert "skipped: 0" in result.stdout
+    assert_contains_normalized(result.stdout, f"config_path: {config_path.resolve()}")
+    assert_write_summary(result.stdout, wrote=1, skipped=0)
+
+    page_path = output_dir / "pages" / "12345.md"
+    assert page_path.exists()
+    assert_markdown_document(
+        page_path.read_text(encoding="utf-8"),
+        title="Test Page",
+        metadata={
+            "source": "confluence",
+            "canonical_id": "12345",
+            "parent_id": "",
+            "source_url": f"{confluence_stub_server.base_url}/pages/viewpage.action?pageId=12345",
+            "fetched_at": "",
+            "updated_at": "",
+            "adapter": "confluence",
+        },
+        content="Hello world",
+    )
+    assert_manifest_entries(
+        output_dir / "manifest.json",
+        files=[
+            manifest_file(
+                canonical_id="12345",
+                source_url=f"{confluence_stub_server.base_url}/pages/viewpage.action?pageId=12345",
+                output_path="pages/12345.md",
+                title="Test Page",
+                page_version=1,
+                last_modified="2026-04-20T12:34:56Z",
+            )
         ],
     )
