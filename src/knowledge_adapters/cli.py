@@ -213,12 +213,16 @@ class _ProgressLineRenderer:
     def __init__(self, stream: TextIO) -> None:
         self._stream = stream
         self._has_pending_tty_line = False
+        self._tty_line_width = 0
 
     def render(self, text: str) -> None:
         if self._is_tty():
-            self._stream.write(f"\r{text}")
+            rendered_width = max(self._tty_line_width, len(text))
+            padding = " " * (rendered_width - len(text))
+            self._stream.write(f"\r{text}{padding}")
             self._stream.flush()
             self._has_pending_tty_line = True
+            self._tty_line_width = rendered_width
             return
 
         print(text, file=self._stream)
@@ -230,12 +234,38 @@ class _ProgressLineRenderer:
         self._stream.write("\n")
         self._stream.flush()
         self._has_pending_tty_line = False
+        self._tty_line_width = 0
 
     def _is_tty(self) -> bool:
         isatty = getattr(self._stream, "isatty", None)
         if not callable(isatty):
             return False
         return bool(isatty())
+
+
+class _ProgressAwareStream:
+    """Finish an active TTY progress line before normal stream output."""
+
+    def __init__(self, stream: TextIO, progress_renderer: _ProgressLineRenderer) -> None:
+        self._stream = stream
+        self._progress_renderer = progress_renderer
+
+    def write(self, text: str) -> int:
+        if text:
+            self._progress_renderer.finish()
+        return self._stream.write(text)
+
+    def flush(self) -> None:
+        self._stream.flush()
+
+    def isatty(self) -> bool:
+        isatty = getattr(self._stream, "isatty", None)
+        if not callable(isatty):
+            return False
+        return bool(isatty())
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._stream, name)
 
 
 def _parse_confluence_auth_method(value: str) -> str:
@@ -1526,6 +1556,28 @@ def main(argv: Sequence[str] | None = None) -> int:
             selected_fetch_page = fetch_page
             selected_fetch_page_summary = fetch_page
 
+        progress_renderer = _ProgressLineRenderer(sys.stdout)
+        progress_stdout = _ProgressAwareStream(sys.stdout, progress_renderer)
+        progress_stderr = _ProgressAwareStream(sys.stderr, progress_renderer)
+
+        def _finish_progress_line() -> None:
+            progress_renderer.finish()
+
+        def _print(
+            *args: object,
+            file: TextIO | None = None,
+            sep: str | None = " ",
+            end: str | None = "\n",
+            flush: bool = False,
+        ) -> None:
+            if file is None or file is sys.stdout:
+                print(*args, file=progress_stdout, sep=sep, end=end, flush=flush)
+                return
+            if file is sys.stderr:
+                print(*args, file=progress_stderr, sep=sep, end=end, flush=flush)
+                return
+            print(*args, file=file, sep=sep, end=end, flush=flush)
+
         def _describe_tree_depth(max_depth: int) -> str:
             if max_depth == 0:
                 return "root only"
@@ -1545,33 +1597,33 @@ def main(argv: Sequence[str] | None = None) -> int:
                 else "live Confluence content"
             )
             run_mode = "dry-run" if confluence_config.dry_run else "write"
-            print("Confluence adapter invoked")
-            print(f"  base_url: {confluence_config.base_url}")
+            _print("Confluence adapter invoked")
+            _print(f"  base_url: {confluence_config.base_url}")
             if space_mode:
-                print(f"  space_key: {resolved_space_key}")
+                _print(f"  space_key: {resolved_space_key}")
                 if confluence_config.space_url is not None:
-                    print(f"  space_url: {confluence_config.space_url}")
+                    _print(f"  space_url: {confluence_config.space_url}")
             elif target is not None:
-                print(f"  target: {target.raw_value}")
-            print(f"  output_dir: {render_user_path(confluence_config.output_dir)}")
-            print(f"  client_mode: {confluence_config.client_mode}")
-            print(f"  content_source: {content_source}")
+                _print(f"  target: {target.raw_value}")
+            _print(f"  output_dir: {render_user_path(confluence_config.output_dir)}")
+            _print(f"  client_mode: {confluence_config.client_mode}")
+            _print(f"  content_source: {content_source}")
             if confluence_config.dry_run:
                 mode = "space" if space_mode else "tree" if confluence_config.tree else "single"
-                print(f"  mode: {mode}")
+                _print(f"  mode: {mode}")
             else:
                 fetch_scope = (
                     "space" if space_mode else "tree" if confluence_config.tree else "page"
                 )
-                print(f"  fetch_scope: {fetch_scope}")
-            print(f"  run_mode: {run_mode}")
+                _print(f"  fetch_scope: {fetch_scope}")
+            _print(f"  run_mode: {run_mode}")
             if confluence_config.tree:
                 max_depth = str(confluence_config.max_depth)
                 if confluence_config.dry_run:
                     max_depth = f"{max_depth} ({_describe_tree_depth(confluence_config.max_depth)})"
-                print(f"  max_depth: {max_depth}")
+                _print(f"  max_depth: {max_depth}")
             if confluence_config.client_mode == "stub" and ignored_inputs:
-                print(
+                _print(
                     "  warning: stub mode ignores real-mode Confluence inputs: "
                     f"{', '.join(ignored_inputs)}. Use --client-mode real to apply them."
                 )
@@ -1597,8 +1649,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     tls_inputs.append(
                         f"client_key_file={render_user_path(resolved_tls_inputs.client_key_file)}"
                     )
-                print(f"  auth_method: {confluence_config.auth_method}")
-                print(
+                _print(f"  auth_method: {confluence_config.auth_method}")
+                _print(
                     "  tls_inputs: "
                     f"{', '.join(tls_inputs) if tls_inputs else 'defaults/environment'}"
                 )
@@ -1656,15 +1708,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             stale_count: int | None = None,
             markdown: str | None = None,
         ) -> None:
-            print("\nPlan: Confluence run")
-            print(f"  resolved_page_id: {page_id}")
-            print(f"  source_url: {source_url}")
-            print(f"  Artifact: {_display_output_path(output_path)}")
-            print(f"  Manifest: {_display_output_path(manifest_output_path)}")
-            print(f"  page_status: {page_decision.status}")
+            _print("\nPlan: Confluence run")
+            _print(f"  resolved_page_id: {page_id}")
+            _print(f"  source_url: {source_url}")
+            _print(f"  Artifact: {_display_output_path(output_path)}")
+            _print(f"  Manifest: {_display_output_path(manifest_output_path)}")
+            _print(f"  page_status: {page_decision.status}")
             if page_decision.rewrite_reason is not None:
-                print(f"  rewrite_reason: {page_decision.rewrite_reason}")
-            print(f"  planned_action: {'would ' if dry_run else ''}{action}")
+                _print(f"  rewrite_reason: {page_decision.rewrite_reason}")
+            _print(f"  planned_action: {'would ' if dry_run else ''}{action}")
             if dry_run:
                 write_count = 1 if action == "write" else 0
                 skip_count = 1 if action == "skip" else 0
@@ -1679,8 +1731,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     stale_count=stale_count,
                 )
             if markdown is not None:
-                print()
-                print(markdown)
+                _print()
+                _print(markdown)
 
         def _print_confluence_dry_run_summary(
             *,
@@ -1724,9 +1776,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             if tree_cache is not None:
                 summary_lines.append(f"    tree_cache_hits: {tree_cache.stats.hits}")
                 summary_lines.append(f"    tree_cache_misses: {tree_cache.stats.misses}")
-            print("  Summary:")
+            _print("  Summary:")
             for line in summary_lines:
-                print(line)
+                _print(line)
 
         def _print_confluence_write_summary(
             *,
@@ -1737,34 +1789,29 @@ def main(argv: Sequence[str] | None = None) -> int:
             skip_count: int,
             stale_count: int | None = None,
         ) -> None:
-            print(f"\nSummary: wrote {write_count}, skipped {skip_count}")
-            print(f"  new_pages: {new_count}")
-            print(f"  changed_pages: {changed_count}")
-            print(f"  unchanged_pages: {unchanged_count}")
+            _print(f"\nSummary: wrote {write_count}, skipped {skip_count}")
+            _print(f"  new_pages: {new_count}")
+            _print(f"  changed_pages: {changed_count}")
+            _print(f"  unchanged_pages: {unchanged_count}")
             if stale_count is not None:
-                print(f"  stale_artifacts: {stale_count}")
+                _print(f"  stale_artifacts: {stale_count}")
             if fetch_cache is not None:
-                print(f"  cache_hits: {fetch_cache.stats.hits}")
-                print(f"  cache_misses: {fetch_cache.stats.misses}")
+                _print(f"  cache_hits: {fetch_cache.stats.hits}")
+                _print(f"  cache_misses: {fetch_cache.stats.misses}")
             if tree_cache is not None:
-                print(f"  tree_cache_hits: {tree_cache.stats.hits}")
-                print(f"  tree_cache_misses: {tree_cache.stats.misses}")
-            print(f"  pages_written: {write_count}")
-            print(f"  pages_skipped: {skip_count}")
+                _print(f"  tree_cache_hits: {tree_cache.stats.hits}")
+                _print(f"  tree_cache_misses: {tree_cache.stats.misses}")
+            _print(f"  pages_written: {write_count}")
+            _print(f"  pages_skipped: {skip_count}")
 
         def _print_stub_tree_mode_note() -> None:
             if not (confluence_config.tree and confluence_config.client_mode == "stub"):
                 return
 
-            print(
+            _print(
                 "  note: stub mode does not support descendant discovery; "
                 "use --client-mode real to discover descendants from Confluence."
             )
-
-        progress_renderer = _ProgressLineRenderer(sys.stdout)
-
-        def _finish_progress_line() -> None:
-            progress_renderer.finish()
 
         def _print_discovered_pages_progress(discovered_pages: int) -> None:
             progress_renderer.render(f"discovered_pages: {discovered_pages}")
@@ -1773,8 +1820,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             if progress.periodic:
                 _print_discovered_pages_progress(progress.discovered_pages)
                 return
-            _finish_progress_line()
-            print(
+            _print(
                 "Tree progress: "
                 f"depth {progress.depth}, "
                 f"discovered {progress.discovered_pages}, "
@@ -1800,11 +1846,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             assert selected_list_space_page_ids is not None
             assert resolved_space_key is not None
 
-            print(f"Space progress: discovery started, space_key {resolved_space_key}")
+            _print(f"Space progress: discovery started, space_key {resolved_space_key}")
             try:
                 discovered_page_ids = sorted(set(selected_list_space_page_ids(resolved_space_key)))
-                _finish_progress_line()
-                print(
+                _print(
                     "Space progress: "
                     f"discovered {len(discovered_page_ids)} pages, "
                     f"planned {len(discovered_page_ids)}"
@@ -1824,7 +1869,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         fetched_count=index,
                         total_count=len(discovered_page_ids),
                     ):
-                        print(
+                        _print(
                             "Space fetch progress: "
                             f"fetched {index}/{len(discovered_page_ids)}, "
                             f"planned {len(discovered_page_ids)}"
@@ -1882,11 +1927,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             unchanged_count = len(space_page_records) - new_count - changed_count
             manifest_output_path = manifest_path(confluence_config.output_dir)
 
-            print("\nPlan: Confluence run")
-            print(f"  space_key: {resolved_space_key}")
-            print(f"  Manifest: {_display_output_path(manifest_output_path)}")
-            print(f"  pages_discovered: {len(discovered_page_ids)}")
-            print(f"  pages_planned: {len(space_page_records)}")
+            _print("\nPlan: Confluence run")
+            _print(f"  space_key: {resolved_space_key}")
+            _print(f"  Manifest: {_display_output_path(manifest_output_path)}")
+            _print(f"  pages_discovered: {len(discovered_page_ids)}")
+            _print(f"  pages_planned: {len(space_page_records)}")
 
             if confluence_config.dry_run:
                 _print_confluence_dry_run_summary(
@@ -1903,7 +1948,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 print_stale_artifacts(confluence_config.output_dir, stale_artifacts)
                 for _page, output_path, page_decision, action in space_page_records:
-                    print(
+                    _print(
                         "  would "
                         f"{action} {_display_output_path(output_path)} "
                         f"({_format_page_sync_decision(page_decision)})"
@@ -1924,7 +1969,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             fetched_write_pages = 0
             if pages_needing_fetch > 0:
-                print(
+                _print(
                     "Space write fetch progress: "
                     f"fetched 0/{pages_needing_fetch}, "
                     f"skipped {skip_count}, "
@@ -1952,7 +1997,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         fetched_count=fetched_write_pages,
                         total_count=pages_needing_fetch,
                     ):
-                        print(
+                        _print(
                             "Space write fetch progress: "
                             f"fetched {fetched_write_pages}/{pages_needing_fetch}, "
                             f"skipped {skip_count}, "
@@ -1968,7 +2013,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             try:
                 for page, output_path, page_decision, action in space_page_records:
                     if action == "skip":
-                        print(
+                        _print(
                             "\nSkipped: "
                             f"{_display_output_path(output_path)} "
                             f"({_format_page_sync_decision(page_decision)})"
@@ -1982,7 +2027,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         str(page_to_write.get("canonical_id") or ""),
                         markdown,
                     )
-                    print(
+                    _print(
                         "\nWrote: "
                         f"{_display_output_path(output_path)} "
                         f"({_format_page_sync_decision(page_decision)})"
@@ -2004,7 +2049,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 stale_count=len(stale_artifacts),
             )
             print_stale_artifacts(confluence_config.output_dir, stale_artifacts)
-            print(f"Manifest: {_display_output_path(manifest)}")
+            _print(f"Manifest: {_display_output_path(manifest)}")
             print_write_complete(output_dir)
             return 0
 
@@ -2021,7 +2066,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if previous_manifest_index is None
                 else selected_fetch_page_summary
             )
-            print(f"Tree progress: traversal started, max_depth {confluence_config.max_depth}")
+            _print(f"Tree progress: traversal started, max_depth {confluence_config.max_depth}")
             if confluence_config.client_mode == "real":
                 try:
                     root_page_id, pages = walk_pages(
@@ -2091,11 +2136,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             unchanged_count = len(page_records) - new_count - changed_count
             manifest_output_path = manifest_path(confluence_config.output_dir)
 
-            print("\nPlan: Confluence run")
-            print(f"  resolved_root_page_id: {root_page_id} (root page)")
-            print(f"  max_depth: {confluence_config.max_depth}")
-            print(f"  Manifest: {_display_output_path(manifest_output_path)}")
-            print(f"  pages_in_tree: {len(page_records)} (root + descendants)")
+            _print("\nPlan: Confluence run")
+            _print(f"  resolved_root_page_id: {root_page_id} (root page)")
+            _print(f"  max_depth: {confluence_config.max_depth}")
+            _print(f"  Manifest: {_display_output_path(manifest_output_path)}")
+            _print(f"  pages_in_tree: {len(page_records)} (root + descendants)")
             _print_stub_tree_mode_note()
 
             if confluence_config.dry_run:
@@ -2111,7 +2156,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 print_stale_artifacts(confluence_config.output_dir, stale_artifacts)
                 for _page, output_path, page_decision, action in page_records:
-                    print(
+                    _print(
                         "  would "
                         f"{action} {_display_output_path(output_path)} "
                         f"({_format_page_sync_decision(page_decision)})"
@@ -2132,7 +2177,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             fetched_write_pages = 0
             if pages_needing_fetch > 0:
-                print(
+                _print(
                     "Tree fetch progress: "
                     f"fetched 0/{pages_needing_fetch}, "
                     f"skipped {skip_count}, "
@@ -2160,7 +2205,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         fetched_count=fetched_write_pages,
                         total_count=pages_needing_fetch,
                     ):
-                        print(
+                        _print(
                             "Tree fetch progress: "
                             f"fetched {fetched_write_pages}/{pages_needing_fetch}, "
                             f"skipped {skip_count}, "
@@ -2176,7 +2221,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             try:
                 for page, output_path, page_decision, action in page_records:
                     if action == "skip":
-                        print(
+                        _print(
                             "\nSkipped: "
                             f"{_display_output_path(output_path)} "
                             f"({_format_page_sync_decision(page_decision)})"
@@ -2190,7 +2235,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         str(page_to_write.get("canonical_id") or ""),
                         markdown,
                     )
-                    print(
+                    _print(
                         "\nWrote: "
                         f"{_display_output_path(output_path)} "
                         f"({_format_page_sync_decision(page_decision)})"
@@ -2217,7 +2262,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 stale_count=len(stale_artifacts),
             )
             print_stale_artifacts(confluence_config.output_dir, stale_artifacts)
-            print(f"Manifest: {_display_output_path(manifest)}")
+            _print(f"Manifest: {_display_output_path(manifest)}")
             print_write_complete(output_dir)
             return 0
 
@@ -2313,13 +2358,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                     page_id,
                     markdown,
                 )
-                print(
+                _print(
                     "\nWrote: "
                     f"{_display_output_path(output_path)} "
                     f"({_format_page_sync_decision(page_decision)})"
                 )
             else:
-                print(
+                _print(
                     "\nSkipped: "
                     f"{_display_output_path(output_path)} "
                     f"({_format_page_sync_decision(page_decision)})"

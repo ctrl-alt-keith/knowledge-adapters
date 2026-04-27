@@ -1,15 +1,61 @@
+import io
 from pathlib import Path
 
 import pytest
 from pytest import CaptureFixture
 
-from knowledge_adapters.cli import main
+from knowledge_adapters.cli import _ProgressAwareStream, _ProgressLineRenderer, main
 from tests.artifact_assertions import assert_manifest_entries, manifest_file
 from tests.cli_output_assertions import (
     assert_dry_run_summary,
     assert_tree_plan_page_count,
     assert_write_summary,
 )
+
+
+class _TTYStringIO(io.StringIO):
+    def isatty(self) -> bool:
+        return True
+
+
+def test_progress_line_renderer_reuses_one_tty_line_until_finished() -> None:
+    stream = _TTYStringIO()
+    renderer = _ProgressLineRenderer(stream)
+
+    renderer.render("discovered_pages: 500")
+    renderer.render("discovered_pages: 1000")
+    renderer.finish()
+
+    assert stream.getvalue() == "\rdiscovered_pages: 500\rdiscovered_pages: 1000\n"
+
+
+def test_progress_aware_stream_finishes_active_tty_progress_once_before_output() -> None:
+    stream = _TTYStringIO()
+    renderer = _ProgressLineRenderer(stream)
+    progress_stream = _ProgressAwareStream(stream, renderer)
+
+    renderer.render("discovered_pages: 1000")
+    print(
+        "Tree progress: depth 1, discovered 1001, fetched 1001, planned 1001",
+        file=progress_stream,
+    )
+
+    assert (
+        stream.getvalue()
+        == "\rdiscovered_pages: 1000\n"
+        "Tree progress: depth 1, discovered 1001, fetched 1001, planned 1001\n"
+    )
+
+
+def test_progress_line_renderer_clears_shorter_tty_updates() -> None:
+    stream = _TTYStringIO()
+    renderer = _ProgressLineRenderer(stream)
+
+    renderer.render("discovered_pages: 1000")
+    renderer.render("done")
+    renderer.finish()
+
+    assert stream.getvalue() == "\rdiscovered_pages: 1000\rdone                  \n"
 
 
 def test_confluence_cli_dry_run_reports_output_without_writing(
