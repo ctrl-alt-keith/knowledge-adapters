@@ -408,6 +408,34 @@ def test_real_space_mode_discovers_pages_and_writes_in_lexical_order(
     assert "Summary: wrote 3, skipped 0" in output
 
 
+def test_real_space_fetch_progress_uses_carriage_return_for_tty_stdout(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+
+    exit_code, _output_dir, _page_fetch_counts, _space_list_calls = _run_real_space_cli(
+        tmp_path,
+        monkeypatch,
+        discovered_page_ids=["300", "100", "200"],
+    )
+
+    assert exit_code == 0
+
+    output = capsys.readouterr().out
+    assert output.count("\rSpace fetch progress: ") == 3
+    assert (
+        "\rSpace fetch progress: fetched 1/3, planned 3"
+        "\rSpace fetch progress: fetched 2/3, planned 3"
+        "\rSpace fetch progress: fetched 3/3, planned 3\n"
+        "Confluence adapter invoked"
+        in output
+    )
+    assert "\rSpace fetch progress: fetched 1/3, planned 3\n" not in output
+    assert "Summary: wrote 3, skipped 0" in output
+
+
 def test_real_tree_runs_without_traversal_cache_by_default(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -906,6 +934,106 @@ def test_real_tree_incremental_run_skips_full_page_fetch_for_unchanged_pages(
     assert "unchanged_pages: 2" in captured.out
     assert "Tree fetch progress: fetched 0/1, skipped 2, planned 3" in captured.out
     assert "Tree fetch progress: fetched 1/1, skipped 2, planned 3" in captured.out
+    assert "\r" not in captured.out
+
+
+def test_real_tree_fetch_progress_uses_carriage_return_for_tty_stdout(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    from knowledge_adapters.confluence import client as client_module
+
+    output_dir = tmp_path / "out"
+    pages = _real_pages()
+    _write_previous_manifest(
+        output_dir,
+        [
+            {
+                "canonical_id": "100",
+                "source_url": pages["100"]["source_url"],
+                "output_path": "pages/100.md",
+                "title": pages["100"]["title"],
+                "page_version": pages["100"]["page_version"],
+                "last_modified": pages["100"]["last_modified"],
+            },
+            {
+                "canonical_id": "200",
+                "source_url": pages["200"]["source_url"],
+                "output_path": "pages/200.md",
+                "title": pages["200"]["title"],
+                "page_version": pages["200"]["page_version"],
+                "last_modified": pages["200"]["last_modified"],
+            },
+        ],
+    )
+    for page_id in ("100", "200"):
+        page_path = output_dir / "pages" / f"{page_id}.md"
+        page_path.parent.mkdir(parents=True, exist_ok=True)
+        page_path.write_text(f"existing {page_id}\n", encoding="utf-8")
+
+    def stub_real_fetch(
+        target: ResolvedTarget,
+        *,
+        base_url: str = "https://example.com/wiki",
+        auth_method: str = "bearer-env",
+        ca_bundle: str | None = None,
+        client_cert_file: str | None = None,
+        client_key_file: str | None = None,
+    ) -> dict[str, object]:
+        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
+        return dict(pages[str(target.page_id)])
+
+    def stub_real_fetch_summary(
+        target: ResolvedTarget,
+        *,
+        base_url: str = "https://example.com/wiki",
+        auth_method: str = "bearer-env",
+        ca_bundle: str | None = None,
+        client_cert_file: str | None = None,
+        client_key_file: str | None = None,
+    ) -> dict[str, object]:
+        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
+        page = dict(pages[str(target.page_id)])
+        page.pop("content", None)
+        return page
+
+    def stub_child_id_discovery(*args: object, **kwargs: object) -> list[str]:
+        parent_id = _called_page_id(args, kwargs)
+        result = _real_children()[parent_id]
+        if isinstance(result, Exception):
+            raise result
+        return [str(child_id) for child_id in result]
+
+    monkeypatch.setattr(client_module, "fetch_real_page", stub_real_fetch, raising=False)
+    monkeypatch.setattr(
+        client_module,
+        "fetch_real_page_summary",
+        stub_real_fetch_summary,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        client_module,
+        "list_real_child_page_ids",
+        stub_child_id_discovery,
+        raising=False,
+    )
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+
+    exit_code = main(_real_tree_argv(output_dir, max_depth=1))
+
+    assert exit_code == 0
+
+    output = capsys.readouterr().out
+    assert output.count("\rTree fetch progress: ") == 2
+    assert (
+        "\rTree fetch progress: fetched 0/1, skipped 2, planned 3"
+        "\rTree fetch progress: fetched 1/1, skipped 2, planned 3\n"
+        "\nSkipped: "
+        in output
+    )
+    assert "\rTree fetch progress: fetched 0/1, skipped 2, planned 3\n" not in output
+    assert "Summary: wrote 1, skipped 2" in output
 
 
 def test_real_tree_run_does_not_report_stub_discovery_limit(
@@ -1030,9 +1158,11 @@ def test_real_tree_uses_carriage_return_progress_for_tty_stdout(
 
     output = capsys.readouterr().out
     assert output.count("\rdiscovered_pages: ") == 2
+    assert "\rTree progress: depth 0, discovered 1, fetched 1, planned 1" in output
+    assert "\rTree progress: depth 1, discovered 1001, fetched 1001, planned 1001" in output
     assert (
-        "\rdiscovered_pages: 500\rdiscovered_pages: 1000\n"
-        "Tree progress: depth 1, discovered 1001, fetched 1001, planned 1001"
+        "\rTree progress: depth 1, discovered 1001, fetched 1001, planned 1001\n"
+        "Confluence adapter invoked"
         in output
     )
     assert "\rdiscovered_pages: 500\n" not in output
