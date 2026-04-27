@@ -594,6 +594,33 @@ def test_confluence_cli_rejects_negative_max_depth(
     ) in captured.err
 
 
+def test_confluence_cli_requires_tree_when_max_depth_is_explicit(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    output_dir = tmp_path / "out"
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            [
+                "confluence",
+                "--base-url",
+                "https://example.com/wiki",
+                "--target",
+                "12345",
+                "--output-dir",
+                str(output_dir),
+                "--max-depth",
+                "1",
+            ]
+        )
+
+    assert exc_info.value.code == 2
+
+    captured = capsys.readouterr()
+    assert "knowledge-adapters confluence: error: --max-depth requires --tree.\n" in captured.err
+
+
 def test_confluence_cli_reports_invalid_output_dir(
     tmp_path: Path,
     capsys: CaptureFixture[str],
