@@ -192,19 +192,42 @@ class RealClientTLSKwargs(TypedDict, total=False):
 
 
 class _TeeStream:
-    """Write nested CLI stdout both live and into an in-memory buffer."""
+    """Write nested CLI stdout live while capturing deterministic text."""
 
-    def __init__(self, *streams: TextIO) -> None:
-        self._streams = streams
+    def __init__(self, live_stream: TextIO, capture_stream: TextIO) -> None:
+        self._live_stream = live_stream
+        self._capture_stream = capture_stream
+        self._capture_line_has_text = False
 
     def write(self, text: str) -> int:
-        for stream in self._streams:
-            stream.write(text)
+        self._live_stream.write(text)
+        self._capture_stream.write(self._capture_text(text))
         return len(text)
 
     def flush(self) -> None:
-        for stream in self._streams:
-            stream.flush()
+        self._live_stream.flush()
+        self._capture_stream.flush()
+
+    def isatty(self) -> bool:
+        isatty = getattr(self._live_stream, "isatty", None)
+        if not callable(isatty):
+            return False
+        return bool(isatty())
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._live_stream, name)
+
+    def _capture_text(self, text: str) -> str:
+        captured_parts: list[str] = []
+        for character in text:
+            if character == "\r":
+                if self._capture_line_has_text:
+                    captured_parts.append("\n")
+                self._capture_line_has_text = False
+                continue
+            captured_parts.append(character)
+            self._capture_line_has_text = character != "\n"
+        return "".join(captured_parts)
 
 
 class _ProgressLineRenderer:
