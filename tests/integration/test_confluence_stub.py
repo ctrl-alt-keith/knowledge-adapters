@@ -64,6 +64,29 @@ def _confluence_tree_argv(
     ]
 
 
+def _repo_cli_command() -> list[str]:
+    repo_root = Path(__file__).resolve().parents[2]
+    repo_local_cli = repo_root / ".venv" / "bin" / "knowledge-adapters"
+    if repo_local_cli.exists():
+        return [str(repo_local_cli)]
+    return [sys.executable, "-m", "knowledge_adapters.cli"]
+
+
+def _run_repo_cli(
+    cwd: Path,
+    *args: str,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [*_repo_cli_command(), *args],
+        cwd=cwd,
+        capture_output=True,
+        check=False,
+        env=env,
+        text=True,
+    )
+
+
 def _load_manifest(output_dir: Path) -> dict[str, object]:
     payload = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
     assert isinstance(payload, dict)
@@ -257,6 +280,41 @@ def test_confluence_cli_traverses_tree_through_real_client_path(
 
 
 @pytest.mark.integration
+def test_confluence_cli_reports_missing_stub_page_without_traceback(
+    tmp_path: Path,
+    confluence_stub_server: ConfluenceStubServer,
+) -> None:
+    output_dir = tmp_path / "artifacts"
+    env = os.environ.copy()
+    env["CONFLUENCE_BEARER_TOKEN"] = "stub-token"
+
+    result = _run_repo_cli(
+        tmp_path,
+        "confluence",
+        "--client-mode",
+        "real",
+        "--base-url",
+        confluence_stub_server.base_url,
+        "--target",
+        "99999",
+        "--output-dir",
+        str(output_dir),
+        env=env,
+    )
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert (
+        result.stderr
+        == "knowledge-adapters confluence: error: Confluence page not found. Verify --target.\n"
+    )
+    assert "Traceback" not in result.stdout
+    assert "Traceback" not in result.stderr
+    assert not (output_dir / "pages" / "99999.md").exists()
+    assert not (output_dir / "manifest.json").exists()
+
+
+@pytest.mark.integration
 def test_run_cli_executes_configured_confluence_run_against_stub(
     tmp_path: Path,
     confluence_stub_server: ConfluenceStubServer,
@@ -277,24 +335,10 @@ runs:
         encoding="utf-8",
     )
 
-    repo_root = Path(__file__).resolve().parents[2]
-    repo_local_cli = repo_root / ".venv" / "bin" / "knowledge-adapters"
-    cli_command = (
-        [str(repo_local_cli)]
-        if repo_local_cli.exists()
-        else [sys.executable, "-m", "knowledge_adapters.cli"]
-    )
     env = os.environ.copy()
     env["CONFLUENCE_BEARER_TOKEN"] = "stub-token"
 
-    result = subprocess.run(
-        [*cli_command, "run", str(config_path)],
-        cwd=tmp_path,
-        capture_output=True,
-        check=False,
-        env=env,
-        text=True,
-    )
+    result = _run_repo_cli(tmp_path, "run", str(config_path), env=env)
 
     assert result.returncode == 0, result.stderr
     assert "Config-driven run invoked" in result.stdout
