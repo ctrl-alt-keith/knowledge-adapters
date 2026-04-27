@@ -260,6 +260,9 @@ class _ProgressLineRenderer:
         self._has_pending_tty_line = False
         self._tty_line_width = 0
 
+    def uses_inline_rendering(self) -> bool:
+        return self._is_tty()
+
     def _is_tty(self) -> bool:
         isatty = getattr(self._stream, "isatty", None)
         if not callable(isatty):
@@ -1864,13 +1867,27 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "use --client-mode real to discover descendants from Confluence."
             )
 
+        inline_discovery_progress_active = False
+
         def _print_discovered_pages_progress(discovered_pages: int) -> None:
+            nonlocal inline_discovery_progress_active
             _render_progress(f"discovered_pages: {discovered_pages}")
+            if progress_renderer.uses_inline_rendering():
+                inline_discovery_progress_active = True
+
+        def _render_final_discovered_pages_progress(discovered_pages: int) -> None:
+            nonlocal inline_discovery_progress_active
+            if not inline_discovery_progress_active:
+                return
+
+            _print_discovered_pages_progress(discovered_pages)
+            inline_discovery_progress_active = False
 
         def _print_tree_walk_progress(progress: TreeWalkProgress) -> None:
             if progress.periodic:
                 _print_discovered_pages_progress(progress.discovered_pages)
                 return
+            _render_final_discovered_pages_progress(progress.discovered_pages)
             _render_progress(
                 "Tree progress: "
                 f"depth {progress.depth}, "
@@ -1900,6 +1917,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             _print(f"Space progress: discovery started, space_key {resolved_space_key}")
             try:
                 discovered_page_ids = sorted(set(selected_list_space_page_ids(resolved_space_key)))
+                _render_final_discovered_pages_progress(len(discovered_page_ids))
                 _print(
                     "Space progress: "
                     f"discovered {len(discovered_page_ids)} pages, "
