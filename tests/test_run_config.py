@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -9,6 +10,7 @@ from pytest import CaptureFixture, MonkeyPatch
 
 import knowledge_adapters.cli as cli
 from knowledge_adapters.cli import main
+from knowledge_adapters.confluence.models import ResolvedTarget
 from knowledge_adapters.run_config import (
     ConfiguredBundle,
     ConfiguredRun,
@@ -30,6 +32,96 @@ class _FakeHTTPResponse:
 
     def read(self) -> bytes:
         return json.dumps(self._payload).encode("utf-8")
+
+
+def _patch_large_real_confluence_tree(monkeypatch: MonkeyPatch) -> None:
+    from knowledge_adapters.confluence import client as client_module
+
+    pages = {
+        str(page_id): {
+            "canonical_id": str(page_id),
+            "title": f"Page {page_id}",
+            "source_url": f"https://example.com/wiki/pages/{page_id}",
+            "content": f"Content for {page_id}.",
+            "page_version": page_id,
+            "last_modified": "2026-04-20T00:00:00Z",
+        }
+        for page_id in range(100, 1101)
+    }
+    children_by_parent: dict[str, list[str]] = {
+        "100": [str(page_id) for page_id in range(101, 1101)],
+    }
+    children_by_parent.update({str(page_id): [] for page_id in range(101, 1101)})
+
+    def stub_real_fetch(
+        target: ResolvedTarget,
+        *,
+        base_url: str,
+        auth_method: str,
+        ca_bundle: str | None = None,
+        no_ca_bundle: bool = False,
+        client_cert_file: str | None = None,
+        client_key_file: str | None = None,
+    ) -> dict[str, object]:
+        del base_url, auth_method, ca_bundle, no_ca_bundle, client_cert_file, client_key_file
+        return dict(pages[str(target.page_id)])
+
+    def stub_child_id_discovery(
+        target: ResolvedTarget,
+        *,
+        base_url: str,
+        auth_method: str,
+        ca_bundle: str | None = None,
+        no_ca_bundle: bool = False,
+        client_cert_file: str | None = None,
+        client_key_file: str | None = None,
+        progress_callback: Any = None,
+    ) -> list[str]:
+        del (
+            base_url,
+            auth_method,
+            ca_bundle,
+            no_ca_bundle,
+            client_cert_file,
+            client_key_file,
+            progress_callback,
+        )
+        return children_by_parent[str(target.page_id)]
+
+    def fail_if_stub_used(target: ResolvedTarget) -> dict[str, object]:
+        raise AssertionError(
+            f"stub client should not be used in real traversal mode for {target.page_id}"
+        )
+
+    monkeypatch.setattr(client_module, "fetch_real_page", stub_real_fetch, raising=False)
+    monkeypatch.setattr(
+        client_module,
+        "list_real_child_page_ids",
+        stub_child_id_discovery,
+        raising=False,
+    )
+    monkeypatch.setattr(client_module, "fetch_page", fail_if_stub_used)
+
+
+def _write_large_real_tree_run_config(tmp_path: Path) -> Path:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: docs-tree
+    type: confluence
+    client_mode: real
+    base_url: https://example.com/wiki
+    target: "100"
+    output_dir: ./artifacts/confluence/docs-tree
+    tree: true
+    max_depth: 1
+    dry_run: true
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    return config_path
 
 
 def test_load_run_config_resolves_relative_paths_from_config_location(tmp_path: Path) -> None:
@@ -858,6 +950,50 @@ runs:
             "last_modified": "1970-01-01T00:00:00Z",
         }
     ]
+
+
+def test_run_command_preserves_nested_confluence_inline_progress_on_tty(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    _patch_large_real_confluence_tree(monkeypatch)
+    config_path = _write_large_real_tree_run_config(tmp_path)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+
+    exit_code = main(["run", str(config_path)])
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert output.count("\rdiscovered_pages: ") == 2
+    assert "\rdiscovered_pages: 500\rdiscovered_pages: 1000\n" in output
+    assert "\rdiscovered_pages: 500\n" not in output
+    assert "Run 1/1 completed: docs-tree (confluence)" in output
+    assert "Run summary: would write 1001, would skip 0" in output
+    assert "Aggregate summary:" in output
+    assert "dry_run_runs: 1" in output
+    assert "would_write: 1001" in output
+    assert "would_skip: 0" in output
+
+
+def test_run_command_keeps_nested_confluence_progress_line_based_without_tty(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    _patch_large_real_confluence_tree(monkeypatch)
+    config_path = _write_large_real_tree_run_config(tmp_path)
+
+    exit_code = main(["run", str(config_path)])
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "\r" not in output
+    assert "discovered_pages: 500\ndiscovered_pages: 1000\n" in output
+    assert "Run 1/1 completed: docs-tree (confluence)" in output
+    assert "Run summary: would write 1001, would skip 0" in output
+    assert "would_write: 1001" in output
+    assert "would_skip: 0" in output
 
 
 def test_run_command_executes_explicit_input_bundle_run(tmp_path: Path) -> None:
