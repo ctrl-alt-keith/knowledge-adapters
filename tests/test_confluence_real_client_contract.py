@@ -4,6 +4,7 @@ import io
 import json
 import re
 import ssl
+from collections.abc import Callable
 from email.message import Message
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -99,6 +100,7 @@ def _list_real_child_page_ids(
     ca_bundle: str | None = None,
     client_cert_file: str | None = None,
     client_key_file: str | None = None,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> list[str]:
     from knowledge_adapters.confluence import client as client_module
 
@@ -110,6 +112,7 @@ def _list_real_child_page_ids(
         ca_bundle=ca_bundle,
         client_cert_file=client_cert_file,
         client_key_file=client_key_file,
+        progress_callback=progress_callback,
     )
     return cast(list[str], child_page_ids)
 
@@ -123,6 +126,7 @@ def _list_real_space_page_ids(
     client_cert_file: str | None = None,
     client_key_file: str | None = None,
     page_limit: int = 100,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> list[str]:
     from knowledge_adapters.confluence import client as client_module
 
@@ -135,6 +139,7 @@ def _list_real_space_page_ids(
         client_cert_file=client_cert_file,
         client_key_file=client_key_file,
         page_limit=page_limit,
+        progress_callback=progress_callback,
     )
     return cast(list[str], page_ids)
 
@@ -1094,6 +1099,51 @@ def test_real_child_list_maps_valid_confluence_response_into_child_page_ids(
     assert child_page_ids == ["200", "300", "300"]
 
 
+def test_real_child_list_reports_periodic_progress_for_large_results(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    progress_updates: list[int] = []
+
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda *args, **kwargs: _FakeHTTPResponse(
+            _valid_child_list_payload(
+                child_page_ids=[str(page_id) for page_id in range(200, 1201)]
+            )
+        ),
+    )
+
+    child_page_ids = _list_real_child_page_ids(
+        _real_target(),
+        progress_callback=progress_updates.append,
+    )
+
+    assert len(child_page_ids) == 1001
+    assert progress_updates == [500, 1000]
+
+
+def test_real_child_list_does_not_report_progress_for_small_results(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    progress_updates: list[int] = []
+
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda *args, **kwargs: _FakeHTTPResponse(
+            _valid_child_list_payload(child_page_ids=["200", "300", "300"])
+        ),
+    )
+
+    _list_real_child_page_ids(
+        _real_target(),
+        progress_callback=progress_updates.append,
+    )
+
+    assert progress_updates == []
+
+
 def test_real_child_list_ignores_extra_irrelevant_fields_in_valid_response(
     monkeypatch: MonkeyPatch,
 ) -> None:
@@ -1151,6 +1201,62 @@ def test_real_space_page_list_paginates_and_returns_lexical_page_ids(
         "https://example.com/wiki/rest/api/content?spaceKey=ENG&type=page&start=0&limit=2",
         "https://example.com/wiki/rest/api/content?spaceKey=ENG&type=page&start=2&limit=2",
     ]
+
+
+def test_real_space_page_list_reports_periodic_progress_during_pagination(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    progress_updates: list[int] = []
+    payloads = [
+        _valid_space_page_list_payload(
+            page_ids=[str(page_id) for page_id in range(1, 401)],
+            next_url="/wiki/rest/api/content?spaceKey=ENG&type=page&start=400&limit=400",
+        ),
+        _valid_space_page_list_payload(
+            page_ids=[str(page_id) for page_id in range(401, 801)],
+            next_url="/wiki/rest/api/content?spaceKey=ENG&type=page&start=800&limit=400",
+        ),
+        _valid_space_page_list_payload(
+            page_ids=[str(page_id) for page_id in range(801, 1101)]
+        ),
+    ]
+
+    def fake_urlopen(*args: object, **kwargs: object) -> _FakeHTTPResponse:
+        del args, kwargs
+        return _FakeHTTPResponse(payloads.pop(0))
+
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    page_ids = _list_real_space_page_ids(
+        "ENG",
+        page_limit=400,
+        progress_callback=progress_updates.append,
+    )
+
+    assert len(page_ids) == 1100
+    assert progress_updates == [500, 1000]
+
+
+def test_real_space_page_list_does_not_report_progress_for_small_runs(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    progress_updates: list[int] = []
+
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda *args, **kwargs: _FakeHTTPResponse(
+            _valid_space_page_list_payload(page_ids=["100", "200"])
+        ),
+    )
+
+    _list_real_space_page_ids(
+        "ENG",
+        progress_callback=progress_updates.append,
+    )
+
+    assert progress_updates == []
 
 
 def test_real_space_page_list_rejects_non_page_content(

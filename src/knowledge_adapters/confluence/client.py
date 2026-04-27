@@ -6,11 +6,13 @@ import json
 import os
 import socket
 import ssl
+from collections.abc import Callable
 from urllib import parse, request
 from urllib.error import HTTPError, URLError
 
 from knowledge_adapters.confluence.auth import build_request_auth
 from knowledge_adapters.confluence.models import ResolvedTarget
+from knowledge_adapters.confluence.traversal import DISCOVERY_PROGRESS_INTERVAL
 
 
 class ConfluenceRequestError(RuntimeError):
@@ -28,6 +30,9 @@ class ConfluenceRequestError(RuntimeError):
         self.request_url = request_url
         self.auth_method = auth_method
         self.underlying_error = underlying_error
+
+
+DiscoveryProgressCallback = Callable[[int], None]
 
 
 def fetch_page(target: ResolvedTarget) -> dict[str, object]:
@@ -245,6 +250,26 @@ def _next_page_url(payload: dict[str, object], *, base_url: str) -> str | None:
     if not isinstance(next_url, str) or not next_url:
         return None
     return _absolute_api_url(base_url, next_url)
+
+
+def _report_periodic_discovery_progress(
+    discovered_pages: int,
+    *,
+    last_reported_pages: int,
+    progress_callback: DiscoveryProgressCallback | None,
+) -> int:
+    if progress_callback is None:
+        return last_reported_pages
+
+    next_threshold = max(
+        DISCOVERY_PROGRESS_INTERVAL,
+        last_reported_pages + DISCOVERY_PROGRESS_INTERVAL,
+    )
+    while next_threshold <= discovered_pages:
+        progress_callback(next_threshold)
+        last_reported_pages = next_threshold
+        next_threshold += DISCOVERY_PROGRESS_INTERVAL
+    return last_reported_pages
 
 
 def _sanitize_debug_value(value: str) -> str:
@@ -468,6 +493,7 @@ def list_real_child_page_ids(
     no_ca_bundle: bool = False,
     client_cert_file: str | None = None,
     client_key_file: str | None = None,
+    progress_callback: DiscoveryProgressCallback | None = None,
 ) -> list[str]:
     """List direct child page IDs for one Confluence page in real mode."""
     page_id = target.page_id
@@ -482,7 +508,13 @@ def list_real_child_page_ids(
         client_cert_file=client_cert_file,
         client_key_file=client_key_file,
     )
-    return _map_child_page_ids(raw_payload)
+    child_page_ids = _map_child_page_ids(raw_payload)
+    _report_periodic_discovery_progress(
+        len(set(child_page_ids)),
+        last_reported_pages=0,
+        progress_callback=progress_callback,
+    )
+    return child_page_ids
 
 
 def list_real_space_page_ids(
@@ -495,6 +527,7 @@ def list_real_space_page_ids(
     client_cert_file: str | None = None,
     client_key_file: str | None = None,
     page_limit: int = 100,
+    progress_callback: DiscoveryProgressCallback | None = None,
 ) -> list[str]:
     """List all page IDs in one Confluence space in deterministic order."""
     if not space_key:
@@ -508,6 +541,7 @@ def list_real_space_page_ids(
     )
     page_ids: set[str] = set()
     seen_page_urls: set[str] = set()
+    last_reported_pages = 0
     while next_url is not None:
         if next_url in seen_page_urls:
             raise ValueError("Response error: repeated space page-list pagination URL.")
@@ -522,6 +556,11 @@ def list_real_space_page_ids(
             client_key_file=client_key_file,
         )
         page_ids.update(_map_content_page_ids(raw_payload))
+        last_reported_pages = _report_periodic_discovery_progress(
+            len(page_ids),
+            last_reported_pages=last_reported_pages,
+            progress_callback=progress_callback,
+        )
         next_url = _next_page_url(raw_payload, base_url=base_url)
 
     return sorted(page_ids)
