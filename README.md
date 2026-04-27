@@ -290,19 +290,9 @@ After `make dev`, the repo-local CLI entrypoint for this checkout is:
 
 ## Integration Tests
 
-Use the normal fast local loop when you are iterating on unit, contract, and
-CLI behavior that does not need a live subprocess:
-
-```bash
-.venv/bin/pytest -m "not integration"
-```
-
-Run the integration slice explicitly when you want to exercise real adapter
-wiring against the local Confluence stub:
-
-```bash
-.venv/bin/pytest -m integration
-```
+Use `make test` for the pytest-backed test suite, or `make check` for the full
+repository validation path. Marker-specific pytest slices are implementation
+details for focused debugging, not the completion validation path.
 
 These integration tests start [`tools/confluence_stub/app.py`](./tools/confluence_stub/app.py)
 locally with `uvicorn`, talk only to `localhost`, and use committed stub data
@@ -380,7 +370,7 @@ over time.
 - CLI entrypoint
 - basic end-to-end pipeline (resolve → fetch stub → normalize → write)
 - Confluence single-page CLI flow for resolve, dry-run, write, and manifest generation
-- CI (ruff, mypy, pytest)
+- CI through the repository `make check` target
 - initial unit tests
 
 ### Planned MVP
