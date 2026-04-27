@@ -1469,6 +1469,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         resolved_target,
                         base_url=confluence_config.base_url,
                         auth_method=confluence_config.auth_method,
+                        progress_callback=_print_discovered_pages_progress,
                         **real_client_tls_kwargs(),
                     )
 
@@ -1483,6 +1484,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         space_key,
                         base_url=confluence_config.base_url,
                         auth_method=confluence_config.auth_method,
+                        progress_callback=_print_discovered_pages_progress,
                         **real_client_tls_kwargs(),
                     )
 
@@ -1728,9 +1730,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "use --client-mode real to discover descendants from Confluence."
             )
 
+        def _print_discovered_pages_progress(discovered_pages: int) -> None:
+            print(f"discovered_pages: {discovered_pages}")
+
         def _print_tree_walk_progress(progress: TreeWalkProgress) -> None:
             if progress.periodic:
-                print(f"discovered_pages: {progress.discovered_pages}")
+                _print_discovered_pages_progress(progress.discovered_pages)
                 return
             print(
                 "Tree progress: "

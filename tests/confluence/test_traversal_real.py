@@ -204,6 +204,7 @@ def _run_real_recursive_cli(
     *,
     pages: dict[str, dict[str, object]] | None = None,
     children_by_parent: dict[str, ChildDiscoveryResult] | None = None,
+    listing_progress_counts_by_parent: dict[str, list[int]] | None = None,
     target: str = "100",
     max_depth: int,
     dry_run: bool = False,
@@ -240,6 +241,10 @@ def _run_real_recursive_cli(
     def stub_child_id_discovery(*args: object, **kwargs: object) -> list[str]:
         parent_id = _called_page_id(args, kwargs)
         child_list_calls.append(parent_id)
+        progress_callback = kwargs.get("progress_callback")
+        if callable(progress_callback):
+            for discovered_pages in (listing_progress_counts_by_parent or {}).get(parent_id, []):
+                progress_callback(discovered_pages)
 
         result = children_by_parent[parent_id]
         if isinstance(result, Exception):
@@ -316,8 +321,16 @@ def _run_real_space_cli(
         ca_bundle: str | None = None,
         client_cert_file: str | None = None,
         client_key_file: str | None = None,
+        progress_callback: object | None = None,
     ) -> list[str]:
-        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
+        del (
+            base_url,
+            auth_method,
+            ca_bundle,
+            client_cert_file,
+            client_key_file,
+            progress_callback,
+        )
         space_list_calls.append(space_key)
         return list(discovered_page_ids or [])
 
@@ -577,8 +590,16 @@ def test_real_space_reuses_cached_space_page_listing(
         ca_bundle: str | None = None,
         client_cert_file: str | None = None,
         client_key_file: str | None = None,
+        progress_callback: object | None = None,
     ) -> list[str]:
-        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
+        del (
+            base_url,
+            auth_method,
+            ca_bundle,
+            client_cert_file,
+            client_key_file,
+            progress_callback,
+        )
         space_list_calls.append(space_key)
         return ["300", "100", "200"]
 
@@ -970,6 +991,49 @@ def test_real_tree_reports_periodic_discovery_progress_for_large_runs(
     assert "    would_skip: 0" in output
     assert "  pages_in_tree: 1001 (root + descendants)" in output
     assert "    pages_in_plan: 1001 (root 1, descendants 1000)" in output
+
+
+def test_real_tree_reports_listing_progress_before_depth_progress(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    pages = {
+        str(page_id): {
+            "canonical_id": str(page_id),
+            "title": f"Page {page_id}",
+            "source_url": f"https://example.com/wiki/pages/{page_id}",
+            "content": f"Content for {page_id}.",
+            "page_version": page_id,
+            "last_modified": "2026-04-20T00:00:00Z",
+        }
+        for page_id in range(100, 1101)
+    }
+    children_by_parent: dict[str, ChildDiscoveryResult] = {
+        "100": [str(page_id) for page_id in range(101, 1101)],
+    }
+    children_by_parent.update({str(page_id): [] for page_id in range(101, 1101)})
+
+    exit_code, _output_dir, _page_fetch_counts, _child_list_calls = _run_real_recursive_cli(
+        tmp_path,
+        monkeypatch,
+        pages=pages,
+        children_by_parent=children_by_parent,
+        listing_progress_counts_by_parent={"100": [500, 1000]},
+        max_depth=1,
+        dry_run=True,
+    )
+
+    assert exit_code == 0
+
+    output = capsys.readouterr().out
+    assert "Tree progress: depth 0, discovered 1, fetched 1, planned 1" in output
+    assert "discovered_pages: 500" in output
+    assert "discovered_pages: 1000" in output
+    assert "Tree progress: depth 1, discovered 1001, fetched 1001, planned 1001" in output
+    assert output.index("discovered_pages: 500") < output.index(
+        "Tree progress: depth 1, discovered 1001, fetched 1001, planned 1001"
+    )
 
 
 def test_real_tree_orders_pages_breadth_first_then_lexical_without_parent_adjacency(
