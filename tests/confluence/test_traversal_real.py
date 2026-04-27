@@ -20,6 +20,7 @@ def _real_tree_argv(
     target: str = "100",
     max_depth: int,
     dry_run: bool = False,
+    verbose: bool = False,
 ) -> list[str]:
     argv = [
         "confluence",
@@ -37,6 +38,8 @@ def _real_tree_argv(
     ]
     if dry_run:
         argv.append("--dry-run")
+    if verbose:
+        argv.append("--verbose")
     return argv
 
 
@@ -45,8 +48,9 @@ def _real_space_argv(
     *,
     space_flag: str = "--space-key",
     space_value: str = "ENG",
+    verbose: bool = False,
 ) -> list[str]:
-    return [
+    argv = [
         "confluence",
         "--base-url",
         "https://example.com/wiki",
@@ -57,6 +61,9 @@ def _real_space_argv(
         "--client-mode",
         "real",
     ]
+    if verbose:
+        argv.append("--verbose")
+    return argv
 
 
 def _load_manifest(output_dir: Path) -> dict[str, object]:
@@ -703,7 +710,7 @@ def test_real_space_dry_run_reports_space_summary_and_planned_actions(
     )
 
     output_dir = tmp_path / "out"
-    exit_code = main([*_real_space_argv(output_dir), "--dry-run"])
+    exit_code = main([*_real_space_argv(output_dir, verbose=True), "--dry-run"])
 
     assert exit_code == 0
     assert not (output_dir / "manifest.json").exists()
@@ -920,7 +927,7 @@ def test_real_tree_incremental_run_skips_full_page_fetch_for_unchanged_pages(
         raising=False,
     )
 
-    exit_code = main(_real_tree_argv(output_dir, max_depth=1))
+    exit_code = main(_real_tree_argv(output_dir, max_depth=1, verbose=True))
 
     assert exit_code == 0
     assert full_fetch_counts == {"300": 1}
@@ -1020,7 +1027,7 @@ def test_real_tree_fetch_progress_uses_carriage_return_for_tty_stdout(
     )
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
 
-    exit_code = main(_real_tree_argv(output_dir, max_depth=1))
+    exit_code = main(_real_tree_argv(output_dir, max_depth=1, verbose=True))
 
     assert exit_code == 0
 

@@ -58,6 +58,7 @@ def _run_recursive_cli(
     target: str = "100",
     max_depth: int,
     dry_run: bool = False,
+    verbose: bool = False,
     fail_on_ids: set[str] | None = None,
 ) -> tuple[int, Path, dict[str, int]]:
     pages = pages or _synthetic_pages()
@@ -88,6 +89,8 @@ def _run_recursive_cli(
     ]
     if dry_run:
         argv.append("--dry-run")
+    if verbose:
+        argv.append("--verbose")
 
     exit_code = main(argv)
     return exit_code, output_dir, fetch_counts
@@ -267,6 +270,7 @@ def test_recursive_dry_run_reports_unique_planned_outputs_without_writing(
         monkeypatch,
         max_depth=2,
         dry_run=True,
+        verbose=True,
     )
 
     assert exit_code == 0

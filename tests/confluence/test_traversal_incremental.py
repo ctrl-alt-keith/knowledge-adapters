@@ -67,6 +67,7 @@ def _run_recursive_cli(
     target: str = "100",
     max_depth: int = 1,
     dry_run: bool = False,
+    verbose: bool = False,
 ) -> tuple[int, Path]:
     pages = pages or _synthetic_pages()
 
@@ -90,6 +91,8 @@ def _run_recursive_cli(
     ]
     if dry_run:
         argv.append("--dry-run")
+    if verbose:
+        argv.append("--verbose")
 
     return main(argv), output_dir
 
@@ -167,6 +170,7 @@ def test_incremental_dry_run_without_manifest_marks_all_pages_as_write(
         tmp_path,
         monkeypatch,
         dry_run=True,
+        verbose=True,
     )
 
     assert exit_code == 0
@@ -266,6 +270,7 @@ def test_incremental_dry_run_uses_manifest_identity_and_file_existence_for_skip(
         tmp_path,
         monkeypatch,
         dry_run=True,
+        verbose=True,
     )
 
     assert exit_code == 0
@@ -316,6 +321,7 @@ def test_incremental_dry_run_reports_both_would_write_and_would_skip_without_wri
         tmp_path,
         monkeypatch,
         dry_run=True,
+        verbose=True,
     )
 
     assert exit_code == 0
@@ -414,6 +420,7 @@ def test_incremental_normal_run_manifest_includes_written_and_skipped_pages(
         tmp_path,
         monkeypatch,
         dry_run=False,
+        verbose=True,
     )
 
     assert exit_code == 0
@@ -455,6 +462,7 @@ def test_incremental_normal_run_rewrites_pages_when_source_metadata_changes(
         tmp_path,
         monkeypatch,
         dry_run=False,
+        verbose=True,
     )
 
     assert exit_code == 0
@@ -642,6 +650,7 @@ def test_incremental_normal_run_handles_larger_mixed_write_and_skip_set(
         monkeypatch,
         pages=pages,
         max_depth=1,
+        verbose=True,
     )
 
     assert exit_code == 0
@@ -713,6 +722,7 @@ def test_incremental_dry_run_rewrites_pages_from_older_manifests_without_source_
         tmp_path,
         monkeypatch,
         dry_run=True,
+        verbose=True,
     )
 
     assert exit_code == 0
@@ -866,6 +876,7 @@ def test_incremental_dry_run_reports_last_modified_rewrite_reason(
         tmp_path,
         monkeypatch,
         dry_run=True,
+        verbose=True,
     )
 
     assert exit_code == 0

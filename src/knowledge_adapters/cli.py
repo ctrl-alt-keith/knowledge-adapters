@@ -171,6 +171,7 @@ _CONFLUENCE_REAL_ONLY_INPUT_FLAGS = (
     "--fetch-cache-dir",
     "--tree-cache-dir",
 )
+_VERBOSE_HELP = "Show per-item write/skip details that are hidden by default."
 
 
 @dataclass(frozen=True)
@@ -427,6 +428,19 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=TOP_LEVEL_HELP_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help=_VERBOSE_HELP,
+    )
+
+    def add_verbose_argument(subparser: argparse.ArgumentParser) -> None:
+        subparser.add_argument(
+            "--verbose",
+            action="store_true",
+            default=argparse.SUPPRESS,
+            help=_VERBOSE_HELP,
+        )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -453,6 +467,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=CONFLUENCE_HELP_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    add_verbose_argument(confluence_parser)
     confluence_parser.add_argument(
         "--base-url",
         required=True,
@@ -593,6 +608,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=LOCAL_FILES_HELP_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    add_verbose_argument(local_files_parser)
     local_files_parser.add_argument(
         "--file-path",
         required=True,
@@ -633,6 +649,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=GIT_REPO_HELP_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    add_verbose_argument(git_repo_parser)
     git_repo_parser.add_argument(
         "--repo-url",
         required=True,
@@ -704,6 +721,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=GITHUB_METADATA_HELP_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    add_verbose_argument(github_metadata_parser)
     github_metadata_parser.add_argument(
         "--repo",
         required=True,
@@ -803,6 +821,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=BUNDLE_HELP_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    add_verbose_argument(bundle_parser)
     bundle_parser.add_argument(
         "inputs",
         nargs="*",
@@ -921,6 +940,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=RUN_HELP_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    add_verbose_argument(run_parser)
     run_parser.add_argument(
         "config_path",
         metavar="RUNS_YAML",
@@ -1105,12 +1125,15 @@ def _effective_configured_run_argv(
     run_type: str,
     argv: Sequence[str],
     debug: bool,
+    verbose: bool,
 ) -> tuple[str, ...]:
     """Apply safe top-level run overrides before invoking a configured run."""
     effective_argv = tuple(argv)
-    if not debug or run_type != "confluence" or "--debug" in effective_argv:
-        return effective_argv
-    return (*effective_argv, "--debug")
+    if debug and run_type == "confluence" and "--debug" not in effective_argv:
+        effective_argv = (*effective_argv, "--debug")
+    if verbose and "--verbose" not in effective_argv:
+        effective_argv = (*effective_argv, "--verbose")
+    return effective_argv
 
 
 def _execute_configured_run(
@@ -1129,6 +1152,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     raw_argv = tuple(sys.argv[1:] if argv is None else argv)
     parser = build_parser()
     args = parser.parse_args(raw_argv)
+    verbose = bool(args.verbose)
 
     if args.command == "run":
         from knowledge_adapters.run_config import load_run_config, select_runs
@@ -1177,6 +1201,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 run_type=configured_run.run_type,
                 argv=configured_run.argv,
                 debug=args.debug,
+                verbose=verbose,
             )
             display_command = shlex.join(("knowledge-adapters", *effective_argv))
             print(
@@ -1973,12 +1998,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                     discovered_count=len(discovered_page_ids),
                 )
                 print_stale_artifacts(confluence_config.output_dir, stale_artifacts)
-                for _page, output_path, page_decision, action in space_page_records:
-                    _print(
-                        "  would "
-                        f"{action} {_display_output_path(output_path)} "
-                        f"({_format_page_sync_decision(page_decision)})"
-                    )
+                if verbose:
+                    for _page, output_path, page_decision, action in space_page_records:
+                        _print(
+                            "  would "
+                            f"{action} {_display_output_path(output_path)} "
+                            f"({_format_page_sync_decision(page_decision)})"
+                        )
                 print_dry_run_complete()
                 return 0
 
@@ -2040,11 +2066,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             try:
                 for page, output_path, page_decision, action in space_page_records:
                     if action == "skip":
-                        _print(
-                            "\nSkipped: "
-                            f"{_display_output_path(output_path)} "
-                            f"({_format_page_sync_decision(page_decision)})"
-                        )
+                        if verbose:
+                            _print(
+                                "\nSkipped: "
+                                f"{_display_output_path(output_path)} "
+                                f"({_format_page_sync_decision(page_decision)})"
+                            )
                         continue
 
                     page_to_write = space_pages_to_write[str(page.get("canonical_id") or "")]
@@ -2054,11 +2081,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                         str(page_to_write.get("canonical_id") or ""),
                         markdown,
                     )
-                    _print(
-                        "\nWrote: "
-                        f"{_display_output_path(output_path)} "
-                        f"({_format_page_sync_decision(page_decision)})"
-                    )
+                    if verbose:
+                        _print(
+                            "\nWrote: "
+                            f"{_display_output_path(output_path)} "
+                            f"({_format_page_sync_decision(page_decision)})"
+                        )
 
                 manifest = write_manifest(confluence_config.output_dir, files)
             except OSError as exc:
@@ -2182,12 +2210,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                     stale_count=len(stale_artifacts),
                 )
                 print_stale_artifacts(confluence_config.output_dir, stale_artifacts)
-                for _page, output_path, page_decision, action in page_records:
-                    _print(
-                        "  would "
-                        f"{action} {_display_output_path(output_path)} "
-                        f"({_format_page_sync_decision(page_decision)})"
-                    )
+                if verbose:
+                    for _page, output_path, page_decision, action in page_records:
+                        _print(
+                            "  would "
+                            f"{action} {_display_output_path(output_path)} "
+                            f"({_format_page_sync_decision(page_decision)})"
+                        )
                 print_dry_run_complete()
                 return 0
 
@@ -2249,11 +2278,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             try:
                 for page, output_path, page_decision, action in page_records:
                     if action == "skip":
-                        _print(
-                            "\nSkipped: "
-                            f"{_display_output_path(output_path)} "
-                            f"({_format_page_sync_decision(page_decision)})"
-                        )
+                        if verbose:
+                            _print(
+                                "\nSkipped: "
+                                f"{_display_output_path(output_path)} "
+                                f"({_format_page_sync_decision(page_decision)})"
+                            )
                         continue
 
                     page_to_write = pages_to_write[str(page.get("canonical_id") or "")]
@@ -2263,11 +2293,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                         str(page_to_write.get("canonical_id") or ""),
                         markdown,
                     )
-                    _print(
-                        "\nWrote: "
-                        f"{_display_output_path(output_path)} "
-                        f"({_format_page_sync_decision(page_decision)})"
-                    )
+                    if verbose:
+                        _print(
+                            "\nWrote: "
+                            f"{_display_output_path(output_path)} "
+                            f"({_format_page_sync_decision(page_decision)})"
+                        )
 
                 manifest = write_manifest_with_context(
                     confluence_config.output_dir,
@@ -2386,17 +2417,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                     page_id,
                     markdown,
                 )
-                _print(
-                    "\nWrote: "
-                    f"{_display_output_path(output_path)} "
-                    f"({_format_page_sync_decision(page_decision)})"
-                )
+                if verbose:
+                    _print(
+                        "\nWrote: "
+                        f"{_display_output_path(output_path)} "
+                        f"({_format_page_sync_decision(page_decision)})"
+                    )
             else:
-                _print(
-                    "\nSkipped: "
-                    f"{_display_output_path(output_path)} "
-                    f"({_format_page_sync_decision(page_decision)})"
-                )
+                if verbose:
+                    _print(
+                        "\nSkipped: "
+                        f"{_display_output_path(output_path)} "
+                        f"({_format_page_sync_decision(page_decision)})"
+                    )
 
             manifest = write_manifest(
                 confluence_config.output_dir,
