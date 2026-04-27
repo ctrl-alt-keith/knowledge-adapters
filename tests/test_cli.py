@@ -185,6 +185,7 @@ def test_confluence_cli_renders_symlinked_output_paths_consistently(
             "12345",
             "--output-dir",
             str(output_dir_arg),
+            "--verbose",
         ]
     )
 
@@ -247,6 +248,7 @@ def test_confluence_cli_full_flow_keeps_dry_run_and_write_artifacts_in_sync(
             target_url,
             "--output-dir",
             str(output_dir),
+            "--verbose",
         ]
     )
 

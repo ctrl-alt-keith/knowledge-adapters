@@ -1162,7 +1162,40 @@ runs:
     assert "dry_run_runs: 1" in captured.out
     assert "would_write: 1" in captured.out
     assert "would_skip: 0" in captured.out
+    assert "pages/12345.md" not in captured.out
     assert not (tmp_path / "artifacts").exists()
+
+
+def test_run_command_verbose_preserves_nested_confluence_per_item_output(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: docs-tree
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-tree
+    tree: true
+    max_depth: 1
+    dry_run: true
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(["run", "--verbose", str(config_path)])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "Run summary: would write 1, would skip 0" in captured.out
+    assert (
+        f"would write {tmp_path / 'artifacts' / 'confluence' / 'docs-tree' / 'pages' / '12345.md'}"
+        in captured.out
+    )
 
 
 def test_run_command_preserves_nested_adapter_error_details(

@@ -1103,7 +1103,7 @@ def test_confluence_cli_smoke_uses_installed_entrypoint_with_default_stub_client
     assert "resolved_page_id: 12345" in result.stdout
     assert "Artifact:" in result.stdout
     assert "auth_method:" not in result.stdout
-    assert "Wrote:" in result.stdout
+    assert "Wrote:" not in result.stdout
     assert_write_summary(result.stdout, wrote=1, skipped=0)
     assert "Manifest:" in result.stdout
     assert f"Write complete. Artifacts created under {tmp_path / 'artifacts'}" in result.stdout
