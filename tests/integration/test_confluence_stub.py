@@ -37,6 +37,29 @@ def _confluence_argv(
     return argv
 
 
+def _confluence_tree_argv(
+    base_url: str,
+    output_dir: Path,
+    *,
+    target: str,
+    max_depth: int,
+) -> list[str]:
+    return [
+        "confluence",
+        "--client-mode",
+        "real",
+        "--base-url",
+        base_url,
+        "--target",
+        target,
+        "--tree",
+        "--max-depth",
+        str(max_depth),
+        "--output-dir",
+        str(output_dir),
+    ]
+
+
 def _load_manifest(output_dir: Path) -> dict[str, object]:
     payload = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
     assert isinstance(payload, dict)
@@ -146,3 +169,84 @@ def test_confluence_cli_reuses_fetch_cache_on_second_fetch(
     assert "Summary: wrote 1, skipped 0" in second_run.out
     assert "cache_hits: 1" in second_run.out
     assert "cache_misses: 0" in second_run.out
+
+
+@pytest.mark.integration
+def test_confluence_cli_traverses_tree_through_real_client_path(
+    tmp_path: Path,
+    confluence_stub_server: ConfluenceStubServer,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "stub-token")
+    output_dir = tmp_path / "artifacts"
+
+    exit_code = main(
+        _confluence_tree_argv(
+            confluence_stub_server.base_url,
+            output_dir,
+            target="12345",
+            max_depth=1,
+        )
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "pages_in_tree: 2 (root + descendants)" in captured.out
+    assert "Summary: wrote 2, skipped 0" in captured.out
+
+    root_page_path = output_dir / "pages" / "12345.md"
+    child_page_path = output_dir / "pages" / "23456.md"
+    assert_markdown_document(
+        root_page_path.read_text(encoding="utf-8"),
+        title="Test Page",
+        metadata={
+            "source": "confluence",
+            "canonical_id": "12345",
+            "parent_id": "",
+            "source_url": f"{confluence_stub_server.base_url}/pages/viewpage.action?pageId=12345",
+            "fetched_at": "",
+            "updated_at": "",
+            "adapter": "confluence",
+        },
+        content="Hello world",
+    )
+    assert_markdown_document(
+        child_page_path.read_text(encoding="utf-8"),
+        title="Child Page",
+        metadata={
+            "source": "confluence",
+            "canonical_id": "23456",
+            "parent_id": "",
+            "source_url": f"{confluence_stub_server.base_url}/pages/viewpage.action?pageId=23456",
+            "fetched_at": "",
+            "updated_at": "",
+            "adapter": "confluence",
+        },
+        content="Child page content",
+    )
+
+    manifest = _load_manifest(output_dir)
+    assert manifest["root_page_id"] == "12345"
+    assert manifest["max_depth"] == 1
+    assert_manifest_entries(
+        manifest,
+        files=[
+            manifest_file(
+                canonical_id="12345",
+                source_url=f"{confluence_stub_server.base_url}/pages/viewpage.action?pageId=12345",
+                output_path="pages/12345.md",
+                title="Test Page",
+                page_version=1,
+                last_modified="2026-04-20T12:34:56Z",
+            ),
+            manifest_file(
+                canonical_id="23456",
+                source_url=f"{confluence_stub_server.base_url}/pages/viewpage.action?pageId=23456",
+                output_path="pages/23456.md",
+                title="Child Page",
+                page_version=2,
+                last_modified="2026-04-20T12:45:00Z",
+            ),
+        ],
+    )
