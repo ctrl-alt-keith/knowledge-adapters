@@ -69,6 +69,7 @@ _CONFLUENCE_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
         "space_url",
         "target",
         "tree",
+        "tree_cache_dir",
     }
 )
 _BUNDLE_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | _BUNDLE_OPTION_KEYS | frozenset(
@@ -542,6 +543,20 @@ def _build_confluence_argv(
             [
                 "--fetch-cache-dir",
                 _resolve_path_string(fetch_cache_dir, config_path=config_path),
+            ]
+        )
+
+    tree_cache_dir = _optional_string(
+        run_config,
+        "tree_cache_dir",
+        index=index,
+        config_path=config_path,
+    )
+    if tree_cache_dir is not None:
+        argv.extend(
+            [
+                "--tree-cache-dir",
+                _resolve_path_string(tree_cache_dir, config_path=config_path),
             ]
         )
 
