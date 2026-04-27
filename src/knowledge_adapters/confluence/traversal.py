@@ -7,6 +7,8 @@ from dataclasses import dataclass
 
 from knowledge_adapters.confluence.models import ResolvedTarget
 
+DISCOVERY_PROGRESS_INTERVAL = 500
+
 PagePayload = Mapping[str, object]
 FetchPage = Callable[[ResolvedTarget], dict[str, object]]
 ListChildPageIds = Callable[[ResolvedTarget], list[str]]
@@ -19,6 +21,7 @@ class TreeWalkProgress:
     depth: int
     discovered_pages: int
     fetched_pages: int
+    periodic: bool = False
 
 
 TreeWalkProgressCallback = Callable[[TreeWalkProgress], None]
@@ -101,6 +104,18 @@ def walk_pages(
                 continue
             fetched_pages[canonical_id] = page
             next_level.append(page)
+            if (
+                progress_callback is not None
+                and len(fetched_pages) % DISCOVERY_PROGRESS_INTERVAL == 0
+            ):
+                progress_callback(
+                    TreeWalkProgress(
+                        depth=_depth + 1,
+                        discovered_pages=len(fetched_pages),
+                        fetched_pages=len(fetched_pages),
+                        periodic=True,
+                    )
+                )
 
         current_level = sorted(
             next_level,
