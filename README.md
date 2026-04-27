@@ -101,10 +101,10 @@ live Confluence instance.
 `--base-url`. URLs are validated and normalized to canonical `pageId` form for
 artifact and manifest reporting.
 
-2. If the dry run looks right, rerun the same command without `--dry-run` to
+1. If the dry run looks right, rerun the same command without `--dry-run` to
    write the stub artifact and `manifest.json`.
 
-3. For live Confluence content, keep the same command shape, add
+1. For live Confluence content, keep the same command shape, add
    `--client-mode real` plus auth, and start with another dry run:
 
 - `bearer-env` -> `CONFLUENCE_BEARER_TOKEN`
@@ -221,6 +221,24 @@ adapter-specific inputs such as `base_url`/`target` or `file_path`, and its own
 `output_dir`. `runs.example.yaml` is committed for reference, while `runs.yaml`
 is gitignored for local use.
 
+### Bundle Usage
+
+Bundle one or more existing adapter outputs directly:
+
+```bash
+knowledge-adapters bundle ./artifacts/confluence/docs-home --output ./bundle.md
+```
+
+Render a named bundle from `runs.yaml`:
+
+```bash
+knowledge-adapters bundle --config ./runs.yaml --bundle review-pack
+```
+
+Use `runs.yaml` for repeatable workflows. `--stale-mode include|exclude|flag`
+controls how bundle rendering handles explicit stale-artifact metadata. See
+`runs.example.yaml` for fuller bundle and named-bundle examples.
+
 ---
 
 ## Repo-Local Development Setup
@@ -320,7 +338,9 @@ This repository is a public-by-design workspace for building source adapters tha
 - keep source-specific logic separate from downstream processing
 - avoid embedding environment-specific details in the codebase
 
-The initial implementation focuses on **Confluence** and **local file** adapters, but the repository is intentionally scoped for additional adapters over time.
+The initial implementation focuses on **Confluence** and **local file**
+adapters, but the repository is intentionally scoped for additional adapters
+over time.
 
 ---
 
@@ -352,6 +372,7 @@ The initial implementation focuses on **Confluence** and **local file** adapters
 ## Current Scope
 
 ### Implemented
+
 - repository structure
 - initial documentation
 - Confluence adapter scaffold with a default stub client
@@ -363,9 +384,11 @@ The initial implementation focuses on **Confluence** and **local file** adapters
 - initial unit tests
 
 ### Planned MVP
+
 - Confluence adapter
   - keep the default stub flow and opt-in real mode aligned around one CLI contract
-  - continue hardening contract-tested real-mode fetch, traversal, and incremental sync behavior against live environments
+  - continue hardening contract-tested real-mode fetch, traversal, and
+    incremental sync behavior against live environments
 - local files adapter
   - accept a runtime-provided file path
   - normalize file contents into markdown plus metadata
@@ -390,6 +413,7 @@ The initial implementation focuses on **Confluence** and **local file** adapters
 This repository contains only generic tooling, abstractions, and documentation.
 
 **Never commit:**
+
 - secrets
 - tokens
 - cookies
@@ -398,6 +422,7 @@ This repository contains only generic tooling, abstractions, and documentation.
 - environment-specific config files
 
 **Instead:**
+
 - inject credentials via environment variables, CLI args, or local-only config
 - keep local config and token storage outside the repo
 - use synthetic or sanitized fixtures for tests
@@ -591,6 +616,15 @@ default stub client still does not discover child pages, so out-of-the-box stub
 tree runs yield only the resolved root page. In `--client-mode real`, the CLI
 can traverse real child pages breadth-first up to `--max-depth`.
 
+### Traversal Cache Behavior
+
+Traversal cache is opt-in with `--tree-cache-dir` or `tree_cache_dir`.
+Cached listings are reused without freshness validation.
+Clear or change the cache directory when tree structure changes.
+
+> Traversal cache entries are operator-managed. Clear or change the cache
+> directory when pages are added, removed, or reorganized.
+
 Confluence incremental skip eligibility uses the existing `manifest.json` plus
 on-disk file existence. A page counts as already written only when:
 
@@ -607,9 +641,9 @@ target-based. Reusing an output directory for a different target is allowed, but
 overlapping canonical page IDs may still be skipped when the manifest and on-disk
 artifact match.
 
-During a normal write run, the tool also writes exactly one `manifest.json` file in
-the output directory. With the default single-page client, the manifest describes
-the resolved page artifact written by that run.
+During a normal write run, the tool also writes exactly one
+`manifest.json` file in the output directory. With the default single-page
+client, the manifest describes the resolved page artifact written by that run.
 
 Example shape from the default single-page Confluence client:
 
@@ -627,8 +661,8 @@ Example shape from the default single-page Confluence client:
 }
 ```
 
-For scaffolded tree-mode runs, the manifest keeps the same per-file entries and adds
-only minimal root-run context:
+For scaffolded tree-mode runs, the manifest keeps the same per-file entries and
+adds only minimal root-run context:
 
 ```json
 {
@@ -646,8 +680,8 @@ only minimal root-run context:
 }
 ```
 
-With the default stub client, tree mode still produces only the resolved root page
-unless you replace or monkeypatch the client in tests or other integration code.
-`title` is included only when it is already available as part of the current run. In
-`--dry-run` mode, the tool does not create or update `manifest.json`, and it does
-not create directories for the manifest.
+With the default stub client, tree mode still produces only the resolved root
+page unless you replace or monkeypatch the client in tests or other integration
+code. `title` is included only when it is already available as part of the
+current run. In `--dry-run` mode, the tool does not create or update
+`manifest.json`, and it does not create directories for the manifest.
