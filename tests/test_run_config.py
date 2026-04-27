@@ -966,8 +966,15 @@ def test_run_command_preserves_nested_confluence_inline_progress_on_tty(
     assert exit_code == 0
     output = capsys.readouterr().out
     assert output.count("\rdiscovered_pages: ") == 2
-    assert "\rdiscovered_pages: 500\rdiscovered_pages: 1000\n" in output
+    assert "\rTree progress: depth 0, discovered 1, fetched 1, planned 1" in output
+    assert "\rTree progress: depth 1, discovered 1001, fetched 1001, planned 1001" in output
     assert "\rdiscovered_pages: 500\n" not in output
+    assert "\rdiscovered_pages: 1000\n" not in output
+    assert (
+        "\rTree progress: depth 1, discovered 1001, fetched 1001, planned 1001\n"
+        "Confluence adapter invoked"
+        in output
+    )
     assert "Run 1/1 completed: docs-tree (confluence)" in output
     assert "Run summary: would write 1001, would skip 0" in output
     assert "Aggregate summary:" in output

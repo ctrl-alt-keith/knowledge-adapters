@@ -1586,6 +1586,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         def _finish_progress_line() -> None:
             progress_renderer.finish()
 
+        def _render_progress(text: str) -> None:
+            progress_renderer.render(text)
+
         def _print(
             *args: object,
             file: TextIO | None = None,
@@ -1837,13 +1840,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
 
         def _print_discovered_pages_progress(discovered_pages: int) -> None:
-            progress_renderer.render(f"discovered_pages: {discovered_pages}")
+            _render_progress(f"discovered_pages: {discovered_pages}")
 
         def _print_tree_walk_progress(progress: TreeWalkProgress) -> None:
             if progress.periodic:
                 _print_discovered_pages_progress(progress.discovered_pages)
                 return
-            _print(
+            _render_progress(
                 "Tree progress: "
                 f"depth {progress.depth}, "
                 f"discovered {progress.discovered_pages}, "
@@ -1892,7 +1895,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         fetched_count=index,
                         total_count=len(discovered_page_ids),
                     ):
-                        _print(
+                        _render_progress(
                             "Space fetch progress: "
                             f"fetched {index}/{len(discovered_page_ids)}, "
                             f"planned {len(discovered_page_ids)}"
@@ -1992,7 +1995,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             fetched_write_pages = 0
             if pages_needing_fetch > 0:
-                _print(
+                _render_progress(
                     "Space write fetch progress: "
                     f"fetched 0/{pages_needing_fetch}, "
                     f"skipped {skip_count}, "
@@ -2020,13 +2023,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                         fetched_count=fetched_write_pages,
                         total_count=pages_needing_fetch,
                     ):
-                        _print(
+                        _render_progress(
                             "Space write fetch progress: "
                             f"fetched {fetched_write_pages}/{pages_needing_fetch}, "
                             f"skipped {skip_count}, "
                             f"planned {len(space_page_records)}"
                         )
             except (RuntimeError, ValueError) as exc:
+                _finish_progress_line()
                 exit_with_cli_error(
                     str(exc),
                     command="confluence",
@@ -2200,7 +2204,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             fetched_write_pages = 0
             if pages_needing_fetch > 0:
-                _print(
+                _render_progress(
                     "Tree fetch progress: "
                     f"fetched 0/{pages_needing_fetch}, "
                     f"skipped {skip_count}, "
@@ -2228,13 +2232,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                         fetched_count=fetched_write_pages,
                         total_count=pages_needing_fetch,
                     ):
-                        _print(
+                        _render_progress(
                             "Tree fetch progress: "
                             f"fetched {fetched_write_pages}/{pages_needing_fetch}, "
                             f"skipped {skip_count}, "
                             f"planned {len(page_records)}"
                         )
             except (RuntimeError, ValueError) as exc:
+                _finish_progress_line()
                 exit_with_cli_error(
                     str(exc),
                     command="confluence",
