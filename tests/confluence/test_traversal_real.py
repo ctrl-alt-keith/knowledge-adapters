@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
@@ -293,6 +294,7 @@ def _run_real_space_cli(
     *,
     pages: dict[str, dict[str, object]] | None = None,
     discovered_page_ids: list[str] | None = None,
+    discovery_progress_counts: list[int] | None = None,
     space_flag: str = "--space-key",
     space_value: str = "ENG",
 ) -> tuple[int, Path, dict[str, int], list[str]]:
@@ -337,9 +339,12 @@ def _run_real_space_cli(
             ca_bundle,
             client_cert_file,
             client_key_file,
-            progress_callback,
         )
         space_list_calls.append(space_key)
+        if progress_callback is not None:
+            callback = cast(Callable[[int], None], progress_callback)
+            for discovered_pages in discovery_progress_counts or []:
+                callback(discovered_pages)
         return list(discovered_page_ids or [])
 
     def fail_if_child_discovery_used(*args: object, **kwargs: object) -> list[str]:
@@ -441,6 +446,47 @@ def test_real_space_fetch_progress_uses_carriage_return_for_tty_stdout(
     )
     assert "\rSpace fetch progress: fetched 1/3, planned 3\n" not in output
     assert "Summary: wrote 3, skipped 0" in output
+
+
+def test_real_space_discovery_aligns_final_inline_progress_for_tty_stdout(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    pages = {
+        str(page_id): {
+            "canonical_id": str(page_id),
+            "title": f"Page {page_id}",
+            "source_url": f"https://example.com/wiki/pages/{page_id}",
+            "content": f"Content for {page_id}.",
+            "page_version": page_id,
+            "last_modified": "2026-04-20T00:00:00Z",
+        }
+        for page_id in range(100, 1101)
+    }
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+
+    exit_code, _output_dir, _page_fetch_counts, _space_list_calls = _run_real_space_cli(
+        tmp_path,
+        monkeypatch,
+        pages=pages,
+        discovered_page_ids=[str(page_id) for page_id in range(100, 1101)],
+        discovery_progress_counts=[500, 1000],
+    )
+
+    assert exit_code == 0
+
+    output = capsys.readouterr().out
+    assert output.count("\rdiscovered_pages: ") == 3
+    assert (
+        "\rdiscovered_pages: 1001\n"
+        "Space progress: discovered 1001 pages, planned 1001"
+        in output
+    )
+    assert "\rdiscovered_pages: 500\n" not in output
+    assert "\rdiscovered_pages: 1000\n" not in output
+    assert "pages_discovered: 1001" in output
+    assert "Summary: wrote 1001, skipped 0" in output
 
 
 def test_real_tree_runs_without_traversal_cache_by_default(
@@ -1164,15 +1210,19 @@ def test_real_tree_uses_carriage_return_progress_for_tty_stdout(
     assert exit_code == 0
 
     output = capsys.readouterr().out
-    assert output.count("\rdiscovered_pages: ") == 2
+    assert output.count("\rdiscovered_pages: ") == 3
     assert "\rTree progress: depth 0, discovered 1, fetched 1, planned 1" in output
     assert "\rTree progress: depth 1, discovered 1001, fetched 1001, planned 1001" in output
+    assert output.rfind("\rdiscovered_pages: 1001") < output.rfind(
+        "\rTree progress: depth 1, discovered 1001, fetched 1001, planned 1001"
+    )
     assert (
         "\rTree progress: depth 1, discovered 1001, fetched 1001, planned 1001\n"
         "Confluence adapter invoked"
         in output
     )
     assert "\rdiscovered_pages: 500\n" not in output
+    assert "\rdiscovered_pages: 1001\n" not in output
     assert output.endswith("\n")
 
 
