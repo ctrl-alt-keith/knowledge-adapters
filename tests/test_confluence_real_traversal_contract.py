@@ -18,8 +18,9 @@ def _real_tree_argv(
     *,
     target: str = "100",
     max_depth: int,
+    dry_run: bool = False,
 ) -> list[str]:
-    return [
+    argv = [
         "confluence",
         "--base-url",
         "https://example.com/wiki",
@@ -33,6 +34,9 @@ def _real_tree_argv(
         "--max-depth",
         str(max_depth),
     ]
+    if dry_run:
+        argv.append("--dry-run")
+    return argv
 
 
 def _real_space_argv(
@@ -202,6 +206,7 @@ def _run_real_recursive_cli(
     children_by_parent: dict[str, ChildDiscoveryResult] | None = None,
     target: str = "100",
     max_depth: int,
+    dry_run: bool = False,
     fail_on_page_ids: set[str] | None = None,
 ) -> tuple[int, Path, dict[str, int], list[str]]:
     from knowledge_adapters.confluence import client as client_module
@@ -258,7 +263,14 @@ def _run_real_recursive_cli(
     monkeypatch.setattr(client_module, "fetch_page", fail_if_stub_used)
 
     output_dir = tmp_path / "out"
-    exit_code = main(_real_tree_argv(output_dir, target=target, max_depth=max_depth))
+    exit_code = main(
+        _real_tree_argv(
+            output_dir,
+            target=target,
+            max_depth=max_depth,
+            dry_run=dry_run,
+        )
+    )
     return exit_code, output_dir, page_fetch_counts, child_list_calls
 
 
@@ -913,6 +925,51 @@ def test_real_tree_reports_depth_progress_during_traversal(
     assert "Tree progress: depth 0, discovered 1, fetched 1, planned 1" in output
     assert "Tree progress: depth 1, discovered 3, fetched 3, planned 3" in output
     assert "Tree progress: depth 2, discovered 5, fetched 5, planned 5" in output
+    assert "discovered_pages:" not in output
+
+
+def test_real_tree_reports_periodic_discovery_progress_for_large_runs(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    pages = {
+        str(page_id): {
+            "canonical_id": str(page_id),
+            "title": f"Page {page_id}",
+            "source_url": f"https://example.com/wiki/pages/{page_id}",
+            "content": f"Content for {page_id}.",
+            "page_version": page_id,
+            "last_modified": "2026-04-20T00:00:00Z",
+        }
+        for page_id in range(100, 1101)
+    }
+    children_by_parent: dict[str, ChildDiscoveryResult] = {
+        "100": [str(page_id) for page_id in range(101, 1101)],
+    }
+    children_by_parent.update(
+        {str(page_id): [] for page_id in range(101, 1101)}
+    )
+
+    exit_code, _output_dir, _page_fetch_counts, _child_list_calls = _run_real_recursive_cli(
+        tmp_path,
+        monkeypatch,
+        pages=pages,
+        children_by_parent=children_by_parent,
+        max_depth=1,
+        dry_run=True,
+    )
+
+    assert exit_code == 0
+
+    output = capsys.readouterr().out
+    assert "discovered_pages: 500" in output
+    assert "discovered_pages: 1000" in output
+    assert "  Summary:" in output
+    assert "    would_write: 1001" in output
+    assert "    would_skip: 0" in output
+    assert "  pages_in_tree: 1001 (root + descendants)" in output
+    assert "    pages_in_plan: 1001 (root 1, descendants 1000)" in output
 
 
 def test_real_tree_orders_pages_breadth_first_then_lexical_without_parent_adjacency(

@@ -1729,6 +1729,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
 
         def _print_tree_walk_progress(progress: TreeWalkProgress) -> None:
+            if progress.periodic:
+                print(f"discovered_pages: {progress.discovered_pages}")
+                return
             print(
                 "Tree progress: "
                 f"depth {progress.depth}, "
