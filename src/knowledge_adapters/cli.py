@@ -169,6 +169,7 @@ _CONFLUENCE_REAL_ONLY_INPUT_FLAGS = (
     "--client-cert-file",
     "--client-key-file",
     "--fetch-cache-dir",
+    "--tree-cache-dir",
 )
 
 
@@ -428,6 +429,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--fetch-cache-dir",
         help=(
             "Opt-in directory for caching raw Confluence full-page fetch payloads. "
+            "Disabled when omitted."
+        ),
+    )
+    confluence_parser.add_argument(
+        "--tree-cache-dir",
+        help=(
+            "Opt-in directory for caching Confluence traversal listing results. "
             "Disabled when omitted."
         ),
     )
@@ -1253,6 +1261,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             validate_space_key,
         )
         from knowledge_adapters.confluence.traversal import TreeWalkProgress, walk_pages
+        from knowledge_adapters.confluence.tree_cache import (
+            ConfluenceTreeCache,
+            prepare_tree_cache_dir,
+        )
         from knowledge_adapters.confluence.writer import markdown_path, write_markdown
         from knowledge_adapters.manifest import (
             build_manifest_entry,
@@ -1276,6 +1288,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             client_cert_file=args.client_cert_file,
             client_key_file=args.client_key_file,
             fetch_cache_dir=args.fetch_cache_dir,
+            tree_cache_dir=args.tree_cache_dir,
             client_mode=args.client_mode,
             auth_method=args.auth_method,
             debug=args.debug,
@@ -1298,6 +1311,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             try:
                 fetch_cache = ConfluenceFetchCache(
                     prepare_fetch_cache_dir(confluence_config.fetch_cache_dir),
+                    base_url=confluence_config.base_url,
+                )
+            except ValueError as exc:
+                exit_with_cli_error(str(exc), command="confluence")
+        tree_cache: ConfluenceTreeCache | None = None
+        if confluence_config.tree_cache_dir is not None:
+            try:
+                tree_cache = ConfluenceTreeCache(
+                    prepare_tree_cache_dir(confluence_config.tree_cache_dir),
                     base_url=confluence_config.base_url,
                 )
             except ValueError as exc:
@@ -1437,20 +1459,31 @@ def main(argv: Sequence[str] | None = None) -> int:
             def selected_list_child_page_ids(
                 resolved_target: ResolvedTarget,
             ) -> list[str]:
-                return list_real_child_page_ids(
-                    resolved_target,
-                    base_url=confluence_config.base_url,
-                    auth_method=confluence_config.auth_method,
-                    **real_client_tls_kwargs(),
-                )
+                def fetch_listing() -> list[str]:
+                    return list_real_child_page_ids(
+                        resolved_target,
+                        base_url=confluence_config.base_url,
+                        auth_method=confluence_config.auth_method,
+                        **real_client_tls_kwargs(),
+                    )
+
+                page_id = resolved_target.page_id
+                if tree_cache is None or not page_id:
+                    return fetch_listing()
+                return tree_cache.get_child_page_ids(page_id, fetch_listing)
 
             def selected_list_space_page_ids(space_key: str) -> list[str]:
-                return list_real_space_page_ids(
-                    space_key,
-                    base_url=confluence_config.base_url,
-                    auth_method=confluence_config.auth_method,
-                    **real_client_tls_kwargs(),
-                )
+                def fetch_listing() -> list[str]:
+                    return list_real_space_page_ids(
+                        space_key,
+                        base_url=confluence_config.base_url,
+                        auth_method=confluence_config.auth_method,
+                        **real_client_tls_kwargs(),
+                    )
+
+                if tree_cache is None:
+                    return fetch_listing()
+                return tree_cache.get_space_page_ids(space_key, fetch_listing)
         else:
             selected_fetch_page = fetch_page
             selected_fetch_page_summary = fetch_page
@@ -1650,6 +1683,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             if fetch_cache is not None:
                 summary_lines.append(f"    cache_hits: {fetch_cache.stats.hits}")
                 summary_lines.append(f"    cache_misses: {fetch_cache.stats.misses}")
+            if tree_cache is not None:
+                summary_lines.append(f"    tree_cache_hits: {tree_cache.stats.hits}")
+                summary_lines.append(f"    tree_cache_misses: {tree_cache.stats.misses}")
             print("  Summary:")
             for line in summary_lines:
                 print(line)
@@ -1672,6 +1708,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             if fetch_cache is not None:
                 print(f"  cache_hits: {fetch_cache.stats.hits}")
                 print(f"  cache_misses: {fetch_cache.stats.misses}")
+            if tree_cache is not None:
+                print(f"  tree_cache_hits: {tree_cache.stats.hits}")
+                print(f"  tree_cache_misses: {tree_cache.stats.misses}")
             print(f"  pages_written: {write_count}")
             print(f"  pages_skipped: {skip_count}")
 

@@ -43,6 +43,7 @@ runs:
     target: "12345"
     output_dir: ./artifacts/confluence/docs-home
     fetch_cache_dir: ./.cache/confluence-fetches
+    tree_cache_dir: ./.cache/confluence-tree
   - name: team-notes
     type: local_files
     file_path: ./inputs/team-notes.txt
@@ -70,6 +71,8 @@ runs:
                 str((tmp_path / "artifacts" / "confluence" / "docs-home").resolve()),
                 "--fetch-cache-dir",
                 str((tmp_path / ".cache" / "confluence-fetches").resolve()),
+                "--tree-cache-dir",
+                str((tmp_path / ".cache" / "confluence-tree").resolve()),
             ),
             dry_run=False,
         ),

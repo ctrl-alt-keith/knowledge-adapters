@@ -382,6 +382,235 @@ def test_real_space_mode_discovers_pages_and_writes_in_lexical_order(
     assert "Summary: wrote 3, skipped 0" in output
 
 
+def test_real_tree_runs_without_traversal_cache_by_default(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    exit_code, _output_dir, _page_fetch_counts, child_list_calls = _run_real_recursive_cli(
+        tmp_path,
+        monkeypatch,
+        max_depth=1,
+    )
+
+    assert exit_code == 0
+    assert child_list_calls == ["100"]
+    output = capsys.readouterr().out
+    assert "tree_cache_hits" not in output
+    assert "tree_cache_misses" not in output
+
+
+def test_real_tree_reuses_cached_child_page_listing(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    from knowledge_adapters.confluence import client as client_module
+
+    pages = _real_pages()
+    cache_dir = tmp_path / "cache"
+    child_list_calls: list[str] = []
+
+    def stub_real_fetch(
+        target: ResolvedTarget,
+        *,
+        base_url: str = "https://example.com/wiki",
+        auth_method: str = "bearer-env",
+        ca_bundle: str | None = None,
+        client_cert_file: str | None = None,
+        client_key_file: str | None = None,
+    ) -> dict[str, object]:
+        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
+        return dict(pages[str(target.page_id)])
+
+    def stub_child_id_discovery(*args: object, **kwargs: object) -> list[str]:
+        parent_id = _called_page_id(args, kwargs)
+        child_list_calls.append(parent_id)
+        return ["200", "300"]
+
+    monkeypatch.setattr(client_module, "fetch_real_page", stub_real_fetch, raising=False)
+    monkeypatch.setattr(
+        client_module,
+        "list_real_child_page_ids",
+        stub_child_id_discovery,
+        raising=False,
+    )
+
+    first_output_dir = tmp_path / "first"
+    assert (
+        main(
+            [
+                *_real_tree_argv(first_output_dir, max_depth=1),
+                "--tree-cache-dir",
+                str(cache_dir),
+            ]
+        )
+        == 0
+    )
+    first_output = capsys.readouterr().out
+    assert "tree_cache_hits: 0" in first_output
+    assert "tree_cache_misses: 1" in first_output
+
+    second_output_dir = tmp_path / "second"
+    assert (
+        main(
+            [
+                *_real_tree_argv(second_output_dir, max_depth=1),
+                "--tree-cache-dir",
+                str(cache_dir),
+            ]
+        )
+        == 0
+    )
+
+    assert child_list_calls == ["100"]
+    second_output = capsys.readouterr().out
+    assert "tree_cache_hits: 1" in second_output
+    assert "tree_cache_misses: 0" in second_output
+
+
+def test_real_tree_cache_write_failure_does_not_fail_run(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    from knowledge_adapters.confluence import client as client_module
+    from knowledge_adapters.confluence.tree_cache import ConfluenceTreeCache
+
+    pages = _real_pages()
+    child_list_calls: list[str] = []
+
+    def stub_real_fetch(
+        target: ResolvedTarget,
+        *,
+        base_url: str = "https://example.com/wiki",
+        auth_method: str = "bearer-env",
+        ca_bundle: str | None = None,
+        client_cert_file: str | None = None,
+        client_key_file: str | None = None,
+    ) -> dict[str, object]:
+        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
+        return dict(pages[str(target.page_id)])
+
+    def stub_child_id_discovery(*args: object, **kwargs: object) -> list[str]:
+        parent_id = _called_page_id(args, kwargs)
+        child_list_calls.append(parent_id)
+        return ["200", "300"]
+
+    def raise_write_error(
+        self: ConfluenceTreeCache,
+        *,
+        kind: str,
+        key_value: str,
+        entry: object,
+    ) -> None:
+        del self, kind, key_value, entry
+        raise OSError("synthetic write failure")
+
+    monkeypatch.setattr(client_module, "fetch_real_page", stub_real_fetch, raising=False)
+    monkeypatch.setattr(
+        client_module,
+        "list_real_child_page_ids",
+        stub_child_id_discovery,
+        raising=False,
+    )
+    monkeypatch.setattr(ConfluenceTreeCache, "_write_entry", raise_write_error)
+
+    assert (
+        main(
+            [
+                *_real_tree_argv(tmp_path / "out", max_depth=1),
+                "--tree-cache-dir",
+                str(tmp_path / "cache"),
+            ]
+        )
+        == 0
+    )
+
+    assert child_list_calls == ["100"]
+    output = capsys.readouterr().out
+    assert "Summary: wrote 3, skipped 0" in output
+    assert "tree_cache_hits: 0" in output
+    assert "tree_cache_misses: 1" in output
+
+
+def test_real_space_reuses_cached_space_page_listing(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    from knowledge_adapters.confluence import client as client_module
+
+    pages = _real_pages()
+    cache_dir = tmp_path / "cache"
+    space_list_calls: list[str] = []
+
+    def stub_real_fetch(
+        target: ResolvedTarget,
+        *,
+        base_url: str = "https://example.com/wiki",
+        auth_method: str = "bearer-env",
+        ca_bundle: str | None = None,
+        client_cert_file: str | None = None,
+        client_key_file: str | None = None,
+    ) -> dict[str, object]:
+        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
+        return dict(pages[str(target.page_id)])
+
+    def stub_space_discovery(
+        space_key: str,
+        *,
+        base_url: str = "https://example.com/wiki",
+        auth_method: str = "bearer-env",
+        ca_bundle: str | None = None,
+        client_cert_file: str | None = None,
+        client_key_file: str | None = None,
+    ) -> list[str]:
+        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
+        space_list_calls.append(space_key)
+        return ["300", "100", "200"]
+
+    monkeypatch.setattr(client_module, "fetch_real_page", stub_real_fetch, raising=False)
+    monkeypatch.setattr(
+        client_module,
+        "list_real_space_page_ids",
+        stub_space_discovery,
+        raising=False,
+    )
+
+    first_output_dir = tmp_path / "first"
+    assert (
+        main(
+            [
+                *_real_space_argv(first_output_dir),
+                "--tree-cache-dir",
+                str(cache_dir),
+            ]
+        )
+        == 0
+    )
+    first_output = capsys.readouterr().out
+    assert "tree_cache_hits: 0" in first_output
+    assert "tree_cache_misses: 1" in first_output
+
+    second_output_dir = tmp_path / "second"
+    assert (
+        main(
+            [
+                *_real_space_argv(second_output_dir),
+                "--tree-cache-dir",
+                str(cache_dir),
+            ]
+        )
+        == 0
+    )
+
+    assert space_list_calls == ["ENG"]
+    second_output = capsys.readouterr().out
+    assert "tree_cache_hits: 1" in second_output
+    assert "tree_cache_misses: 0" in second_output
+
+
 def test_real_space_dry_run_reports_space_summary_and_planned_actions(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,

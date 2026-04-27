@@ -42,6 +42,8 @@ runs:
     max_depth: 1
     # client_mode: real
     # auth_method: client-cert-env
+    # Optional traversal cache for repeated large tree listing runs.
+    # tree_cache_dir: ./.cache/confluence-tree
     # client_cert_file: ./certs/confluence-client.crt
     # client_key_file: ./certs/confluence-client.key
     # Optional TLS override for an internal CA.
