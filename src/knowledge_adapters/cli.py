@@ -207,6 +207,37 @@ class _TeeStream:
             stream.flush()
 
 
+class _ProgressLineRenderer:
+    """Render deterministic progress lines, using carriage return only for TTYs."""
+
+    def __init__(self, stream: TextIO) -> None:
+        self._stream = stream
+        self._has_pending_tty_line = False
+
+    def render(self, text: str) -> None:
+        if self._is_tty():
+            self._stream.write(f"\r{text}")
+            self._stream.flush()
+            self._has_pending_tty_line = True
+            return
+
+        print(text, file=self._stream)
+
+    def finish(self) -> None:
+        if not self._has_pending_tty_line:
+            return
+
+        self._stream.write("\n")
+        self._stream.flush()
+        self._has_pending_tty_line = False
+
+    def _is_tty(self) -> bool:
+        isatty = getattr(self._stream, "isatty", None)
+        if not callable(isatty):
+            return False
+        return bool(isatty())
+
+
 def _parse_confluence_auth_method(value: str) -> str:
     """Parse and validate a supported Confluence auth method."""
     normalized_value = value.strip()
@@ -1730,13 +1761,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "use --client-mode real to discover descendants from Confluence."
             )
 
+        progress_renderer = _ProgressLineRenderer(sys.stdout)
+
+        def _finish_progress_line() -> None:
+            progress_renderer.finish()
+
         def _print_discovered_pages_progress(discovered_pages: int) -> None:
-            print(f"discovered_pages: {discovered_pages}")
+            progress_renderer.render(f"discovered_pages: {discovered_pages}")
 
         def _print_tree_walk_progress(progress: TreeWalkProgress) -> None:
             if progress.periodic:
                 _print_discovered_pages_progress(progress.discovered_pages)
                 return
+            _finish_progress_line()
             print(
                 "Tree progress: "
                 f"depth {progress.depth}, "
@@ -1766,6 +1803,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"Space progress: discovery started, space_key {resolved_space_key}")
             try:
                 discovered_page_ids = sorted(set(selected_list_space_page_ids(resolved_space_key)))
+                _finish_progress_line()
                 print(
                     "Space progress: "
                     f"discovered {len(discovered_page_ids)} pages, "
@@ -1792,12 +1830,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                             f"planned {len(discovered_page_ids)}"
                         )
             except (RuntimeError, ValueError) as exc:
+                _finish_progress_line()
                 exit_with_cli_error(
                     str(exc),
                     command="confluence",
                     debug_lines=_confluence_debug_lines(exc),
                 )
 
+            _finish_progress_line()
             _print_confluence_invocation()
             space_page_records: list[tuple[dict[str, object], Path, PageSyncDecision, str]] = []
             for page in pages:
@@ -1992,6 +2032,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         progress_callback=_print_tree_walk_progress,
                     )
                 except (RuntimeError, ValueError) as exc:
+                    _finish_progress_line()
                     exit_with_cli_error(
                         str(exc),
                         command="confluence",
@@ -2005,6 +2046,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     list_child_page_ids=selected_list_child_page_ids,
                     progress_callback=_print_tree_walk_progress,
                 )
+            _finish_progress_line()
             _print_confluence_invocation()
             page_records: list[tuple[dict[str, object], Path, PageSyncDecision, str]] = []
             for page in pages:

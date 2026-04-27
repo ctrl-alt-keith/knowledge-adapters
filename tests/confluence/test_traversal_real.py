@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import cast
 
@@ -984,6 +985,7 @@ def test_real_tree_reports_periodic_discovery_progress_for_large_runs(
     assert exit_code == 0
 
     output = capsys.readouterr().out
+    assert "\r" not in output
     assert "discovered_pages: 500" in output
     assert "discovered_pages: 1000" in output
     assert "  Summary:" in output
@@ -991,6 +993,50 @@ def test_real_tree_reports_periodic_discovery_progress_for_large_runs(
     assert "    would_skip: 0" in output
     assert "  pages_in_tree: 1001 (root + descendants)" in output
     assert "    pages_in_plan: 1001 (root 1, descendants 1000)" in output
+
+
+def test_real_tree_uses_carriage_return_progress_for_tty_stdout(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    pages = {
+        str(page_id): {
+            "canonical_id": str(page_id),
+            "title": f"Page {page_id}",
+            "source_url": f"https://example.com/wiki/pages/{page_id}",
+            "content": f"Content for {page_id}.",
+            "page_version": page_id,
+            "last_modified": "2026-04-20T00:00:00Z",
+        }
+        for page_id in range(100, 1101)
+    }
+    children_by_parent: dict[str, ChildDiscoveryResult] = {
+        "100": [str(page_id) for page_id in range(101, 1101)],
+    }
+    children_by_parent.update({str(page_id): [] for page_id in range(101, 1101)})
+
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+
+    exit_code, _output_dir, _page_fetch_counts, _child_list_calls = _run_real_recursive_cli(
+        tmp_path,
+        monkeypatch,
+        pages=pages,
+        children_by_parent=children_by_parent,
+        max_depth=1,
+        dry_run=True,
+    )
+
+    assert exit_code == 0
+
+    output = capsys.readouterr().out
+    assert "\rdiscovered_pages: 500" in output
+    assert (
+        "\rdiscovered_pages: 1000\n"
+        "Tree progress: depth 1, discovered 1001, fetched 1001, planned 1001"
+        in output
+    )
+    assert output.endswith("\n")
 
 
 def test_real_tree_reports_listing_progress_before_depth_progress(
