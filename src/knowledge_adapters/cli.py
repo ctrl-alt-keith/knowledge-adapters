@@ -1376,6 +1376,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "--target, --space-key, or --space-url is required.",
                 command="confluence",
             )
+        if explicit_max_depth and not confluence_config.tree:
+            exit_with_cli_error(
+                "--max-depth requires --tree.",
+                command="confluence",
+            )
         try:
             validate_explicit_tls_paths(
                 ca_bundle=None if confluence_config.no_ca_bundle else confluence_config.ca_bundle,
