@@ -986,8 +986,7 @@ def test_real_tree_reports_periodic_discovery_progress_for_large_runs(
 
     output = capsys.readouterr().out
     assert "\r" not in output
-    assert "discovered_pages: 500" in output
-    assert "discovered_pages: 1000" in output
+    assert "discovered_pages: 500\ndiscovered_pages: 1000\n" in output
     assert "  Summary:" in output
     assert "    would_write: 1001" in output
     assert "    would_skip: 0" in output
@@ -1030,12 +1029,13 @@ def test_real_tree_uses_carriage_return_progress_for_tty_stdout(
     assert exit_code == 0
 
     output = capsys.readouterr().out
-    assert "\rdiscovered_pages: 500" in output
+    assert output.count("\rdiscovered_pages: ") == 2
     assert (
-        "\rdiscovered_pages: 1000\n"
+        "\rdiscovered_pages: 500\rdiscovered_pages: 1000\n"
         "Tree progress: depth 1, discovered 1001, fetched 1001, planned 1001"
         in output
     )
+    assert "\rdiscovered_pages: 500\n" not in output
     assert output.endswith("\n")
 
 
