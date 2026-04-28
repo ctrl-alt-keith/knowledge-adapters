@@ -117,6 +117,8 @@ Pull requests must:
 
 PR scope integrity:
 - a PR is not complete unless its diff contains only the intended arc
+- this repository is part of a multi-repo workspace; changes must be scoped to this repository only
+- do not stage or commit files from other repositories; open separate PRs per repository
 
 Issue auto-close:
 - issue-driven PRs must include `Closes #<issue number>` before merge
