@@ -229,7 +229,7 @@ def test_confluence_force_refresh_bypasses_fetch_cache_hit(
     assert "force_refresh: enabled; configured cache reads will be bypassed" in captured.out
     assert "cache_hits: 0" in captured.out
     assert "cache_misses: 0" in captured.out
-    assert "page_fetch_requests: 2" in captured.out
+    assert "page_fetch_requests: 1" in captured.out
     assert "fetch_cache_hits: 0" in captured.out
     assert "fetch_cache_misses: 0" in captured.out
     assert "fetch_cache_saved_requests: 0" in captured.out
@@ -263,7 +263,7 @@ def test_confluence_clear_cache_removes_stale_fetch_entry_before_run(
     assert "fetch_cache: cleared configured entries" in captured.out
     assert "cache_hits: 0" in captured.out
     assert "cache_misses: 1" in captured.out
-    assert "page_fetch_requests: 2" in captured.out
+    assert "page_fetch_requests: 1" in captured.out
     assert "fetch_cache_hits: 0" in captured.out
     assert "fetch_cache_misses: 1" in captured.out
     assert "fetch_cache_saved_requests: 0" in captured.out

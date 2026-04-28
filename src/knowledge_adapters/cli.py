@@ -1607,8 +1607,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
             def selected_fetch_page(resolved_target: ResolvedTarget) -> dict[str, object]:
                 with run_metrics.time_fetch():
+                    run_metrics.record_page_fetch_request()
                     if fetch_cache is None:
-                        run_metrics.record_page_fetch_request()
                         return fetch_real_page(
                             resolved_target,
                             base_url=confluence_config.base_url,
@@ -1622,7 +1622,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                         if cached_page is not None:
                             return cached_page
 
-                    run_metrics.record_page_fetch_request()
                     raw_payload = fetch_real_page_raw(
                         resolved_target,
                         base_url=confluence_config.base_url,
@@ -1639,7 +1638,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 resolved_target: ResolvedTarget,
             ) -> dict[str, object]:
                 with run_metrics.time_fetch():
-                    run_metrics.record_page_fetch_request()
                     page = fetch_real_page_summary(
                         resolved_target,
                         base_url=confluence_config.base_url,
@@ -1690,7 +1688,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                     run_metrics.record_page_fetch_request()
                     return fetch_page(resolved_target)
 
-            selected_fetch_page_summary = selected_fetch_page
+            def selected_fetch_page_summary(
+                resolved_target: ResolvedTarget,
+            ) -> dict[str, object]:
+                with run_metrics.time_fetch():
+                    return fetch_page(resolved_target)
 
         progress_renderer = _ProgressLineRenderer(sys.stdout)
         progress_stdout = _ProgressAwareStream(sys.stdout, progress_renderer)
