@@ -9,7 +9,8 @@ This repository follows the shared workflow defined in the
 - Engineering baseline: `ai-workflow-playbook/docs/engineering-baseline.md`
 - Workflow rules: `ai-workflow-playbook/docs/`
 
-When in doubt, prefer the playbook over local guidance.
+Use the playbook for general workflow rules. Follow this AGENTS.md for
+repo-specific behavior when they differ.
 
 ---
 
