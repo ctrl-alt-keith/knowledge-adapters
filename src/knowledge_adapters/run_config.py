@@ -59,10 +59,12 @@ _CONFLUENCE_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
         "client_mode",
         "client_cert_file",
         "client_key_file",
+        "clear_cache",
         "debug",
         "dry_run",
         "enabled",
         "fetch_cache_dir",
+        "force_refresh",
         "max_depth",
         "output_dir",
         "space_key",
@@ -559,6 +561,23 @@ def _build_confluence_argv(
                 _resolve_path_string(tree_cache_dir, config_path=config_path),
             ]
         )
+
+    if _optional_bool(
+        run_config,
+        "force_refresh",
+        index=index,
+        config_path=config_path,
+        default=False,
+    ):
+        argv.append("--force-refresh")
+    if _optional_bool(
+        run_config,
+        "clear_cache",
+        index=index,
+        config_path=config_path,
+        default=False,
+    ):
+        argv.append("--clear-cache")
 
     if _optional_bool(run_config, "debug", index=index, config_path=config_path, default=False):
         argv.append("--debug")

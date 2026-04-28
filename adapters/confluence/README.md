@@ -87,6 +87,10 @@ Out of the box, the default Confluence CLI:
 - supports an opt-in real client path with `--client-mode real` for
   contract-tested live page fetches and breadth-first tree traversal using
   `bearer-env` or `client-cert-env` auth
+- supports opt-in fetch and traversal caches with explicit cache controls:
+  `--force-refresh` bypasses configured cache reads while still writing fresh
+  entries, and `--clear-cache` clears only configured Confluence cache subtrees
+  before the run starts
 - keeps `stub` and `real` modes on the same CLI flow and artifact layout, with
   only the content source changing between modes
 - keeps dry-run and write messaging aligned across `stub` and `real`, including

@@ -136,6 +136,8 @@ runs:
     output_dir: ./artifacts/confluence/docs-home
     fetch_cache_dir: ./.cache/confluence-fetches
     tree_cache_dir: ./.cache/confluence-tree
+    force_refresh: true
+    clear_cache: true
   - name: team-notes
     type: local_files
     file_path: ./inputs/team-notes.txt
@@ -165,6 +167,8 @@ runs:
                 str((tmp_path / ".cache" / "confluence-fetches").resolve()),
                 "--tree-cache-dir",
                 str((tmp_path / ".cache" / "confluence-tree").resolve()),
+                "--force-refresh",
+                "--clear-cache",
             ),
             dry_run=False,
         ),

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -61,12 +62,25 @@ def prepare_fetch_cache_dir(path_value: str) -> Path:
     return cache_dir
 
 
+def clear_fetch_cache_entries(root_dir: Path, *, base_url: str) -> bool:
+    """Delete known fetch-cache entries under the configured cache root."""
+    cache_subtree = _fetch_cache_subtree(root_dir, base_url=base_url)
+    if not cache_subtree.exists():
+        return False
+    if cache_subtree.is_symlink() or not cache_subtree.is_dir():
+        cache_subtree.unlink()
+        return True
+    shutil.rmtree(cache_subtree)
+    return True
+
+
 class ConfluenceFetchCache:
     """Best-effort cache for raw Confluence full-page payloads."""
 
-    def __init__(self, root_dir: Path, *, base_url: str) -> None:
+    def __init__(self, root_dir: Path, *, base_url: str, force_refresh: bool = False) -> None:
         self._root_dir = root_dir
         self._base_url = _normal_base_url(base_url)
+        self._force_refresh = force_refresh
         self._metadata_by_id: dict[str, _PageMetadata] = {}
         self.stats = ConfluenceFetchCacheStats()
 
@@ -90,6 +104,10 @@ class ConfluenceFetchCache:
 
     def load_page(self, canonical_id: str) -> dict[str, object] | None:
         """Return a mapped cached page when metadata and payload are valid."""
+        if self._force_refresh:
+            self.stats.misses += 1
+            return None
+
         metadata = self._metadata_by_id.get(canonical_id)
         if metadata is None:
             self.stats.misses += 1
@@ -138,10 +156,7 @@ class ConfluenceFetchCache:
 
     def _entry_path(self, canonical_id: str) -> Path:
         return (
-            self._root_dir
-            / "confluence"
-            / _hash_value(self._base_url)
-            / "pages"
+            _fetch_cache_subtree(self._root_dir, base_url=self._base_url)
             / _hash_value(canonical_id)
             / _ENTRY_FILENAME
         )
@@ -215,3 +230,7 @@ def _as_str_object_dict(value: dict[Any, Any]) -> dict[str, object]:
             raise ValueError("invalid cached payload")
         result[key] = item
     return result
+
+
+def _fetch_cache_subtree(root_dir: Path, *, base_url: str) -> Path:
+    return root_dir / "confluence" / _hash_value(_normal_base_url(base_url)) / "pages"

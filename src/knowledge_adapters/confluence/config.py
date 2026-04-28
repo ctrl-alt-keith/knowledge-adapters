@@ -23,6 +23,8 @@ class ConfluenceConfig:
     client_key_file: str | None = None
     fetch_cache_dir: str | None = None
     tree_cache_dir: str | None = None
+    force_refresh: bool = False
+    clear_cache: bool = False
     client_mode: str = "stub"
     auth_method: str = "bearer-env"
     debug: bool = False

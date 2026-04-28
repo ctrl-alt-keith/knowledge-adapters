@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -49,12 +50,25 @@ def prepare_tree_cache_dir(path_value: str) -> Path:
     return cache_dir
 
 
+def clear_tree_cache_entries(root_dir: Path, *, base_url: str) -> bool:
+    """Delete known traversal-cache entries under the configured cache root."""
+    cache_subtree = _tree_cache_subtree(root_dir, base_url=base_url)
+    if not cache_subtree.exists():
+        return False
+    if cache_subtree.is_symlink() or not cache_subtree.is_dir():
+        cache_subtree.unlink()
+        return True
+    shutil.rmtree(cache_subtree)
+    return True
+
+
 class ConfluenceTreeCache:
     """Best-effort cache for Confluence traversal listing results."""
 
-    def __init__(self, root_dir: Path, *, base_url: str) -> None:
+    def __init__(self, root_dir: Path, *, base_url: str, force_refresh: bool = False) -> None:
         self._root_dir = root_dir
         self._base_url = _normal_base_url(base_url)
+        self._force_refresh = force_refresh
         self.stats = ConfluenceTreeCacheStats()
 
     def get_child_page_ids(
@@ -91,13 +105,16 @@ class ConfluenceTreeCache:
         key_value: str,
         fetch_listing: Callable[[], list[str]],
     ) -> list[str]:
-        try:
-            page_ids = self._read_listing(kind=kind, key_name=key_name, key_value=key_value)
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        if self._force_refresh:
             self.stats.misses += 1
         else:
-            self.stats.hits += 1
-            return page_ids
+            try:
+                page_ids = self._read_listing(kind=kind, key_name=key_name, key_value=key_value)
+            except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                self.stats.misses += 1
+            else:
+                self.stats.hits += 1
+                return page_ids
 
         page_ids = fetch_listing()
         self._store_listing(
@@ -110,10 +127,7 @@ class ConfluenceTreeCache:
 
     def _entry_path(self, *, kind: str, key_value: str) -> Path:
         return (
-            self._root_dir
-            / "confluence"
-            / _hash_value(self._base_url)
-            / "traversal"
+            _tree_cache_subtree(self._root_dir, base_url=self._base_url)
             / kind
             / _hash_value(key_value)
             / _ENTRY_FILENAME
@@ -196,3 +210,7 @@ def _as_str_object_dict(value: dict[Any, Any]) -> dict[str, object]:
             raise ValueError("invalid cache entry")
         result[key] = item
     return result
+
+
+def _tree_cache_subtree(root_dir: Path, *, base_url: str) -> Path:
+    return root_dir / "confluence" / _hash_value(_normal_base_url(base_url)) / "traversal"

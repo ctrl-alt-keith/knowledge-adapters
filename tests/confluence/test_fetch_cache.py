@@ -9,6 +9,7 @@ from knowledge_adapters.cli import main
 from knowledge_adapters.confluence.client import map_real_page_payload
 from knowledge_adapters.confluence.fetch_cache import (
     ConfluenceFetchCache,
+    clear_fetch_cache_entries,
     prepare_fetch_cache_dir,
 )
 from knowledge_adapters.manifest import build_manifest_entry, write_manifest
@@ -18,6 +19,8 @@ def _confluence_argv(
     output_dir: Path,
     *,
     fetch_cache_dir: Path | None = None,
+    force_refresh: bool = False,
+    clear_cache: bool = False,
 ) -> list[str]:
     argv = [
         "confluence",
@@ -32,6 +35,10 @@ def _confluence_argv(
     ]
     if fetch_cache_dir is not None:
         argv.extend(["--fetch-cache-dir", str(fetch_cache_dir)])
+    if force_refresh:
+        argv.append("--force-refresh")
+    if clear_cache:
+        argv.append("--clear-cache")
     return argv
 
 
@@ -92,6 +99,38 @@ def _cache_entry_path(cache_dir: Path) -> Path:
     return next(cache_dir.rglob("page.json"))
 
 
+def test_fetch_cache_force_refresh_bypasses_cached_payload(tmp_path: Path) -> None:
+    cache = ConfluenceFetchCache(
+        prepare_fetch_cache_dir(str(tmp_path / "cache")),
+        base_url="https://example.com/wiki",
+        force_refresh=True,
+    )
+    cached_payload = _raw_payload(content="<p>Cached.</p>")
+    cache.record_metadata(map_real_page_payload(cached_payload, "12345"))
+    cache.store_page(map_real_page_payload(cached_payload, "12345"), cached_payload)
+
+    assert cache.load_page("12345") is None
+    assert cache.stats.hits == 0
+    assert cache.stats.misses == 1
+
+
+def test_clear_fetch_cache_entries_removes_only_fetch_subtree(tmp_path: Path) -> None:
+    cache_dir = tmp_path / "cache"
+    _store_cached_payload(cache_dir, _raw_payload())
+    entry_path = _cache_entry_path(cache_dir)
+    traversal_sibling = entry_path.parents[2] / "traversal" / "child" / "abc" / "listing.json"
+    traversal_sibling.parent.mkdir(parents=True)
+    traversal_sibling.write_text("{}", encoding="utf-8")
+
+    assert clear_fetch_cache_entries(
+        prepare_fetch_cache_dir(str(cache_dir)),
+        base_url="https://example.com/wiki",
+    )
+
+    assert not entry_path.exists()
+    assert traversal_sibling.exists()
+
+
 def test_confluence_fetch_cache_disabled_keeps_output_unchanged(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -143,6 +182,68 @@ def test_confluence_fetch_cache_hit_uses_cached_raw_payload(
     assert "Hello from Confluence." in (output_dir / "pages" / "12345.md").read_text(
         encoding="utf-8"
     )
+
+
+def test_confluence_force_refresh_bypasses_fetch_cache_hit(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    output_dir = tmp_path / "out"
+    cache_dir = tmp_path / "cache"
+    _write_prior_manifest(output_dir, page_version=6)
+    _store_cached_payload(cache_dir, _raw_payload(content="<p>Cached content.</p>"))
+    requests: list[str] = []
+
+    def request_json(api_url: str, **_kwargs: object) -> dict[str, object]:
+        requests.append(api_url)
+        return _raw_payload(content="<p>Fresh content.</p>")
+
+    monkeypatch.setattr("knowledge_adapters.confluence.client._request_json", request_json)
+
+    exit_code = main(
+        _confluence_argv(output_dir, fetch_cache_dir=cache_dir, force_refresh=True)
+    )
+
+    assert exit_code == 0
+    assert len(requests) == 2
+    captured = capsys.readouterr()
+    assert "force_refresh: enabled; configured cache reads will be bypassed" in captured.out
+    assert "cache_hits: 0" in captured.out
+    assert "cache_misses: 1" in captured.out
+    output = (output_dir / "pages" / "12345.md").read_text(encoding="utf-8")
+    assert "Fresh content." in output
+    assert "Cached content." not in output
+
+
+def test_confluence_clear_cache_removes_stale_fetch_entry_before_run(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    output_dir = tmp_path / "out"
+    cache_dir = tmp_path / "cache"
+    _write_prior_manifest(output_dir, page_version=6)
+    _store_cached_payload(cache_dir, _raw_payload(content="<p>Stale cached content.</p>"))
+    requests: list[str] = []
+
+    def request_json(api_url: str, **_kwargs: object) -> dict[str, object]:
+        requests.append(api_url)
+        return _raw_payload(content="<p>Fresh content.</p>")
+
+    monkeypatch.setattr("knowledge_adapters.confluence.client._request_json", request_json)
+
+    exit_code = main(_confluence_argv(output_dir, fetch_cache_dir=cache_dir, clear_cache=True))
+
+    assert exit_code == 0
+    assert len(requests) == 2
+    captured = capsys.readouterr()
+    assert "fetch_cache: cleared configured entries" in captured.out
+    assert "cache_hits: 0" in captured.out
+    assert "cache_misses: 1" in captured.out
+    output = (output_dir / "pages" / "12345.md").read_text(encoding="utf-8")
+    assert "Fresh content." in output
+    assert "Stale cached content." not in output
 
 
 def test_confluence_fetch_cache_miss_on_metadata_mismatch(
