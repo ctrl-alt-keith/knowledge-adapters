@@ -576,6 +576,152 @@ def test_real_tree_reuses_cached_child_page_listing(
     assert "tree_cache_misses: 0" in second_output
 
 
+def test_real_tree_force_refresh_bypasses_traversal_cache_hit(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    from knowledge_adapters.confluence import client as client_module
+
+    pages = _real_pages()
+    cache_dir = tmp_path / "cache"
+    child_list_calls: list[str] = []
+
+    def stub_real_fetch(
+        target: ResolvedTarget,
+        *,
+        base_url: str = "https://example.com/wiki",
+        auth_method: str = "bearer-env",
+        ca_bundle: str | None = None,
+        client_cert_file: str | None = None,
+        client_key_file: str | None = None,
+    ) -> dict[str, object]:
+        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
+        return dict(pages[str(target.page_id)])
+
+    def stub_child_id_discovery(*args: object, **kwargs: object) -> list[str]:
+        parent_id = _called_page_id(args, kwargs)
+        child_list_calls.append(parent_id)
+        return ["200", "300"]
+
+    monkeypatch.setattr(client_module, "fetch_real_page", stub_real_fetch, raising=False)
+    monkeypatch.setattr(
+        client_module,
+        "list_real_child_page_ids",
+        stub_child_id_discovery,
+        raising=False,
+    )
+
+    assert (
+        main(
+            [
+                *_real_tree_argv(tmp_path / "first", max_depth=1),
+                "--tree-cache-dir",
+                str(cache_dir),
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    assert (
+        main(
+            [
+                *_real_tree_argv(tmp_path / "second", max_depth=1),
+                "--tree-cache-dir",
+                str(cache_dir),
+                "--force-refresh",
+            ]
+        )
+        == 0
+    )
+
+    assert child_list_calls == ["100", "100"]
+    second_output = capsys.readouterr().out
+    assert "force_refresh: enabled; configured cache reads will be bypassed" in second_output
+    assert "tree_cache_hits: 0" in second_output
+    assert "tree_cache_misses: 0" in second_output
+
+
+def test_real_tree_clear_cache_removes_stale_traversal_entry_before_run(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    from knowledge_adapters.confluence import client as client_module
+
+    pages = _real_pages()
+    cache_dir = tmp_path / "cache"
+    child_list_calls: list[str] = []
+
+    def stub_real_fetch(
+        target: ResolvedTarget,
+        *,
+        base_url: str = "https://example.com/wiki",
+        auth_method: str = "bearer-env",
+        ca_bundle: str | None = None,
+        client_cert_file: str | None = None,
+        client_key_file: str | None = None,
+    ) -> dict[str, object]:
+        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
+        return dict(pages[str(target.page_id)])
+
+    def stale_child_id_discovery(*args: object, **kwargs: object) -> list[str]:
+        parent_id = _called_page_id(args, kwargs)
+        child_list_calls.append(parent_id)
+        return ["200"]
+
+    monkeypatch.setattr(client_module, "fetch_real_page", stub_real_fetch, raising=False)
+    monkeypatch.setattr(
+        client_module,
+        "list_real_child_page_ids",
+        stale_child_id_discovery,
+        raising=False,
+    )
+    assert (
+        main(
+            [
+                *_real_tree_argv(tmp_path / "priming", max_depth=1),
+                "--tree-cache-dir",
+                str(cache_dir),
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    def fresh_child_id_discovery(*args: object, **kwargs: object) -> list[str]:
+        parent_id = _called_page_id(args, kwargs)
+        child_list_calls.append(parent_id)
+        return ["300"]
+
+    monkeypatch.setattr(
+        client_module,
+        "list_real_child_page_ids",
+        fresh_child_id_discovery,
+        raising=False,
+    )
+    assert (
+        main(
+            [
+                *_real_tree_argv(tmp_path / "out", max_depth=1),
+                "--tree-cache-dir",
+                str(cache_dir),
+                "--clear-cache",
+            ]
+        )
+        == 0
+    )
+
+    assert child_list_calls == ["100", "100"]
+    output = capsys.readouterr().out
+    assert "tree_cache: cleared configured entries" in output
+    assert "tree_cache_hits: 0" in output
+    assert "tree_cache_misses: 1" in output
+    manifest = _load_manifest(tmp_path / "out")
+    assert [file["canonical_id"] for file in _manifest_files(manifest)] == ["100", "300"]
+
+
 def test_real_tree_cache_write_failure_does_not_fail_run(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,

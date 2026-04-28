@@ -7,6 +7,7 @@ from pytest import MonkeyPatch
 
 from knowledge_adapters.confluence.tree_cache import (
     ConfluenceTreeCache,
+    clear_tree_cache_entries,
     prepare_tree_cache_dir,
 )
 
@@ -36,6 +37,40 @@ def test_tree_cache_hit_returns_cached_child_listing(tmp_path: Path) -> None:
 
     assert cache.stats.hits == 1
     assert cache.stats.misses == 1
+
+
+def test_tree_cache_force_refresh_bypasses_cached_listing(tmp_path: Path) -> None:
+    cache_dir = tmp_path / "cache"
+    priming_cache = ConfluenceTreeCache(cache_dir, base_url="https://example.com/wiki")
+    assert priming_cache.get_child_page_ids("100", lambda: ["200"]) == ["200"]
+
+    cache = ConfluenceTreeCache(
+        cache_dir,
+        base_url="https://example.com/wiki",
+        force_refresh=True,
+    )
+
+    assert cache.get_child_page_ids("100", lambda: ["300"]) == ["300"]
+    assert cache.stats.hits == 0
+    assert cache.stats.misses == 0
+
+
+def test_clear_tree_cache_entries_removes_only_traversal_subtree(tmp_path: Path) -> None:
+    cache_dir = tmp_path / "cache"
+    cache = ConfluenceTreeCache(cache_dir, base_url="https://example.com/wiki")
+    assert cache.get_child_page_ids("100", lambda: ["200"]) == ["200"]
+    listing_path = next(cache_dir.rglob("listing.json"))
+    fetch_sibling = listing_path.parents[3] / "pages" / "abc" / "page.json"
+    fetch_sibling.parent.mkdir(parents=True)
+    fetch_sibling.write_text("{}", encoding="utf-8")
+
+    assert clear_tree_cache_entries(
+        prepare_tree_cache_dir(str(cache_dir)),
+        base_url="https://example.com/wiki",
+    )
+
+    assert not listing_path.exists()
+    assert fetch_sibling.exists()
 
 
 def test_tree_cache_corrupt_entry_falls_back_to_fetch(tmp_path: Path) -> None:

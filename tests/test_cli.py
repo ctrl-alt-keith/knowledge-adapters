@@ -99,6 +99,39 @@ def test_confluence_cli_dry_run_reports_output_without_writing(
     assert "# stub-page-12345" in captured.out
 
 
+def test_confluence_cache_control_without_cache_dirs_is_explicit_noop(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    output_dir = tmp_path / "out"
+
+    exit_code = main(
+        [
+            "confluence",
+            "--base-url",
+            "https://example.com/wiki",
+            "--target",
+            "12345",
+            "--output-dir",
+            str(output_dir),
+            "--force-refresh",
+            "--clear-cache",
+            "--dry-run",
+        ]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "cache_control:" in captured.out
+    assert (
+        "force_refresh: requested, but no cache dirs are configured; "
+        "cache reads are already disabled"
+    ) in captured.out
+    assert (
+        "clear_cache: requested, but no cache dirs are configured; nothing to clear"
+    ) in captured.out
+
+
 def test_confluence_cli_dry_run_reports_same_resolved_target_details_for_full_url_input(
     tmp_path: Path,
     capsys: CaptureFixture[str],

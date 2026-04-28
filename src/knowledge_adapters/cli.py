@@ -542,6 +542,22 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     confluence_parser.add_argument(
+        "--force-refresh",
+        action="store_true",
+        help=(
+            "Bypass existing Confluence fetch and traversal cache reads for this run. "
+            "Configured caches still receive fresh entries."
+        ),
+    )
+    confluence_parser.add_argument(
+        "--clear-cache",
+        action="store_true",
+        help=(
+            "Delete configured Confluence fetch and traversal cache contents before "
+            "the run starts. Only configured cache directories are affected."
+        ),
+    )
+    confluence_parser.add_argument(
         "--client-mode",
         choices=("stub", "real"),
         default="stub",
@@ -1359,6 +1375,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         from knowledge_adapters.confluence.fetch_cache import (
             ConfluenceFetchCache,
+            clear_fetch_cache_entries,
             prepare_fetch_cache_dir,
         )
         from knowledge_adapters.confluence.incremental import (
@@ -1375,6 +1392,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         from knowledge_adapters.confluence.traversal import TreeWalkProgress, walk_pages
         from knowledge_adapters.confluence.tree_cache import (
             ConfluenceTreeCache,
+            clear_tree_cache_entries,
             prepare_tree_cache_dir,
         )
         from knowledge_adapters.confluence.writer import markdown_path, write_markdown
@@ -1401,6 +1419,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             client_key_file=args.client_key_file,
             fetch_cache_dir=args.fetch_cache_dir,
             tree_cache_dir=args.tree_cache_dir,
+            force_refresh=args.force_refresh,
+            clear_cache=args.clear_cache,
             client_mode=args.client_mode,
             auth_method=args.auth_method,
             debug=args.debug,
@@ -1418,24 +1438,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ),
                 command="confluence",
             )
-        fetch_cache: ConfluenceFetchCache | None = None
-        if confluence_config.fetch_cache_dir is not None:
-            try:
-                fetch_cache = ConfluenceFetchCache(
-                    prepare_fetch_cache_dir(confluence_config.fetch_cache_dir),
-                    base_url=confluence_config.base_url,
-                )
-            except ValueError as exc:
-                exit_with_cli_error(str(exc), command="confluence")
-        tree_cache: ConfluenceTreeCache | None = None
-        if confluence_config.tree_cache_dir is not None:
-            try:
-                tree_cache = ConfluenceTreeCache(
-                    prepare_tree_cache_dir(confluence_config.tree_cache_dir),
-                    base_url=confluence_config.base_url,
-                )
-            except ValueError as exc:
-                exit_with_cli_error(str(exc), command="confluence")
         if confluence_config.max_depth < 0:
             exit_with_cli_error(
                 "--max-depth must be greater than or equal to 0.",
@@ -1516,6 +1518,74 @@ def main(argv: Sequence[str] | None = None) -> int:
                     str(exc),
                     command="confluence",
                 )
+
+        cache_control_lines: list[str] = []
+        if confluence_config.force_refresh:
+            if (
+                confluence_config.fetch_cache_dir is None
+                and confluence_config.tree_cache_dir is None
+            ):
+                cache_control_lines.append(
+                    "force_refresh: requested, but no cache dirs are configured; "
+                    "cache reads are already disabled"
+                )
+            else:
+                cache_control_lines.append(
+                    "force_refresh: enabled; configured cache reads will be bypassed"
+                )
+        if (
+            confluence_config.clear_cache
+            and confluence_config.fetch_cache_dir is None
+            and confluence_config.tree_cache_dir is None
+        ):
+            cache_control_lines.append(
+                "clear_cache: requested, but no cache dirs are configured; nothing to clear"
+            )
+
+        fetch_cache: ConfluenceFetchCache | None = None
+        if confluence_config.fetch_cache_dir is not None:
+            try:
+                prepared_fetch_cache_dir = prepare_fetch_cache_dir(
+                    confluence_config.fetch_cache_dir
+                )
+                if confluence_config.clear_cache:
+                    cleared = clear_fetch_cache_entries(
+                        prepared_fetch_cache_dir,
+                        base_url=confluence_config.base_url,
+                    )
+                    cache_control_lines.append(
+                        "fetch_cache: cleared configured entries"
+                        if cleared
+                        else "fetch_cache: no configured entries to clear"
+                    )
+                fetch_cache = ConfluenceFetchCache(
+                    prepared_fetch_cache_dir,
+                    base_url=confluence_config.base_url,
+                    force_refresh=confluence_config.force_refresh,
+                )
+            except (OSError, ValueError) as exc:
+                exit_with_cli_error(str(exc), command="confluence")
+        tree_cache: ConfluenceTreeCache | None = None
+        if confluence_config.tree_cache_dir is not None:
+            try:
+                prepared_tree_cache_dir = prepare_tree_cache_dir(confluence_config.tree_cache_dir)
+                if confluence_config.clear_cache:
+                    cleared = clear_tree_cache_entries(
+                        prepared_tree_cache_dir,
+                        base_url=confluence_config.base_url,
+                    )
+                    cache_control_lines.append(
+                        "tree_cache: cleared configured entries"
+                        if cleared
+                        else "tree_cache: no configured entries to clear"
+                    )
+                tree_cache = ConfluenceTreeCache(
+                    prepared_tree_cache_dir,
+                    base_url=confluence_config.base_url,
+                    force_refresh=confluence_config.force_refresh,
+                )
+            except (OSError, ValueError) as exc:
+                exit_with_cli_error(str(exc), command="confluence")
 
         selected_fetch_page: Callable[[ResolvedTarget], dict[str, object]]
         selected_fetch_page_summary: Callable[[ResolvedTarget], dict[str, object]]
@@ -1671,6 +1741,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 _print(f"  fetch_scope: {fetch_scope}")
             _print(f"  run_mode: {run_mode}")
+            if cache_control_lines:
+                _print("  cache_control:")
+                for line in cache_control_lines:
+                    _print(f"    {line}")
             if confluence_config.tree:
                 max_depth = str(confluence_config.max_depth)
                 if confluence_config.dry_run:
