@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -99,6 +100,10 @@ def _cache_entry_path(cache_dir: Path) -> Path:
     return next(cache_dir.rglob("page.json"))
 
 
+def _assert_seconds_metric(output: str, name: str) -> None:
+    assert re.search(rf"{name}: \d+\.\d{{3}}", output) is not None
+
+
 def test_fetch_cache_force_refresh_bypasses_cached_payload(tmp_path: Path) -> None:
     cache = ConfluenceFetchCache(
         prepare_fetch_cache_dir(str(tmp_path / "cache")),
@@ -149,8 +154,17 @@ def test_confluence_fetch_cache_disabled_keeps_output_unchanged(
     assert exit_code == 0
     assert len(requests) == 1
     captured = capsys.readouterr()
-    assert "cache_hits:" not in captured.out
-    assert "cache_misses:" not in captured.out
+    assert "\n  cache_hits:" not in captured.out
+    assert "\n  cache_misses:" not in captured.out
+    assert "run_metrics:" in captured.out
+    assert "listing_requests: 0" in captured.out
+    assert "pages_discovered: 1" in captured.out
+    assert "page_fetch_requests: 1" in captured.out
+    assert "fetch_cache_hits: 0" in captured.out
+    assert "fetch_cache_misses: 0" in captured.out
+    assert "fetch_cache_saved_requests: 0" in captured.out
+    _assert_seconds_metric(captured.out, "discovery_seconds")
+    _assert_seconds_metric(captured.out, "fetch_seconds")
 
 
 def test_confluence_fetch_cache_hit_uses_cached_raw_payload(
@@ -179,6 +193,10 @@ def test_confluence_fetch_cache_hit_uses_cached_raw_payload(
     captured = capsys.readouterr()
     assert "cache_hits: 1" in captured.out
     assert "cache_misses: 0" in captured.out
+    assert "page_fetch_requests: 1" in captured.out
+    assert "fetch_cache_hits: 1" in captured.out
+    assert "fetch_cache_misses: 0" in captured.out
+    assert "fetch_cache_saved_requests: 1" in captured.out
     assert "Hello from Confluence." in (output_dir / "pages" / "12345.md").read_text(
         encoding="utf-8"
     )
@@ -211,6 +229,10 @@ def test_confluence_force_refresh_bypasses_fetch_cache_hit(
     assert "force_refresh: enabled; configured cache reads will be bypassed" in captured.out
     assert "cache_hits: 0" in captured.out
     assert "cache_misses: 0" in captured.out
+    assert "page_fetch_requests: 1" in captured.out
+    assert "fetch_cache_hits: 0" in captured.out
+    assert "fetch_cache_misses: 0" in captured.out
+    assert "fetch_cache_saved_requests: 0" in captured.out
     output = (output_dir / "pages" / "12345.md").read_text(encoding="utf-8")
     assert "Fresh content." in output
     assert "Cached content." not in output
@@ -241,6 +263,10 @@ def test_confluence_clear_cache_removes_stale_fetch_entry_before_run(
     assert "fetch_cache: cleared configured entries" in captured.out
     assert "cache_hits: 0" in captured.out
     assert "cache_misses: 1" in captured.out
+    assert "page_fetch_requests: 1" in captured.out
+    assert "fetch_cache_hits: 0" in captured.out
+    assert "fetch_cache_misses: 1" in captured.out
+    assert "fetch_cache_saved_requests: 0" in captured.out
     output = (output_dir / "pages" / "12345.md").read_text(encoding="utf-8")
     assert "Fresh content." in output
     assert "Stale cached content." not in output

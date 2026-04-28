@@ -1105,6 +1105,13 @@ def test_confluence_cli_smoke_uses_installed_entrypoint_with_default_stub_client
     assert "auth_method:" not in result.stdout
     assert "Wrote:" not in result.stdout
     assert_write_summary(result.stdout, wrote=1, skipped=0)
+    assert "run_metrics:" in result.stdout
+    assert "listing_requests: 0" in result.stdout
+    assert "pages_discovered: 1" in result.stdout
+    assert "page_fetch_requests: 1" in result.stdout
+    assert "fetch_cache_hits: 0" in result.stdout
+    assert "fetch_cache_misses: 0" in result.stdout
+    assert "fetch_cache_saved_requests: 0" in result.stdout
     assert "Manifest:" in result.stdout
     assert f"Write complete. Artifacts created under {tmp_path / 'artifacts'}" in result.stdout
 

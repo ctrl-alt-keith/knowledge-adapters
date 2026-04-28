@@ -1382,6 +1382,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             PageSyncDecision,
             classify_page_sync,
         )
+        from knowledge_adapters.confluence.metrics import ConfluenceRunMetrics
         from knowledge_adapters.confluence.models import ResolvedTarget
         from knowledge_adapters.confluence.normalize import normalize_to_markdown
         from knowledge_adapters.confluence.resolve import (
@@ -1587,6 +1588,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             except (OSError, ValueError) as exc:
                 exit_with_cli_error(str(exc), command="confluence")
 
+        run_metrics = ConfluenceRunMetrics()
         selected_fetch_page: Callable[[ResolvedTarget], dict[str, object]]
         selected_fetch_page_summary: Callable[[ResolvedTarget], dict[str, object]]
         selected_list_child_page_ids: Callable[[ResolvedTarget], list[str]] | None = None
@@ -1604,49 +1606,53 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return kwargs
 
             def selected_fetch_page(resolved_target: ResolvedTarget) -> dict[str, object]:
-                if fetch_cache is None:
-                    return fetch_real_page(
+                with run_metrics.time_fetch():
+                    run_metrics.record_page_fetch_request()
+                    if fetch_cache is None:
+                        return fetch_real_page(
+                            resolved_target,
+                            base_url=confluence_config.base_url,
+                            auth_method=confluence_config.auth_method,
+                            **real_client_tls_kwargs(),
+                        )
+
+                    page_id = resolved_target.page_id
+                    if page_id:
+                        cached_page = fetch_cache.load_page(page_id)
+                        if cached_page is not None:
+                            return cached_page
+
+                    raw_payload = fetch_real_page_raw(
                         resolved_target,
                         base_url=confluence_config.base_url,
                         auth_method=confluence_config.auth_method,
                         **real_client_tls_kwargs(),
                     )
-
-                page_id = resolved_target.page_id
-                if page_id:
-                    cached_page = fetch_cache.load_page(page_id)
-                    if cached_page is not None:
-                        return cached_page
-
-                raw_payload = fetch_real_page_raw(
-                    resolved_target,
-                    base_url=confluence_config.base_url,
-                    auth_method=confluence_config.auth_method,
-                    **real_client_tls_kwargs(),
-                )
-                if not page_id:
-                    raise ValueError("Response error: canonical_id mismatch.")
-                page = map_real_page_payload(raw_payload, page_id)
-                fetch_cache.store_page(page, raw_payload)
-                return page
+                    if not page_id:
+                        raise ValueError("Response error: canonical_id mismatch.")
+                    page = map_real_page_payload(raw_payload, page_id)
+                    fetch_cache.store_page(page, raw_payload)
+                    return page
 
             def selected_fetch_page_summary(
                 resolved_target: ResolvedTarget,
             ) -> dict[str, object]:
-                page = fetch_real_page_summary(
-                    resolved_target,
-                    base_url=confluence_config.base_url,
-                    auth_method=confluence_config.auth_method,
-                    **real_client_tls_kwargs(),
-                )
-                if fetch_cache is not None:
-                    fetch_cache.record_metadata(page)
-                return page
+                with run_metrics.time_fetch():
+                    page = fetch_real_page_summary(
+                        resolved_target,
+                        base_url=confluence_config.base_url,
+                        auth_method=confluence_config.auth_method,
+                        **real_client_tls_kwargs(),
+                    )
+                    if fetch_cache is not None:
+                        fetch_cache.record_metadata(page)
+                    return page
 
             def selected_list_child_page_ids(
                 resolved_target: ResolvedTarget,
             ) -> list[str]:
                 def fetch_listing() -> list[str]:
+                    run_metrics.record_listing_request()
                     return list_real_child_page_ids(
                         resolved_target,
                         base_url=confluence_config.base_url,
@@ -1656,12 +1662,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                     )
 
                 page_id = resolved_target.page_id
-                if tree_cache is None or not page_id:
-                    return fetch_listing()
-                return tree_cache.get_child_page_ids(page_id, fetch_listing)
+                with run_metrics.time_discovery():
+                    if tree_cache is None or not page_id:
+                        return fetch_listing()
+                    return tree_cache.get_child_page_ids(page_id, fetch_listing)
 
             def selected_list_space_page_ids(space_key: str) -> list[str]:
                 def fetch_listing() -> list[str]:
+                    run_metrics.record_listing_request()
                     return list_real_space_page_ids(
                         space_key,
                         base_url=confluence_config.base_url,
@@ -1670,12 +1678,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                         **real_client_tls_kwargs(),
                     )
 
-                if tree_cache is None:
-                    return fetch_listing()
-                return tree_cache.get_space_page_ids(space_key, fetch_listing)
+                with run_metrics.time_discovery():
+                    if tree_cache is None:
+                        return fetch_listing()
+                    return tree_cache.get_space_page_ids(space_key, fetch_listing)
         else:
-            selected_fetch_page = fetch_page
-            selected_fetch_page_summary = fetch_page
+            def selected_fetch_page(resolved_target: ResolvedTarget) -> dict[str, object]:
+                with run_metrics.time_fetch():
+                    run_metrics.record_page_fetch_request()
+                    return fetch_page(resolved_target)
+
+            def selected_fetch_page_summary(
+                resolved_target: ResolvedTarget,
+            ) -> dict[str, object]:
+                with run_metrics.time_fetch():
+                    return fetch_page(resolved_target)
 
         progress_renderer = _ProgressLineRenderer(sys.stdout)
         progress_stdout = _ProgressAwareStream(sys.stdout, progress_renderer)
@@ -1862,6 +1879,40 @@ def main(argv: Sequence[str] | None = None) -> int:
                 _print()
                 _print(markdown)
 
+        def _format_metric_seconds(seconds: float) -> str:
+            return f"{seconds:.3f}"
+
+        def _refresh_run_metric_cache_stats() -> None:
+            if fetch_cache is None:
+                run_metrics.record_fetch_cache_stats(hits=0, misses=0)
+                return
+            run_metrics.record_fetch_cache_stats(
+                hits=fetch_cache.stats.hits,
+                misses=fetch_cache.stats.misses,
+            )
+
+        def _print_confluence_run_metrics(*, indent: str) -> None:
+            _refresh_run_metric_cache_stats()
+            metric_indent = f"{indent}  "
+            _print(f"{indent}run_metrics:")
+            _print(f"{metric_indent}listing_requests: {run_metrics.listing_requests}")
+            _print(f"{metric_indent}pages_discovered: {run_metrics.pages_discovered}")
+            _print(
+                f"{metric_indent}discovery_seconds: "
+                f"{_format_metric_seconds(run_metrics.discovery_seconds)}"
+            )
+            _print(f"{metric_indent}page_fetch_requests: {run_metrics.page_fetch_requests}")
+            _print(f"{metric_indent}fetch_cache_hits: {run_metrics.fetch_cache_hits}")
+            _print(f"{metric_indent}fetch_cache_misses: {run_metrics.fetch_cache_misses}")
+            _print(
+                f"{metric_indent}fetch_cache_saved_requests: "
+                f"{run_metrics.fetch_cache_saved_requests}"
+            )
+            _print(
+                f"{metric_indent}fetch_seconds: "
+                f"{_format_metric_seconds(run_metrics.fetch_seconds)}"
+            )
+
         def _print_confluence_dry_run_summary(
             *,
             mode: str,
@@ -1907,6 +1958,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             _print("  Summary:")
             for line in summary_lines:
                 _print(line)
+            _print_confluence_run_metrics(indent="    ")
 
         def _print_confluence_write_summary(
             *,
@@ -1931,6 +1983,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 _print(f"  tree_cache_misses: {tree_cache.stats.misses}")
             _print(f"  pages_written: {write_count}")
             _print(f"  pages_skipped: {skip_count}")
+            _print_confluence_run_metrics(indent="  ")
 
         def _print_stub_tree_mode_note() -> None:
             if not (confluence_config.tree and confluence_config.client_mode == "stub"):
@@ -1991,6 +2044,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             _print(f"Space progress: discovery started, space_key {resolved_space_key}")
             try:
                 discovered_page_ids = sorted(set(selected_list_space_page_ids(resolved_space_key)))
+                run_metrics.record_pages_discovered(len(discovered_page_ids))
                 _render_final_discovered_pages_progress(len(discovered_page_ids))
                 _print(
                     "Space progress: "
@@ -2238,6 +2292,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     list_child_page_ids=selected_list_child_page_ids,
                     progress_callback=_print_tree_walk_progress,
                 )
+            run_metrics.record_pages_discovered(len(pages))
             _finish_progress_line()
             _print_confluence_invocation()
             page_records: list[tuple[dict[str, object], Path, PageSyncDecision, str]] = []
@@ -2440,6 +2495,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         _print_confluence_invocation()
         page_id = str(page["canonical_id"])
+        run_metrics.record_pages_discovered(1)
         output_path = markdown_path(confluence_config.output_dir, page_id)
         manifest_output_path = manifest_path(confluence_config.output_dir)
         page_decision = classify_page_sync(
