@@ -27,6 +27,10 @@ runs:
     # Real mode with bearer auth from CONFLUENCE_BEARER_TOKEN.
     # client_mode: real
     # auth_method: bearer-env
+    # Optional request pacing for live Confluence API calls. If both are set,
+    # the slower interval between request starts is used.
+    # request_delay_ms: 250
+    # max_requests_per_second: 2
     # fetch_cache_dir: ./.cache/knowledge-adapters
     # force_refresh: true
     # clear_cache: true
@@ -44,6 +48,9 @@ runs:
     max_depth: 1
     # client_mode: real
     # auth_method: client-cert-env
+    # Optional request pacing for live Confluence API calls.
+    # request_delay_ms: 250
+    # max_requests_per_second: 2
     # Optional traversal cache for repeated large tree listing runs.
     # tree_cache_dir: ./.cache/confluence-tree
     # force_refresh: true

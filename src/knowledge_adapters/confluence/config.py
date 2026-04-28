@@ -31,6 +31,8 @@ class ConfluenceConfig:
     dry_run: bool = False
     tree: bool = False
     max_depth: int = 0
+    request_delay_ms: int | None = None
+    max_requests_per_second: float | None = None
 
 
 _TLS_INPUT_OPTION_NAMES = {

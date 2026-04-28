@@ -333,7 +333,7 @@ The following are explicitly out of scope for v1:
 - broader auth abstractions or multi-provider auth systems
 - attachments
 - comments
-- pagination or rate-limit sophistication
+- adaptive rate-limit sophistication beyond explicit operator pacing
 - macro fidelity improvements
 - write-path refactors
 - manifest schema changes

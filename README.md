@@ -123,6 +123,23 @@ CONFLUENCE_BEARER_TOKEN=... knowledge-adapters confluence \
 If that real-mode dry run looks right, rerun it without `--dry-run` to write
 the live-fetched artifact and manifest.
 
+Optional request pacing is available only when you opt in. Use
+`--request-delay-ms` to require a minimum delay between live Confluence API
+request starts, or `--max-requests-per-second` to cap the request rate. If both
+are set, the slower interval wins. The first live request is immediate, and
+cache hits do not sleep.
+
+```bash
+CONFLUENCE_BEARER_TOKEN=... knowledge-adapters confluence \
+  --client-mode real \
+  --auth-method bearer-env \
+  --base-url https://example.com/wiki \
+  --target 12345 \
+  --output-dir ./artifacts \
+  --request-delay-ms 250 \
+  --max-requests-per-second 2
+```
+
 ## Confluence Authentication Examples
 
 Bearer token via `CONFLUENCE_BEARER_TOKEN`:
@@ -175,6 +192,8 @@ runs:
     output_dir: ./artifacts/confluence/docs-home-bearer
     client_mode: real
     auth_method: bearer-env
+    request_delay_ms: 250
+    max_requests_per_second: 2
     dry_run: true
 
   - name: docs-home-mtls
@@ -588,6 +607,10 @@ In v1, `--client-mode real` supports both single-page fetches and real breadth-f
 tree traversal with `--tree` and `--max-depth`, using `bearer-env` auth and
 optional client certificates or `client-cert-env` auth. This opt-in path is
 contract-tested, but not fully live-validated across Confluence environments.
+
+For slower real-mode runs, add `--request-delay-ms` or
+`--max-requests-per-second`. When both are present, the CLI uses whichever option
+produces the longer interval between live Confluence API request starts.
 
 For certificate-based auth, set `CONFLUENCE_CLIENT_CERT_FILE` to a combined PEM
 file, or set `CONFLUENCE_CLIENT_CERT_FILE` plus `CONFLUENCE_CLIENT_KEY_FILE` for

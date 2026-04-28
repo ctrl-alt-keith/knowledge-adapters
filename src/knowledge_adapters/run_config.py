@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -66,7 +67,9 @@ _CONFLUENCE_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
         "fetch_cache_dir",
         "force_refresh",
         "max_depth",
+        "max_requests_per_second",
         "output_dir",
+        "request_delay_ms",
         "space_key",
         "space_url",
         "target",
@@ -533,6 +536,24 @@ def _build_confluence_argv(
                 resolved_client_key_file,
             ]
         )
+
+    request_delay_ms = _optional_non_negative_int(
+        run_config,
+        "request_delay_ms",
+        index=index,
+        config_path=config_path,
+    )
+    if request_delay_ms is not None:
+        argv.extend(["--request-delay-ms", str(request_delay_ms)])
+
+    max_requests_per_second = _optional_positive_number(
+        run_config,
+        "max_requests_per_second",
+        index=index,
+        config_path=config_path,
+    )
+    if max_requests_per_second is not None:
+        argv.extend(["--max-requests-per-second", f"{max_requests_per_second:g}"])
 
     fetch_cache_dir = _optional_string(
         run_config,
@@ -1241,6 +1262,47 @@ def _optional_bool(
     if not isinstance(value, bool):
         raise ValueError(f"Run {index!r} in {config_path} must set {key!r} to true or false.")
     return value
+
+
+def _optional_non_negative_int(
+    run_config: dict[str, object],
+    key: str,
+    *,
+    index: int | str,
+    config_path: Path,
+) -> int | None:
+    if key not in run_config:
+        return None
+    value = run_config.get(key)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(
+            f"Run {index!r} in {config_path} must set {key!r} to an integer "
+            "greater than or equal to 0."
+        )
+    if value < 0:
+        raise ValueError(
+            f"Run {index!r} in {config_path} must set {key!r} to an integer "
+            "greater than or equal to 0."
+        )
+    return value
+
+
+def _optional_positive_number(
+    run_config: dict[str, object],
+    key: str,
+    *,
+    index: int | str,
+    config_path: Path,
+) -> float | None:
+    if key not in run_config:
+        return None
+    value = run_config.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"Run {index!r} in {config_path} must set {key!r} to a positive number.")
+    parsed_value = float(value)
+    if not math.isfinite(parsed_value) or parsed_value <= 0:
+        raise ValueError(f"Run {index!r} in {config_path} must set {key!r} to a positive number.")
+    return parsed_value
 
 
 def _resolve_path_string(value: str, *, config_path: Path) -> str:

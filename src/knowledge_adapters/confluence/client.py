@@ -33,6 +33,7 @@ class ConfluenceRequestError(RuntimeError):
 
 
 DiscoveryProgressCallback = Callable[[int], None]
+RequestPacer = Callable[[], None]
 
 
 def fetch_page(target: ResolvedTarget) -> dict[str, object]:
@@ -369,6 +370,7 @@ def _request_json(
     no_ca_bundle: bool = False,
     client_cert_file: str | None = None,
     client_key_file: str | None = None,
+    request_pacer: RequestPacer | None = None,
 ) -> dict[str, object]:
     request_auth = build_request_auth(
         auth_method,
@@ -383,6 +385,8 @@ def _request_json(
     )
 
     try:
+        if request_pacer is not None:
+            request_pacer()
         with request.urlopen(api_request, context=request_auth.ssl_context) as response:
             raw_payload = json.loads(response.read().decode("utf-8"))
     except (HTTPError, URLError) as exc:
@@ -410,6 +414,7 @@ def fetch_real_page_raw(
     no_ca_bundle: bool = False,
     client_cert_file: str | None = None,
     client_key_file: str | None = None,
+    request_pacer: RequestPacer | None = None,
 ) -> dict[str, object]:
     """Fetch one raw Confluence full-page payload through the real client path."""
     page_id = target.page_id
@@ -423,6 +428,7 @@ def fetch_real_page_raw(
         no_ca_bundle=no_ca_bundle,
         client_cert_file=client_cert_file,
         client_key_file=client_key_file,
+        request_pacer=request_pacer,
     )
 
 
@@ -440,6 +446,7 @@ def fetch_real_page(
     no_ca_bundle: bool = False,
     client_cert_file: str | None = None,
     client_key_file: str | None = None,
+    request_pacer: RequestPacer | None = None,
 ) -> dict[str, object]:
     """Fetch one Confluence page through the opt-in real client path."""
     page_id = target.page_id
@@ -454,6 +461,7 @@ def fetch_real_page(
         no_ca_bundle=no_ca_bundle,
         client_cert_file=client_cert_file,
         client_key_file=client_key_file,
+        request_pacer=request_pacer,
     )
     return _map_real_page(raw_payload, page_id)
 
@@ -467,6 +475,7 @@ def fetch_real_page_summary(
     no_ca_bundle: bool = False,
     client_cert_file: str | None = None,
     client_key_file: str | None = None,
+    request_pacer: RequestPacer | None = None,
 ) -> dict[str, object]:
     """Fetch Confluence page metadata used for incremental sync decisions."""
     page_id = target.page_id
@@ -480,6 +489,7 @@ def fetch_real_page_summary(
         no_ca_bundle=no_ca_bundle,
         client_cert_file=client_cert_file,
         client_key_file=client_key_file,
+        request_pacer=request_pacer,
     )
     return _map_real_page_summary(raw_payload, page_id)
 
@@ -494,6 +504,7 @@ def list_real_child_page_ids(
     client_cert_file: str | None = None,
     client_key_file: str | None = None,
     progress_callback: DiscoveryProgressCallback | None = None,
+    request_pacer: RequestPacer | None = None,
 ) -> list[str]:
     """List direct child page IDs for one Confluence page in real mode."""
     page_id = target.page_id
@@ -507,6 +518,7 @@ def list_real_child_page_ids(
         no_ca_bundle=no_ca_bundle,
         client_cert_file=client_cert_file,
         client_key_file=client_key_file,
+        request_pacer=request_pacer,
     )
     child_page_ids = _map_child_page_ids(raw_payload)
     _report_periodic_discovery_progress(
@@ -528,6 +540,7 @@ def list_real_space_page_ids(
     client_key_file: str | None = None,
     page_limit: int = 100,
     progress_callback: DiscoveryProgressCallback | None = None,
+    request_pacer: RequestPacer | None = None,
 ) -> list[str]:
     """List all page IDs in one Confluence space in deterministic order."""
     if not space_key:
@@ -554,6 +567,7 @@ def list_real_space_page_ids(
             no_ca_bundle=no_ca_bundle,
             client_cert_file=client_cert_file,
             client_key_file=client_key_file,
+            request_pacer=request_pacer,
         )
         page_ids.update(_map_content_page_ids(raw_payload))
         last_reported_pages = _report_periodic_discovery_progress(
