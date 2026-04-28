@@ -105,7 +105,6 @@ class ConfluenceFetchCache:
     def load_page(self, canonical_id: str) -> dict[str, object] | None:
         """Return a mapped cached page when metadata and payload are valid."""
         if self._force_refresh:
-            self.stats.misses += 1
             return None
 
         metadata = self._metadata_by_id.get(canonical_id)

@@ -105,9 +105,7 @@ class ConfluenceTreeCache:
         key_value: str,
         fetch_listing: Callable[[], list[str]],
     ) -> list[str]:
-        if self._force_refresh:
-            self.stats.misses += 1
-        else:
+        if not self._force_refresh:
             try:
                 page_ids = self._read_listing(kind=kind, key_name=key_name, key_value=key_value)
             except (OSError, ValueError, TypeError, json.JSONDecodeError):

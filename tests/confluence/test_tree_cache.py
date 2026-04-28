@@ -52,7 +52,7 @@ def test_tree_cache_force_refresh_bypasses_cached_listing(tmp_path: Path) -> Non
 
     assert cache.get_child_page_ids("100", lambda: ["300"]) == ["300"]
     assert cache.stats.hits == 0
-    assert cache.stats.misses == 1
+    assert cache.stats.misses == 0
 
 
 def test_clear_tree_cache_entries_removes_only_traversal_subtree(tmp_path: Path) -> None:

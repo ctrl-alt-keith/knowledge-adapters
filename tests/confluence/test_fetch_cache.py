@@ -111,7 +111,7 @@ def test_fetch_cache_force_refresh_bypasses_cached_payload(tmp_path: Path) -> No
 
     assert cache.load_page("12345") is None
     assert cache.stats.hits == 0
-    assert cache.stats.misses == 1
+    assert cache.stats.misses == 0
 
 
 def test_clear_fetch_cache_entries_removes_only_fetch_subtree(tmp_path: Path) -> None:
@@ -210,7 +210,7 @@ def test_confluence_force_refresh_bypasses_fetch_cache_hit(
     captured = capsys.readouterr()
     assert "force_refresh: enabled; configured cache reads will be bypassed" in captured.out
     assert "cache_hits: 0" in captured.out
-    assert "cache_misses: 1" in captured.out
+    assert "cache_misses: 0" in captured.out
     output = (output_dir / "pages" / "12345.md").read_text(encoding="utf-8")
     assert "Fresh content." in output
     assert "Cached content." not in output

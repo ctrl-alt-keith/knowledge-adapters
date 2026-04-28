@@ -640,7 +640,7 @@ def test_real_tree_force_refresh_bypasses_traversal_cache_hit(
     second_output = capsys.readouterr().out
     assert "force_refresh: enabled; configured cache reads will be bypassed" in second_output
     assert "tree_cache_hits: 0" in second_output
-    assert "tree_cache_misses: 1" in second_output
+    assert "tree_cache_misses: 0" in second_output
 
 
 def test_real_tree_clear_cache_removes_stale_traversal_entry_before_run(
