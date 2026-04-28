@@ -418,6 +418,12 @@ def test_real_space_mode_discovers_pages_and_writes_in_lexical_order(
     assert "pages_discovered: 3" in output
     assert "pages_planned: 3" in output
     assert "Summary: wrote 3, skipped 0" in output
+    assert "run_metrics:" in output
+    assert "listing_requests: 1" in output
+    assert "page_fetch_requests: 3" in output
+    assert "fetch_cache_hits: 0" in output
+    assert "fetch_cache_misses: 0" in output
+    assert "fetch_cache_saved_requests: 0" in output
 
 
 def test_real_space_fetch_progress_uses_carriage_return_for_tty_stdout(
@@ -1009,6 +1015,7 @@ def test_space_mode_rejects_invalid_space_url_shape(
 def test_real_tree_depth_semantics_use_separate_page_fetch_and_child_discovery(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
     max_depth: int,
     expected_ids: list[str],
     expected_fetch_counts: dict[str, int],
@@ -1028,6 +1035,13 @@ def test_real_tree_depth_semantics_use_separate_page_fetch_and_child_discovery(
     assert [entry["canonical_id"] for entry in _manifest_files(payload)] == expected_ids
     assert page_fetch_counts == expected_fetch_counts
     assert child_list_calls == expected_child_calls
+    output = capsys.readouterr().out
+    assert "run_metrics:" in output
+    assert f"listing_requests: {len(expected_child_calls)}" in output
+    assert f"pages_discovered: {len(expected_ids)}" in output
+    assert f"page_fetch_requests: {len(expected_fetch_counts)}" in output
+    assert "fetch_cache_hits: 0" in output
+    assert "fetch_cache_misses: 0" in output
 
 
 def test_real_tree_incremental_run_skips_full_page_fetch_for_unchanged_pages(
