@@ -51,6 +51,11 @@ real` plus an auth method:
 - `client-cert-env` via `CONFLUENCE_CLIENT_CERT_FILE` plus optional
   `CONFLUENCE_CLIENT_KEY_FILE`
 
+Real-mode request pacing is optional. Add `--request-delay-ms` or
+`--max-requests-per-second` to slow live Confluence API calls during page
+fetches and listing/discovery. If both are provided, the slower interval between
+request starts is used.
+
 Treat tree mode as a follow-on step. With the default `stub` client, `--tree`
 still plans only the resolved root page because no child pages are discovered.
 
@@ -91,6 +96,8 @@ Out of the box, the default Confluence CLI:
   `--force-refresh` bypasses configured cache reads while still writing fresh
   entries, and `--clear-cache` clears only configured Confluence cache subtrees
   before the run starts
+- supports opt-in real-client request pacing with `--request-delay-ms` and
+  `--max-requests-per-second`
 - keeps `stub` and `real` modes on the same CLI flow and artifact layout, with
   only the content source changing between modes
 - keeps dry-run and write messaging aligned across `stub` and `real`, including
@@ -125,6 +132,7 @@ runtime rather than committed:
 - target page URL or page ID
 - output directory
 - optional fetch mode and limits
+- optional real-client request pacing
 
 ## Design and Contract Docs
 

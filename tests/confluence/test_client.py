@@ -6,6 +6,8 @@ from typing import Literal
 from pytest import MonkeyPatch
 
 from knowledge_adapters.confluence.client import (
+    fetch_real_page,
+    fetch_real_page_summary,
     list_real_child_page_ids,
     list_real_space_page_ids,
 )
@@ -60,6 +62,22 @@ def _valid_space_page_list_payload(
     if next_url is not None:
         payload["_links"] = {"next": next_url}
     return payload
+
+
+def _valid_confluence_payload(page_id: str = "12345") -> dict[str, object]:
+    return {
+        "id": page_id,
+        "title": "Real Page",
+        "body": {"storage": {"value": "<p>Hello from Confluence.</p>"}},
+        "version": {
+            "number": 7,
+            "when": "2026-04-20T12:34:56Z",
+        },
+        "_links": {
+            "base": "https://example.com/wiki",
+            "webui": f"/spaces/ENG/pages/{page_id}",
+        },
+    }
 
 
 def test_real_child_list_reports_periodic_progress_for_large_results(
@@ -169,3 +187,119 @@ def test_real_space_page_list_does_not_report_progress_for_small_runs(
     )
 
     assert progress_updates == []
+
+
+def test_real_fetch_omits_pacing_by_default(monkeypatch: MonkeyPatch) -> None:
+    request_count = 0
+
+    def fake_urlopen(*args: object, **kwargs: object) -> _FakeHTTPResponse:
+        nonlocal request_count
+        del args, kwargs
+        request_count += 1
+        return _FakeHTTPResponse(_valid_confluence_payload())
+
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    page = fetch_real_page(
+        _real_target(),
+        base_url="https://example.com/wiki",
+        auth_method="bearer-env",
+    )
+
+    assert page["canonical_id"] == "12345"
+    assert request_count == 1
+
+
+def test_real_page_fetch_invokes_request_pacer(monkeypatch: MonkeyPatch) -> None:
+    pacer_calls: list[str] = []
+
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda *args, **kwargs: _FakeHTTPResponse(_valid_confluence_payload()),
+    )
+
+    page = fetch_real_page(
+        _real_target(),
+        base_url="https://example.com/wiki",
+        auth_method="bearer-env",
+        request_pacer=lambda: pacer_calls.append("fetch"),
+    )
+
+    assert page["canonical_id"] == "12345"
+    assert pacer_calls == ["fetch"]
+
+
+def test_real_page_summary_fetch_invokes_request_pacer(monkeypatch: MonkeyPatch) -> None:
+    pacer_calls: list[str] = []
+
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda *args, **kwargs: _FakeHTTPResponse(_valid_confluence_payload()),
+    )
+
+    page = fetch_real_page_summary(
+        _real_target(),
+        base_url="https://example.com/wiki",
+        auth_method="bearer-env",
+        request_pacer=lambda: pacer_calls.append("summary"),
+    )
+
+    assert page["canonical_id"] == "12345"
+    assert "content" not in page
+    assert pacer_calls == ["summary"]
+
+
+def test_real_child_listing_invokes_request_pacer(monkeypatch: MonkeyPatch) -> None:
+    pacer_calls: list[str] = []
+
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda *args, **kwargs: _FakeHTTPResponse(
+            _valid_child_list_payload(child_page_ids=["200"])
+        ),
+    )
+
+    child_page_ids = list_real_child_page_ids(
+        _real_target(),
+        base_url="https://example.com/wiki",
+        auth_method="bearer-env",
+        request_pacer=lambda: pacer_calls.append("child-list"),
+    )
+
+    assert child_page_ids == ["200"]
+    assert pacer_calls == ["child-list"]
+
+
+def test_real_space_listing_invokes_request_pacer_for_each_page(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    pacer_calls: list[str] = []
+    payloads = [
+        _valid_space_page_list_payload(
+            page_ids=["300", "100"],
+            next_url="/wiki/rest/api/content?spaceKey=ENG&type=page&start=2&limit=2",
+        ),
+        _valid_space_page_list_payload(page_ids=["200"]),
+    ]
+
+    def fake_urlopen(*args: object, **kwargs: object) -> _FakeHTTPResponse:
+        del args, kwargs
+        return _FakeHTTPResponse(payloads.pop(0))
+
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    page_ids = list_real_space_page_ids(
+        "ENG",
+        base_url="https://example.com/wiki",
+        auth_method="bearer-env",
+        page_limit=2,
+        request_pacer=lambda: pacer_calls.append("space-list"),
+    )
+
+    assert page_ids == ["100", "200", "300"]
+    assert pacer_calls == ["space-list", "space-list"]

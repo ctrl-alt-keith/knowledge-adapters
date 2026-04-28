@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import math
 import re
 import shlex
 import sys
@@ -170,6 +171,8 @@ _CONFLUENCE_REAL_ONLY_INPUT_FLAGS = (
     "--client-key-file",
     "--fetch-cache-dir",
     "--tree-cache-dir",
+    "--request-delay-ms",
+    "--max-requests-per-second",
 )
 _VERBOSE_HELP = "Show per-item write/skip details that are hidden by default."
 
@@ -183,13 +186,14 @@ class MultiRunSummary:
     skipped: int
 
 
-class RealClientTLSKwargs(TypedDict, total=False):
+class RealClientKwargs(TypedDict, total=False):
     """Keyword arguments shared by Confluence real-client calls."""
 
     ca_bundle: str | None
     no_ca_bundle: bool
     client_cert_file: str | None
     client_key_file: str | None
+    request_pacer: Callable[[], None]
 
 
 class _TeeStream:
@@ -331,6 +335,32 @@ def _parse_positive_int(value: str) -> int:
 
     if parsed_value < 1:
         raise argparse.ArgumentTypeError("expected a positive integer.")
+
+    return parsed_value
+
+
+def _parse_non_negative_int(value: str) -> int:
+    """Parse a non-negative integer CLI value."""
+    try:
+        parsed_value = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("expected a non-negative integer.") from exc
+
+    if parsed_value < 0:
+        raise argparse.ArgumentTypeError("expected a non-negative integer.")
+
+    return parsed_value
+
+
+def _parse_positive_float(value: str) -> float:
+    """Parse a finite positive numeric CLI value."""
+    try:
+        parsed_value = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("expected a positive number.") from exc
+
+    if not math.isfinite(parsed_value) or parsed_value <= 0:
+        raise argparse.ArgumentTypeError("expected a positive number.")
 
     return parsed_value
 
@@ -539,6 +569,24 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Opt-in directory for caching Confluence traversal listing results. "
             "Disabled when omitted."
+        ),
+    )
+    confluence_parser.add_argument(
+        "--request-delay-ms",
+        type=_parse_non_negative_int,
+        metavar="MS",
+        help=(
+            "Opt-in minimum delay between live Confluence API request starts, in "
+            "milliseconds. Defaults to no pacing."
+        ),
+    )
+    confluence_parser.add_argument(
+        "--max-requests-per-second",
+        type=_parse_positive_float,
+        metavar="N",
+        help=(
+            "Opt-in maximum live Confluence API request rate. When combined with "
+            "--request-delay-ms, the slower interval is used."
         ),
     )
     confluence_parser.add_argument(
@@ -1385,6 +1433,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         from knowledge_adapters.confluence.metrics import ConfluenceRunMetrics
         from knowledge_adapters.confluence.models import ResolvedTarget
         from knowledge_adapters.confluence.normalize import normalize_to_markdown
+        from knowledge_adapters.confluence.pacing import build_confluence_request_pacer
         from knowledge_adapters.confluence.resolve import (
             resolve_target_for_base_url,
             space_key_from_url_for_base_url,
@@ -1428,6 +1477,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             dry_run=args.dry_run,
             tree=args.tree,
             max_depth=args.max_depth,
+            request_delay_ms=args.request_delay_ms,
+            max_requests_per_second=args.max_requests_per_second,
         )
         output_dir_input = Path(confluence_config.output_dir).expanduser()
         output_dir = output_dir_input.resolve()
@@ -1589,20 +1640,27 @@ def main(argv: Sequence[str] | None = None) -> int:
                 exit_with_cli_error(str(exc), command="confluence")
 
         run_metrics = ConfluenceRunMetrics()
+        request_pacer = build_confluence_request_pacer(
+            request_delay_ms=confluence_config.request_delay_ms,
+            max_requests_per_second=confluence_config.max_requests_per_second,
+        )
+        request_pace = request_pacer.pace if request_pacer is not None else None
         selected_fetch_page: Callable[[ResolvedTarget], dict[str, object]]
         selected_fetch_page_summary: Callable[[ResolvedTarget], dict[str, object]]
         selected_list_child_page_ids: Callable[[ResolvedTarget], list[str]] | None = None
         selected_list_space_page_ids: Callable[[str], list[str]] | None = None
         if confluence_config.client_mode == "real":
 
-            def real_client_tls_kwargs() -> RealClientTLSKwargs:
-                kwargs = RealClientTLSKwargs(
+            def real_client_kwargs() -> RealClientKwargs:
+                kwargs = RealClientKwargs(
                     ca_bundle=confluence_config.ca_bundle,
                     client_cert_file=confluence_config.client_cert_file,
                     client_key_file=confluence_config.client_key_file,
                 )
                 if confluence_config.no_ca_bundle:
                     kwargs["no_ca_bundle"] = True
+                if request_pace is not None:
+                    kwargs["request_pacer"] = request_pace
                 return kwargs
 
             def selected_fetch_page(resolved_target: ResolvedTarget) -> dict[str, object]:
@@ -1613,7 +1671,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                             resolved_target,
                             base_url=confluence_config.base_url,
                             auth_method=confluence_config.auth_method,
-                            **real_client_tls_kwargs(),
+                            **real_client_kwargs(),
                         )
 
                     page_id = resolved_target.page_id
@@ -1626,7 +1684,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         resolved_target,
                         base_url=confluence_config.base_url,
                         auth_method=confluence_config.auth_method,
-                        **real_client_tls_kwargs(),
+                        **real_client_kwargs(),
                     )
                     if not page_id:
                         raise ValueError("Response error: canonical_id mismatch.")
@@ -1642,7 +1700,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         resolved_target,
                         base_url=confluence_config.base_url,
                         auth_method=confluence_config.auth_method,
-                        **real_client_tls_kwargs(),
+                        **real_client_kwargs(),
                     )
                     if fetch_cache is not None:
                         fetch_cache.record_metadata(page)
@@ -1658,7 +1716,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         base_url=confluence_config.base_url,
                         auth_method=confluence_config.auth_method,
                         progress_callback=_print_discovered_pages_progress,
-                        **real_client_tls_kwargs(),
+                        **real_client_kwargs(),
                     )
 
                 page_id = resolved_target.page_id
@@ -1675,7 +1733,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         base_url=confluence_config.base_url,
                         auth_method=confluence_config.auth_method,
                         progress_callback=_print_discovered_pages_progress,
-                        **real_client_tls_kwargs(),
+                        **real_client_kwargs(),
                     )
 
                 with run_metrics.time_discovery():

@@ -134,6 +134,8 @@ runs:
     base_url: https://example.com/wiki
     target: "12345"
     output_dir: ./artifacts/confluence/docs-home
+    request_delay_ms: 250
+    max_requests_per_second: 2.5
     fetch_cache_dir: ./.cache/confluence-fetches
     tree_cache_dir: ./.cache/confluence-tree
     force_refresh: true
@@ -163,6 +165,10 @@ runs:
                 "12345",
                 "--output-dir",
                 str((tmp_path / "artifacts" / "confluence" / "docs-home").resolve()),
+                "--request-delay-ms",
+                "250",
+                "--max-requests-per-second",
+                "2.5",
                 "--fetch-cache-dir",
                 str((tmp_path / ".cache" / "confluence-fetches").resolve()),
                 "--tree-cache-dir",
@@ -807,6 +813,26 @@ bundles:
             "auth_method",
             "auth_method: oauth",
             "unsupported 'auth_method' value 'oauth'",
+        ),
+        (
+            "request_delay_ms",
+            "request_delay_ms: -1",
+            "must set 'request_delay_ms' to an integer greater than or equal to 0",
+        ),
+        (
+            "request_delay_ms",
+            "request_delay_ms: 1.5",
+            "must set 'request_delay_ms' to an integer greater than or equal to 0",
+        ),
+        (
+            "max_requests_per_second",
+            "max_requests_per_second: 0",
+            "must set 'max_requests_per_second' to a positive number",
+        ),
+        (
+            "max_requests_per_second",
+            "max_requests_per_second: fast",
+            "must set 'max_requests_per_second' to a positive number",
         ),
     ],
 )

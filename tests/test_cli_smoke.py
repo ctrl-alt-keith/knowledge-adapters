@@ -1133,7 +1133,6 @@ def test_confluence_cli_smoke_uses_installed_entrypoint_with_default_stub_client
 Stub content for page 12345.
 """
     )
-
     payload = json.loads((tmp_path / "artifacts" / "manifest.json").read_text(encoding="utf-8"))
     assert payload["files"] == [
         {
@@ -1145,6 +1144,44 @@ Stub content for page 12345.
             "last_modified": "1970-01-01T00:00:00Z",
         }
     ]
+
+
+def test_confluence_cli_rejects_invalid_request_delay(tmp_path: Path) -> None:
+    result = _run_cli(
+        tmp_path,
+        "confluence",
+        "--base-url",
+        "https://example.com/wiki",
+        "--target",
+        "12345",
+        "--output-dir",
+        "./artifacts",
+        "--request-delay-ms",
+        "-1",
+    )
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert "argument --request-delay-ms: expected a non-negative integer." in result.stderr
+
+
+def test_confluence_cli_rejects_invalid_max_requests_per_second(tmp_path: Path) -> None:
+    result = _run_cli(
+        tmp_path,
+        "confluence",
+        "--base-url",
+        "https://example.com/wiki",
+        "--target",
+        "12345",
+        "--output-dir",
+        "./artifacts",
+        "--max-requests-per-second",
+        "0",
+    )
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert "argument --max-requests-per-second: expected a positive number." in result.stderr
 
 
 def test_confluence_cli_tree_dry_run_with_stub_client_reports_discovery_limit(
@@ -1283,6 +1320,9 @@ def test_confluence_help_lists_supported_auth_methods_and_examples(
     assert "same resolve, plan, and write flow" in stdout
     assert "'real' fetches from Confluence" in stdout
     assert "--auth-method AUTH_METHOD" in stdout
+    assert "--request-delay-ms MS" in stdout
+    assert "--max-requests-per-second N" in stdout
+    assert "the slower interval is used" in stdout
     assert "contract-tested live fetches" in stdout
     assert "The CLI resolves either input into one canonical page" in stdout
     assert "source URL for artifact and manifest reporting" in stdout

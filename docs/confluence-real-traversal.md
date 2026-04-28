@@ -293,7 +293,7 @@ Live validation against a real Confluence instance may be useful for developer c
 
 The following are explicitly out of scope for this phase:
 
-- pagination or rate-limit sophistication
+- adaptive rate-limit sophistication beyond explicit operator pacing
 - retries, backoff, or resume behavior
 - attachments
 - comments
