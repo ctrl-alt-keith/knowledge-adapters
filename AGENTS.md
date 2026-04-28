@@ -3,8 +3,14 @@
 This file defines repository-specific expectations for Codex agents working in
 `knowledge-adapters`.
 
-Reusable AI workflow patterns now belong in `ai-workflow-playbook`. Keep this
-file focused on how this repository operates.
+This repository follows the shared workflow defined in the
+`ai-workflow-playbook` repository.
+
+- Engineering baseline: `ai-workflow-playbook/docs/engineering-baseline.md`
+- Workflow rules: `ai-workflow-playbook/docs/`
+
+Use the playbook for general workflow rules. Follow this AGENTS.md for
+repo-specific behavior when they differ.
 
 ---
 
