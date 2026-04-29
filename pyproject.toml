@@ -39,6 +39,7 @@ where = ["src"]
 testpaths = ["tests"]
 markers = [
   "integration: local integration tests that exercise real adapter wiring against deterministic stubs",
+  "chaos: deterministic adapter chaos tests",
 ]
 
 [tool.ruff]

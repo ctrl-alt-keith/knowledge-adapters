@@ -9,6 +9,7 @@ stubs so failure coverage stays readable and repeatable.
 from __future__ import annotations
 
 import json
+import random
 from dataclasses import dataclass
 from email.message import Message
 from enum import StrEnum
@@ -28,6 +29,11 @@ class AdapterChaosScenario(StrEnum):
     INVALID_JSON = "invalid_json"
     EMPTY_RESPONSE = "empty_response"
     PARTIAL_PAYLOAD = "partial_payload"
+
+
+def select_chaos_scenario(seed: str) -> AdapterChaosScenario:
+    """Select one named chaos scenario deterministically from a seed."""
+    return random.Random(seed).choice(tuple(AdapterChaosScenario))
 
 
 @dataclass(frozen=True)
