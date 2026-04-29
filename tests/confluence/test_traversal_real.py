@@ -5,6 +5,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import cast
+from urllib.request import Request
 
 import pytest
 from pytest import CaptureFixture, MonkeyPatch
@@ -922,6 +923,54 @@ def test_real_space_dry_run_reports_space_summary_and_planned_actions(
     assert "would write " in output
     assert "pages/100.md" in output
     assert "pages/200.md" in output
+
+
+def test_real_space_paginated_discovery_counts_each_live_request(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    payloads: list[dict[str, object]] = [
+        {
+            "results": [],
+            "_links": {
+                "next": "/wiki/rest/api/content?spaceKey=ENG&type=page&start=100&limit=100"
+            },
+        },
+        {"results": []},
+    ]
+    request_urls: list[str] = []
+
+    class FakeHTTPResponse:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self._payload = payload
+
+        def __enter__(self) -> FakeHTTPResponse:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            del args
+
+        def read(self) -> bytes:
+            return json.dumps(self._payload).encode("utf-8")
+
+    def fake_urlopen(api_request: Request, **_kwargs: object) -> FakeHTTPResponse:
+        request_urls.append(api_request.full_url)
+        return FakeHTTPResponse(payloads.pop(0))
+
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    output_dir = tmp_path / "out"
+    exit_code = main([*_real_space_argv(output_dir), "--dry-run"])
+
+    assert exit_code == 0
+    assert len(request_urls) == 2
+    assert not payloads
+    output = capsys.readouterr().out
+    assert "request_summary:" in output
+    assert "listing_requests: 1" in output
+    assert "live_api_requests: 2" in output
 
 
 @pytest.mark.parametrize(

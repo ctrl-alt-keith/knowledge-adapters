@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import io
 import math
 import re
@@ -194,6 +195,7 @@ class RealClientKwargs(TypedDict, total=False):
     client_cert_file: str | None
     client_key_file: str | None
     request_pacer: Callable[[], None]
+    request_counter: Callable[[], None]
 
 
 class _TeeStream:
@@ -1651,7 +1653,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         selected_list_space_page_ids: Callable[[str], list[str]] | None = None
         if confluence_config.client_mode == "real":
 
-            def real_client_kwargs() -> RealClientKwargs:
+            def supports_keyword_argument(
+                callable_object: Callable[..., object],
+                name: str,
+                *,
+                allow_var_keyword: bool = True,
+            ) -> bool:
+                try:
+                    signature = inspect.signature(callable_object)
+                except (TypeError, ValueError):
+                    return False
+                return any(
+                    (
+                        allow_var_keyword
+                        and parameter.kind is inspect.Parameter.VAR_KEYWORD
+                    )
+                    or parameter.name == name
+                    for parameter in signature.parameters.values()
+                )
+
+            def real_client_kwargs(callable_object: Callable[..., object]) -> RealClientKwargs:
                 kwargs = RealClientKwargs(
                     ca_bundle=confluence_config.ca_bundle,
                     client_cert_file=confluence_config.client_cert_file,
@@ -1659,20 +1680,25 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 if confluence_config.no_ca_bundle:
                     kwargs["no_ca_bundle"] = True
-                if request_pace is not None:
+                if request_pace is not None and supports_keyword_argument(
+                    callable_object, "request_pacer"
+                ):
                     kwargs["request_pacer"] = request_pace
+                if supports_keyword_argument(
+                    callable_object, "request_counter", allow_var_keyword=False
+                ):
+                    kwargs["request_counter"] = run_metrics.record_live_api_request
                 return kwargs
 
             def selected_fetch_page(resolved_target: ResolvedTarget) -> dict[str, object]:
                 with run_metrics.time_fetch():
                     run_metrics.record_page_fetch_request()
                     if fetch_cache is None:
-                        run_metrics.record_live_api_request()
                         return fetch_real_page(
                             resolved_target,
                             base_url=confluence_config.base_url,
                             auth_method=confluence_config.auth_method,
-                            **real_client_kwargs(),
+                            **real_client_kwargs(fetch_real_page),
                         )
 
                     page_id = resolved_target.page_id
@@ -1681,12 +1707,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                         if cached_page is not None:
                             return cached_page
 
-                    run_metrics.record_live_api_request()
                     raw_payload = fetch_real_page_raw(
                         resolved_target,
                         base_url=confluence_config.base_url,
                         auth_method=confluence_config.auth_method,
-                        **real_client_kwargs(),
+                        **real_client_kwargs(fetch_real_page_raw),
                     )
                     if not page_id:
                         raise ValueError("Response error: canonical_id mismatch.")
@@ -1698,12 +1723,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 resolved_target: ResolvedTarget,
             ) -> dict[str, object]:
                 with run_metrics.time_fetch():
-                    run_metrics.record_live_api_request()
                     page = fetch_real_page_summary(
                         resolved_target,
                         base_url=confluence_config.base_url,
                         auth_method=confluence_config.auth_method,
-                        **real_client_kwargs(),
+                        **real_client_kwargs(fetch_real_page_summary),
                     )
                     if fetch_cache is not None:
                         fetch_cache.record_metadata(page)
@@ -1714,13 +1738,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             ) -> list[str]:
                 def fetch_listing() -> list[str]:
                     run_metrics.record_listing_request()
-                    run_metrics.record_live_api_request()
                     return list_real_child_page_ids(
                         resolved_target,
                         base_url=confluence_config.base_url,
                         auth_method=confluence_config.auth_method,
                         progress_callback=_print_discovered_pages_progress,
-                        **real_client_kwargs(),
+                        **real_client_kwargs(list_real_child_page_ids),
                     )
 
                 page_id = resolved_target.page_id
@@ -1732,13 +1755,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             def selected_list_space_page_ids(space_key: str) -> list[str]:
                 def fetch_listing() -> list[str]:
                     run_metrics.record_listing_request()
-                    run_metrics.record_live_api_request()
                     return list_real_space_page_ids(
                         space_key,
                         base_url=confluence_config.base_url,
                         auth_method=confluence_config.auth_method,
                         progress_callback=_print_discovered_pages_progress,
-                        **real_client_kwargs(),
+                        **real_client_kwargs(list_real_space_page_ids),
                     )
 
                 with run_metrics.time_discovery():
