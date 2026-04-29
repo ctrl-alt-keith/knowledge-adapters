@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
+from urllib.request import Request
 
 import pytest
 from pytest import CaptureFixture, MonkeyPatch
@@ -22,6 +24,8 @@ def _confluence_argv(
     fetch_cache_dir: Path | None = None,
     force_refresh: bool = False,
     clear_cache: bool = False,
+    request_delay_ms: int | None = None,
+    max_requests_per_second: float | None = None,
 ) -> list[str]:
     argv = [
         "confluence",
@@ -40,6 +44,10 @@ def _confluence_argv(
         argv.append("--force-refresh")
     if clear_cache:
         argv.append("--clear-cache")
+    if request_delay_ms is not None:
+        argv.extend(["--request-delay-ms", str(request_delay_ms)])
+    if max_requests_per_second is not None:
+        argv.extend(["--max-requests-per-second", f"{max_requests_per_second:g}"])
     return argv
 
 
@@ -104,6 +112,20 @@ def _assert_seconds_metric(output: str, name: str) -> None:
     assert re.search(rf"{name}: \d+\.\d{{3}}", output) is not None
 
 
+class _FakeHTTPResponse:
+    def __init__(self, payload: dict[str, object]) -> None:
+        self._payload = payload
+
+    def __enter__(self) -> _FakeHTTPResponse:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        del args
+
+    def read(self) -> bytes:
+        return json.dumps(self._payload).encode("utf-8")
+
+
 def test_fetch_cache_force_refresh_bypasses_cached_payload(tmp_path: Path) -> None:
     cache = ConfluenceFetchCache(
         prepare_fetch_cache_dir(str(tmp_path / "cache")),
@@ -143,11 +165,12 @@ def test_confluence_fetch_cache_disabled_keeps_output_unchanged(
 ) -> None:
     requests: list[str] = []
 
-    def request_json(api_url: str, **_kwargs: object) -> dict[str, object]:
-        requests.append(api_url)
-        return _raw_payload()
+    def fake_urlopen(api_request: Request, **_kwargs: object) -> _FakeHTTPResponse:
+        requests.append(api_request.full_url)
+        return _FakeHTTPResponse(_raw_payload())
 
-    monkeypatch.setattr("knowledge_adapters.confluence.client._request_json", request_json)
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
 
     exit_code = main(_confluence_argv(tmp_path / "out"))
 
@@ -163,8 +186,14 @@ def test_confluence_fetch_cache_disabled_keeps_output_unchanged(
     assert "fetch_cache_hits: 0" in captured.out
     assert "fetch_cache_misses: 0" in captured.out
     assert "fetch_cache_saved_requests: 0" in captured.out
+    assert "request_summary:" in captured.out
+    assert "live_api_requests: 1" in captured.out
+    assert "effective_requests_per_second:" in captured.out
+    assert "pacing_enabled: false" in captured.out
+    assert "pacing_interval_seconds:" not in captured.out
     _assert_seconds_metric(captured.out, "discovery_seconds")
     _assert_seconds_metric(captured.out, "fetch_seconds")
+    _assert_seconds_metric(captured.out, "request_timing_seconds")
 
 
 def test_confluence_fetch_cache_hit_uses_cached_raw_payload(
@@ -178,13 +207,15 @@ def test_confluence_fetch_cache_hit_uses_cached_raw_payload(
     _store_cached_payload(cache_dir, _raw_payload())
     requests: list[str] = []
 
-    def request_json(api_url: str, **_kwargs: object) -> dict[str, object]:
+    def fake_urlopen(api_request: Request, **_kwargs: object) -> _FakeHTTPResponse:
+        api_url = api_request.full_url
         requests.append(api_url)
         if "expand=version" in api_url:
-            return _raw_payload()
+            return _FakeHTTPResponse(_raw_payload())
         raise AssertionError("full page fetch should be satisfied by cache")
 
-    monkeypatch.setattr("knowledge_adapters.confluence.client._request_json", request_json)
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
 
     exit_code = main(_confluence_argv(output_dir, fetch_cache_dir=cache_dir))
 
@@ -197,9 +228,37 @@ def test_confluence_fetch_cache_hit_uses_cached_raw_payload(
     assert "fetch_cache_hits: 1" in captured.out
     assert "fetch_cache_misses: 0" in captured.out
     assert "fetch_cache_saved_requests: 1" in captured.out
+    assert "request_summary:" in captured.out
+    assert "live_api_requests: 1" in captured.out
     assert "Hello from Confluence." in (output_dir / "pages" / "12345.md").read_text(
         encoding="utf-8"
     )
+
+
+def test_confluence_request_summary_reports_request_pacing(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    requests: list[str] = []
+
+    def fake_urlopen(api_request: Request, **_kwargs: object) -> _FakeHTTPResponse:
+        requests.append(api_request.full_url)
+        return _FakeHTTPResponse(_raw_payload())
+
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    exit_code = main(_confluence_argv(tmp_path / "out", request_delay_ms=250))
+
+    assert exit_code == 0
+    assert len(requests) == 1
+    captured = capsys.readouterr()
+    assert "request_summary:" in captured.out
+    assert "live_api_requests: 1" in captured.out
+    assert "pacing_enabled: true" in captured.out
+    assert "pacing_interval_seconds: 0.250" in captured.out
+    assert "pacing_source: request_delay_ms" in captured.out
 
 
 def test_confluence_force_refresh_bypasses_fetch_cache_hit(

@@ -5,6 +5,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import cast
+from urllib.request import Request
 
 import pytest
 from pytest import CaptureFixture, MonkeyPatch
@@ -238,8 +239,9 @@ def _run_real_recursive_cli(
         ca_bundle: str | None = None,
         client_cert_file: str | None = None,
         client_key_file: str | None = None,
+        **_client_kwargs: object,
     ) -> dict[str, object]:
-        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
+        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file, _client_kwargs
 
         page_id = str(target.page_id)
         page_fetch_counts[page_id] = page_fetch_counts.get(page_id, 0) + 1
@@ -316,8 +318,9 @@ def _run_real_space_cli(
         ca_bundle: str | None = None,
         client_cert_file: str | None = None,
         client_key_file: str | None = None,
+        **_client_kwargs: object,
     ) -> dict[str, object]:
-        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
+        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file, _client_kwargs
 
         page_id = str(target.page_id)
         page_fetch_counts[page_id] = page_fetch_counts.get(page_id, 0) + 1
@@ -332,6 +335,7 @@ def _run_real_space_cli(
         client_cert_file: str | None = None,
         client_key_file: str | None = None,
         progress_callback: object | None = None,
+        **_client_kwargs: object,
     ) -> list[str]:
         del (
             base_url,
@@ -339,6 +343,7 @@ def _run_real_space_cli(
             ca_bundle,
             client_cert_file,
             client_key_file,
+            _client_kwargs,
         )
         space_list_calls.append(space_key)
         if progress_callback is not None:
@@ -532,8 +537,9 @@ def test_real_tree_reuses_cached_child_page_listing(
         ca_bundle: str | None = None,
         client_cert_file: str | None = None,
         client_key_file: str | None = None,
+        **_client_kwargs: object,
     ) -> dict[str, object]:
-        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
+        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file, _client_kwargs
         return dict(pages[str(target.page_id)])
 
     def stub_child_id_discovery(*args: object, **kwargs: object) -> list[str]:
@@ -601,8 +607,9 @@ def test_real_tree_force_refresh_bypasses_traversal_cache_hit(
         ca_bundle: str | None = None,
         client_cert_file: str | None = None,
         client_key_file: str | None = None,
+        **_client_kwargs: object,
     ) -> dict[str, object]:
-        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
+        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file, _client_kwargs
         return dict(pages[str(target.page_id)])
 
     def stub_child_id_discovery(*args: object, **kwargs: object) -> list[str]:
@@ -668,8 +675,9 @@ def test_real_tree_clear_cache_removes_stale_traversal_entry_before_run(
         ca_bundle: str | None = None,
         client_cert_file: str | None = None,
         client_key_file: str | None = None,
+        **_client_kwargs: object,
     ) -> dict[str, object]:
-        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
+        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file, _client_kwargs
         return dict(pages[str(target.page_id)])
 
     def stale_child_id_discovery(*args: object, **kwargs: object) -> list[str]:
@@ -747,8 +755,9 @@ def test_real_tree_cache_write_failure_does_not_fail_run(
         ca_bundle: str | None = None,
         client_cert_file: str | None = None,
         client_key_file: str | None = None,
+        **_client_kwargs: object,
     ) -> dict[str, object]:
-        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
+        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file, _client_kwargs
         return dict(pages[str(target.page_id)])
 
     def stub_child_id_discovery(*args: object, **kwargs: object) -> list[str]:
@@ -812,8 +821,9 @@ def test_real_space_reuses_cached_space_page_listing(
         ca_bundle: str | None = None,
         client_cert_file: str | None = None,
         client_key_file: str | None = None,
+        **_client_kwargs: object,
     ) -> dict[str, object]:
-        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
+        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file, _client_kwargs
         return dict(pages[str(target.page_id)])
 
     def stub_space_discovery(
@@ -825,6 +835,7 @@ def test_real_space_reuses_cached_space_page_listing(
         client_cert_file: str | None = None,
         client_key_file: str | None = None,
         progress_callback: object | None = None,
+        **_client_kwargs: object,
     ) -> list[str]:
         del (
             base_url,
@@ -833,6 +844,7 @@ def test_real_space_reuses_cached_space_page_listing(
             client_cert_file,
             client_key_file,
             progress_callback,
+            _client_kwargs,
         )
         space_list_calls.append(space_key)
         return ["300", "100", "200"]
@@ -895,8 +907,9 @@ def test_real_space_dry_run_reports_space_summary_and_planned_actions(
         ca_bundle: str | None = None,
         client_cert_file: str | None = None,
         client_key_file: str | None = None,
+        **_client_kwargs: object,
     ) -> dict[str, object]:
-        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
+        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file, _client_kwargs
         return dict(pages[str(target.page_id)])
 
     monkeypatch.setattr(client_module, "fetch_real_page", stub_real_fetch, raising=False)
@@ -922,6 +935,54 @@ def test_real_space_dry_run_reports_space_summary_and_planned_actions(
     assert "would write " in output
     assert "pages/100.md" in output
     assert "pages/200.md" in output
+
+
+def test_real_space_paginated_discovery_counts_each_live_request(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    payloads: list[dict[str, object]] = [
+        {
+            "results": [],
+            "_links": {
+                "next": "/wiki/rest/api/content?spaceKey=ENG&type=page&start=100&limit=100"
+            },
+        },
+        {"results": []},
+    ]
+    request_urls: list[str] = []
+
+    class FakeHTTPResponse:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self._payload = payload
+
+        def __enter__(self) -> FakeHTTPResponse:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            del args
+
+        def read(self) -> bytes:
+            return json.dumps(self._payload).encode("utf-8")
+
+    def fake_urlopen(api_request: Request, **_kwargs: object) -> FakeHTTPResponse:
+        request_urls.append(api_request.full_url)
+        return FakeHTTPResponse(payloads.pop(0))
+
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    output_dir = tmp_path / "out"
+    exit_code = main([*_real_space_argv(output_dir), "--dry-run"])
+
+    assert exit_code == 0
+    assert len(request_urls) == 2
+    assert not payloads
+    output = capsys.readouterr().out
+    assert "request_summary:" in output
+    assert "listing_requests: 1" in output
+    assert "live_api_requests: 2" in output
 
 
 @pytest.mark.parametrize(
@@ -1090,8 +1151,9 @@ def test_real_tree_incremental_run_skips_full_page_fetch_for_unchanged_pages(
         ca_bundle: str | None = None,
         client_cert_file: str | None = None,
         client_key_file: str | None = None,
+        **_client_kwargs: object,
     ) -> dict[str, object]:
-        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
+        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file, _client_kwargs
         page_id = str(target.page_id)
         full_fetch_counts[page_id] = full_fetch_counts.get(page_id, 0) + 1
         return dict(pages[page_id])
@@ -1104,8 +1166,9 @@ def test_real_tree_incremental_run_skips_full_page_fetch_for_unchanged_pages(
         ca_bundle: str | None = None,
         client_cert_file: str | None = None,
         client_key_file: str | None = None,
+        **_client_kwargs: object,
     ) -> dict[str, object]:
-        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
+        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file, _client_kwargs
         page_id = str(target.page_id)
         summary_fetch_counts[page_id] = summary_fetch_counts.get(page_id, 0) + 1
         page = dict(pages[page_id])
@@ -1193,8 +1256,9 @@ def test_real_tree_fetch_progress_uses_carriage_return_for_tty_stdout(
         ca_bundle: str | None = None,
         client_cert_file: str | None = None,
         client_key_file: str | None = None,
+        **_client_kwargs: object,
     ) -> dict[str, object]:
-        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
+        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file, _client_kwargs
         return dict(pages[str(target.page_id)])
 
     def stub_real_fetch_summary(
@@ -1205,8 +1269,9 @@ def test_real_tree_fetch_progress_uses_carriage_return_for_tty_stdout(
         ca_bundle: str | None = None,
         client_cert_file: str | None = None,
         client_key_file: str | None = None,
+        **_client_kwargs: object,
     ) -> dict[str, object]:
-        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
+        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file, _client_kwargs
         page = dict(pages[str(target.page_id)])
         page.pop("content", None)
         return page
@@ -1697,8 +1762,9 @@ def test_real_tree_stops_without_writes_when_later_child_list_fails_after_partia
         ca_bundle: str | None = None,
         client_cert_file: str | None = None,
         client_key_file: str | None = None,
+        **_client_kwargs: object,
     ) -> dict[str, object]:
-        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
+        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file, _client_kwargs
 
         page_id = str(target.page_id)
         page_fetch_counts[page_id] = page_fetch_counts.get(page_id, 0) + 1
@@ -1781,8 +1847,9 @@ def test_real_tree_stops_without_writes_when_later_page_fetch_fails_after_partia
         ca_bundle: str | None = None,
         client_cert_file: str | None = None,
         client_key_file: str | None = None,
+        **_client_kwargs: object,
     ) -> dict[str, object]:
-        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file
+        del base_url, auth_method, ca_bundle, client_cert_file, client_key_file, _client_kwargs
 
         page_id = str(target.page_id)
         page_fetch_counts[page_id] = page_fetch_counts.get(page_id, 0) + 1

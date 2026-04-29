@@ -19,11 +19,27 @@ class ConfluenceRunMetrics:
     fetch_cache_hits: int = 0
     fetch_cache_misses: int = 0
     fetch_seconds: float = 0.0
+    live_api_requests: int = 0
 
     @property
     def fetch_cache_saved_requests(self) -> int:
         """Return full-page fetch requests avoided by cache hits."""
         return self.fetch_cache_hits
+
+    @property
+    def request_timing_seconds(self) -> float:
+        """Return elapsed time tracked around live request paths."""
+        return self.discovery_seconds + self.fetch_seconds
+
+    @property
+    def effective_requests_per_second(self) -> float | None:
+        """Return live Confluence API request rate when it can be computed."""
+        if self.live_api_requests == 0 or self.request_timing_seconds <= 0:
+            return None
+        return self.live_api_requests / self.request_timing_seconds
+
+    def record_live_api_request(self) -> None:
+        self.live_api_requests += 1
 
     def record_listing_request(self) -> None:
         self.listing_requests += 1

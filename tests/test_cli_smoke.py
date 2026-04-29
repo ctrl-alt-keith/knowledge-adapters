@@ -1112,6 +1112,7 @@ def test_confluence_cli_smoke_uses_installed_entrypoint_with_default_stub_client
     assert "fetch_cache_hits: 0" in result.stdout
     assert "fetch_cache_misses: 0" in result.stdout
     assert "fetch_cache_saved_requests: 0" in result.stdout
+    assert "request_summary:" not in result.stdout
     assert "Manifest:" in result.stdout
     assert f"Write complete. Artifacts created under {tmp_path / 'artifacts'}" in result.stdout
 
