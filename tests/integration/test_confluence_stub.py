@@ -302,7 +302,7 @@ def test_confluence_cli_reports_missing_stub_page_without_traceback(
         env=env,
     )
 
-    assert result.returncode != 0
+    assert result.returncode == 2
     assert result.stdout == ""
     assert_contains_normalized(
         result.stderr,
