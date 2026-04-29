@@ -8,6 +8,7 @@ This repository follows the shared workflow defined in the
 
 - Engineering baseline: `ai-workflow-playbook/docs/engineering-baseline.md`
 - Workflow rules: `ai-workflow-playbook/docs/`
+- Start here: `ai-workflow-playbook/docs/start-here.md`
 
 Use the playbook for general workflow rules. Follow this AGENTS.md for
 repo-specific execution details where they are more specific. Repo-local rules
