@@ -1,13 +1,70 @@
 # Changelog
 
-Confluence release notes below describe shipped CLI wiring, manifest behavior,
-design docs, and contract coverage in this repository. The default Confluence
-client remains the stub path, while the opt-in real client path now supports
-single-page live fetches for Confluence.
+Release notes below describe shipped CLI wiring, manifest behavior, design
+docs, and contract coverage in this repository. The default Confluence client
+remains the stub path, while the opt-in real client path supports live
+Confluence ingestion.
 
 Formal changelog coverage begins at `0.2.0`, when this repository started using
 `CHANGELOG.md` as part of the release flow. Earlier tagged releases `v0.1.0` and
 `v0.1.1` predate that practice and are not backfilled here.
+
+## 0.8.0
+
+This minor release moves the project from capability to control: more adapters,
+more repeatable workflows, and better operator visibility for real ingestion
+runs without changing the public-safe defaults.
+
+### Control surfaces
+
+- Added the `git_repo` adapter for ingesting repository content into the shared
+  artifact and manifest layout, including improved artifact naming and
+  config-run examples.
+- Added the `github_metadata` adapter for repository issues, pull requests,
+  optional issue comments, and releases, with GitHub metadata documented as
+  untrusted input.
+- Added stale-artifact reporting for manifest-backed adapters and stale-aware
+  bundle handling so operators can include, exclude, or flag stale content.
+- Added Confluence fetch and traversal caches, plus cache-control flags for
+  force refreshes and repeat runs.
+
+### Observability
+
+- Added Confluence run metrics and real-run request summaries covering request
+  counts, timing, effective request rate, pacing status, and cache behavior.
+- Improved large-run progress reporting for Confluence tree discovery and
+  listing pagination, with quieter default output and opt-in verbose per-item
+  details.
+- Refined TTY progress rendering so repeated progress updates stay inline,
+  output teeing preserves inline status, and final counts align with discovered
+  pages.
+
+### Workflow portability
+
+- Added named `runs.yaml` bundle definitions so repeatable bundle outputs can
+  live beside adapter runs.
+- Improved config-run validation, Ctrl-C handling, and `--max-depth` validation
+  so multi-run workflows fail or skip more predictably.
+- Clarified repo-local workflow guidance, validation expectations, and
+  multi-repo workspace guardrails.
+
+### Scale ergonomics
+
+- Added optional Confluence request pacing through delay and max-rate controls
+  for live runs.
+- Added bundle and traversal-cache documentation to make larger repeat
+  ingestions easier to plan and rerun.
+- Added a Google Docs destination design for publishing bundle output outside
+  the source-ingestion core.
+
+### System completeness
+
+- Added a local Confluence stub and stub-backed integration tests for normal,
+  configured, tree traversal, and failure-path runs.
+- Reorganized tests by CLI, adapter, and integration responsibilities, and
+  expanded coverage for the new adapters, caches, bundles, metrics, and pacing.
+- Hardened CI and local validation with the repository `make check` path,
+  Python 3.13 Ruff targeting, and GitHub CLI environment checks.
 
 ## 0.7.0
 
