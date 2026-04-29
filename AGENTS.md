@@ -10,72 +10,16 @@ This repository follows the shared workflow defined in the
 - Workflow rules: `ai-workflow-playbook/docs/`
 
 Use the playbook for general workflow rules. Follow this AGENTS.md for
-repo-specific execution details where they are more specific.
+repo-specific execution details where they are more specific. Repo-local rules
+take precedence only for repo-specific behavior.
 
----
+## File Placement
 
-## Completion Requirements
-
-For implementation tasks, the task is not complete until all of the following are done:
-
-- changes are made on a new branch (not `main`)
-- `make check` passes
-- changes are committed
-- the branch is pushed
-- a pull request targeting `main` is created
-
-Do not stop after making local file changes.
-The task is only complete once the pull request exists.
-
----
-
-## Git Conventions
-
-### Start State
-
-For same-repo arcs:
-
-- start from fresh `origin/main`
-- do not reuse an old feature branch unless intentionally continuing that PR
-- use isolated worktrees or directories for same-repo parallel arcs
-- treat repository identity and execution-container identity as separate checks
-
-### Branch Naming
-
-Use the following patterns:
-
-- feat/<short-name>
-- fix/<short-name>
-- chore/<short-name>
-- docs/<short-name>
-- refactor/<short-name>
-- test/<short-name>
-
----
-
-### Commit Messages
-
-Use Conventional Commits:
-
-- feat: ...
-- fix: ...
-- chore: ...
-- docs: ...
-- refactor: ...
-- test: ...
-
-Avoid generic messages like:
-- "Add X"
-- "Update Y"
-
-Preferred format:
-
-<type>: <short summary>
-
-Optional body:
-- bullet points describing key changes
-
-The commit message should reflect the PR summary and include key changes when non-trivial.
+- Put adapter implementation under `src/knowledge_adapters/<source>/`.
+- Put tests under `tests/`.
+- Put repo documentation under `docs/`.
+- Keep source-specific supporting material under `adapters/<source>/` when that
+  repo path already exists for the integration.
 
 ---
 
@@ -98,54 +42,13 @@ make format
 make check
 ```
 
-Do not open a PR if `make check` fails.
-
----
-
-## Tooling Assumptions
-
-- Git is configured and push access is available
-- GitHub CLI (`gh`) is installed and authenticated
-
-Use `gh` to create pull requests when needed.
-
-If `gh` is required but unavailable, explicitly report it instead of stopping early.
+Run `make check-gh-env` before pull request or release workflows that require
+an authenticated `gh` session.
 
 ---
 
 ## Pull Requests
 
-Pull requests must:
-
-- target `main`
-- be ready for review when implementation is complete and `make check` passes,
-  unless draft status is explicitly requested
-- include a clear summary of changes
-- include a testing/verification section
-
-PR scope integrity:
-- a PR is not complete unless its diff contains only the intended arc
-- this repository is part of a multi-repo workspace; changes must be scoped to this repository only
-- do not stage or commit files from other repositories; open separate PRs per repository
-
-Issue auto-close:
-- issue-driven PRs must include `Closes #<issue number>` before merge
-
-GitHub enforcement on `main` is intentionally minimal:
-
-- pull requests are required
-- admins are subject to the same branch protection
-- the required status check is `test`
-- required approving review count is `0`
-
-This file documents the repo-local working agreement on top of that enforced
-baseline.
-
-Preferred PR structure:
-
-Summary
-- high-level description of the change
-- key implementation details
-
-Testing
-- how the change was validated (typically `make check`)
+- Target `main`.
+- Include a clear summary of changes.
+- Include a testing or verification section.
