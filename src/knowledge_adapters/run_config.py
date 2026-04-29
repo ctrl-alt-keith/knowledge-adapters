@@ -615,6 +615,10 @@ def _build_confluence_argv(
                 f"Run {name!r} in {config_path} must set 'max_depth' to an integer "
                 "greater than or equal to 0."
             )
+        if not tree:
+            raise ValueError(
+                f"Run {name!r} in {config_path} must set 'tree' when using 'max_depth'."
+            )
         argv.extend(["--max-depth", str(max_depth)])
 
     return tuple(argv)
