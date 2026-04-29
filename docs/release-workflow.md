@@ -16,11 +16,26 @@ unrelated cleanup into the same PR.
 4. run `make check`
 5. create a release branch if needed
 6. merge the release PR
-7. create a tag in the format `vX.Y.Z`
-8. push the tag
-9. create the GitHub release
+7. sync `main` after the merge:
+
+   ```bash
+   git switch main
+   git pull --ff-only origin main
+   ```
+
+8. publish the post-merge tag and GitHub release:
+
+   ```bash
+   make release-publish VERSION=0.8.1
+   ```
 
 ## Notes
 
 - Keep the tag format consistent as `vX.Y.Z`.
-- Ensure the version, `CHANGELOG.md`, and tag all align.
+- `make release-publish` accepts `VERSION=X.Y.Z` or `VERSION=vX.Y.Z`, creates
+  the annotated tag as `vX.Y.Z`, and uses the matching `## X.Y.Z` section from
+  `CHANGELOG.md` as the GitHub release notes.
+- Use `make release-check VERSION=0.8.1` to validate the post-merge release
+  prerequisites without creating a tag or GitHub release.
+- Ensure the version, `CHANGELOG.md`, and tag all align before merging the
+  release PR.
