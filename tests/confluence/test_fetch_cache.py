@@ -22,6 +22,8 @@ def _confluence_argv(
     fetch_cache_dir: Path | None = None,
     force_refresh: bool = False,
     clear_cache: bool = False,
+    request_delay_ms: int | None = None,
+    max_requests_per_second: float | None = None,
 ) -> list[str]:
     argv = [
         "confluence",
@@ -40,6 +42,10 @@ def _confluence_argv(
         argv.append("--force-refresh")
     if clear_cache:
         argv.append("--clear-cache")
+    if request_delay_ms is not None:
+        argv.extend(["--request-delay-ms", str(request_delay_ms)])
+    if max_requests_per_second is not None:
+        argv.extend(["--max-requests-per-second", f"{max_requests_per_second:g}"])
     return argv
 
 
@@ -163,8 +169,14 @@ def test_confluence_fetch_cache_disabled_keeps_output_unchanged(
     assert "fetch_cache_hits: 0" in captured.out
     assert "fetch_cache_misses: 0" in captured.out
     assert "fetch_cache_saved_requests: 0" in captured.out
+    assert "request_summary:" in captured.out
+    assert "live_api_requests: 1" in captured.out
+    assert "effective_requests_per_second:" in captured.out
+    assert "pacing_enabled: false" in captured.out
+    assert "pacing_interval_seconds:" not in captured.out
     _assert_seconds_metric(captured.out, "discovery_seconds")
     _assert_seconds_metric(captured.out, "fetch_seconds")
+    _assert_seconds_metric(captured.out, "request_timing_seconds")
 
 
 def test_confluence_fetch_cache_hit_uses_cached_raw_payload(
@@ -197,9 +209,36 @@ def test_confluence_fetch_cache_hit_uses_cached_raw_payload(
     assert "fetch_cache_hits: 1" in captured.out
     assert "fetch_cache_misses: 0" in captured.out
     assert "fetch_cache_saved_requests: 1" in captured.out
+    assert "request_summary:" in captured.out
+    assert "live_api_requests: 1" in captured.out
     assert "Hello from Confluence." in (output_dir / "pages" / "12345.md").read_text(
         encoding="utf-8"
     )
+
+
+def test_confluence_request_summary_reports_request_pacing(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    requests: list[str] = []
+
+    def request_json(api_url: str, **_kwargs: object) -> dict[str, object]:
+        requests.append(api_url)
+        return _raw_payload()
+
+    monkeypatch.setattr("knowledge_adapters.confluence.client._request_json", request_json)
+
+    exit_code = main(_confluence_argv(tmp_path / "out", request_delay_ms=250))
+
+    assert exit_code == 0
+    assert len(requests) == 1
+    captured = capsys.readouterr()
+    assert "request_summary:" in captured.out
+    assert "live_api_requests: 1" in captured.out
+    assert "pacing_enabled: true" in captured.out
+    assert "pacing_interval_seconds: 0.250" in captured.out
+    assert "pacing_source: request_delay_ms" in captured.out
 
 
 def test_confluence_force_refresh_bypasses_fetch_cache_hit(

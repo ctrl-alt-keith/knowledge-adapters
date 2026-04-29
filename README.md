@@ -128,6 +128,8 @@ Optional request pacing is available only when you opt in. Use
 request starts, or `--max-requests-per-second` to cap the request rate. If both
 are set, the slower interval wins. The first live request is immediate, and
 cache hits do not sleep.
+Real-mode summaries include a `request_summary` block with live API request
+counts, timing, effective request rate, and pacing status.
 
 ```bash
 CONFLUENCE_BEARER_TOKEN=... knowledge-adapters confluence \

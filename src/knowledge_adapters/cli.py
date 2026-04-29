@@ -1667,6 +1667,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 with run_metrics.time_fetch():
                     run_metrics.record_page_fetch_request()
                     if fetch_cache is None:
+                        run_metrics.record_live_api_request()
                         return fetch_real_page(
                             resolved_target,
                             base_url=confluence_config.base_url,
@@ -1680,6 +1681,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         if cached_page is not None:
                             return cached_page
 
+                    run_metrics.record_live_api_request()
                     raw_payload = fetch_real_page_raw(
                         resolved_target,
                         base_url=confluence_config.base_url,
@@ -1696,6 +1698,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 resolved_target: ResolvedTarget,
             ) -> dict[str, object]:
                 with run_metrics.time_fetch():
+                    run_metrics.record_live_api_request()
                     page = fetch_real_page_summary(
                         resolved_target,
                         base_url=confluence_config.base_url,
@@ -1711,6 +1714,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ) -> list[str]:
                 def fetch_listing() -> list[str]:
                     run_metrics.record_listing_request()
+                    run_metrics.record_live_api_request()
                     return list_real_child_page_ids(
                         resolved_target,
                         base_url=confluence_config.base_url,
@@ -1728,6 +1732,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             def selected_list_space_page_ids(space_key: str) -> list[str]:
                 def fetch_listing() -> list[str]:
                     run_metrics.record_listing_request()
+                    run_metrics.record_live_api_request()
                     return list_real_space_page_ids(
                         space_key,
                         base_url=confluence_config.base_url,
@@ -1940,6 +1945,33 @@ def main(argv: Sequence[str] | None = None) -> int:
         def _format_metric_seconds(seconds: float) -> str:
             return f"{seconds:.3f}"
 
+        def _format_metric_rate(rate: float | None) -> str:
+            if rate is None:
+                return "n/a"
+            return f"{rate:.3f}"
+
+        def _configured_pacing_source() -> str:
+            delay_interval = (
+                confluence_config.request_delay_ms / 1000
+                if confluence_config.request_delay_ms is not None
+                and confluence_config.request_delay_ms > 0
+                else None
+            )
+            rate_interval = (
+                1 / confluence_config.max_requests_per_second
+                if confluence_config.max_requests_per_second is not None
+                else None
+            )
+            if delay_interval is None:
+                return "max_requests_per_second"
+            if rate_interval is None:
+                return "request_delay_ms"
+            if delay_interval > rate_interval:
+                return "request_delay_ms"
+            if rate_interval > delay_interval:
+                return "max_requests_per_second"
+            return "request_delay_ms and max_requests_per_second"
+
         def _refresh_run_metric_cache_stats() -> None:
             if fetch_cache is None:
                 run_metrics.record_fetch_cache_stats(hits=0, misses=0)
@@ -1970,6 +2002,32 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"{metric_indent}fetch_seconds: "
                 f"{_format_metric_seconds(run_metrics.fetch_seconds)}"
             )
+
+        def _print_confluence_request_summary(*, indent: str) -> None:
+            if confluence_config.client_mode != "real":
+                return
+
+            metric_indent = f"{indent}  "
+            _print(f"{indent}request_summary:")
+            _print(f"{metric_indent}live_api_requests: {run_metrics.live_api_requests}")
+            _print(
+                f"{metric_indent}request_timing_seconds: "
+                f"{_format_metric_seconds(run_metrics.request_timing_seconds)}"
+            )
+            _print(
+                f"{metric_indent}effective_requests_per_second: "
+                f"{_format_metric_rate(run_metrics.effective_requests_per_second)}"
+            )
+            _print(
+                f"{metric_indent}pacing_enabled: "
+                f"{'true' if request_pacer is not None else 'false'}"
+            )
+            if request_pacer is not None:
+                _print(
+                    f"{metric_indent}pacing_interval_seconds: "
+                    f"{_format_metric_seconds(request_pacer.min_interval_seconds)}"
+                )
+                _print(f"{metric_indent}pacing_source: {_configured_pacing_source()}")
 
         def _print_confluence_dry_run_summary(
             *,
@@ -2017,6 +2075,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             for line in summary_lines:
                 _print(line)
             _print_confluence_run_metrics(indent="    ")
+            _print_confluence_request_summary(indent="    ")
 
         def _print_confluence_write_summary(
             *,
@@ -2042,6 +2101,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             _print(f"  pages_written: {write_count}")
             _print(f"  pages_skipped: {skip_count}")
             _print_confluence_run_metrics(indent="  ")
+            _print_confluence_request_summary(indent="  ")
 
         def _print_stub_tree_mode_note() -> None:
             if not (confluence_config.tree and confluence_config.client_mode == "stub"):
