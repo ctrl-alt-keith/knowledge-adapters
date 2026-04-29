@@ -1,4 +1,4 @@
-.PHONY: dev test smoke lint fix format typecheck check check-env check-gh-env release-notes release-check release-publish clean
+.PHONY: dev test smoke lint fix format typecheck check check-env check-gh-env chaos-random chaos-all release-notes release-check release-publish clean
 
 VENV = .venv
 PYTHON = $(VENV)/bin/python
@@ -9,6 +9,8 @@ PYTEST = $(VENV)/bin/pytest
 CLI = $(VENV)/bin/knowledge-adapters
 RELEASE_VERSION = $(patsubst v%,%,$(VERSION))
 RELEASE_TAG = v$(RELEASE_VERSION)
+CHAOS_SEED ?= $(shell date +%s)
+CHAOS_SCENARIO ?=
 
 $(VENV)/bin/activate:
 	python3 -m venv $(VENV)
@@ -29,6 +31,23 @@ test: $(VENV)/bin/activate
 
 smoke: $(VENV)/bin/activate
 	$(PYTEST) tests/test_cli_smoke.py
+
+chaos-random: $(VENV)/bin/activate
+	@set -e; \
+	seed="$(CHAOS_SEED)"; \
+	scenario="$(CHAOS_SCENARIO)"; \
+	if [ -z "$$scenario" ]; then \
+		scenario="$$(CHAOS_SEED="$$seed" $(PYTHON) -c 'import os; from tests.chaos import select_chaos_scenario; print(select_chaos_scenario(os.environ["CHAOS_SEED"]).value)')"; \
+	else \
+		CHAOS_SCENARIO="$$scenario" $(PYTHON) -c 'import os; from tests.chaos import AdapterChaosScenario; AdapterChaosScenario(os.environ["CHAOS_SCENARIO"])'; \
+	fi; \
+	echo "Chaos seed: $$seed"; \
+	echo "Chaos scenario: $$scenario"; \
+	echo "Rerun: make chaos-random CHAOS_SEED=$$seed CHAOS_SCENARIO=$$scenario"; \
+	$(PYTEST) -m chaos -k "$$scenario"
+
+chaos-all: $(VENV)/bin/activate
+	$(PYTEST) -m chaos
 
 lint: $(VENV)/bin/activate
 	$(RUFF) check .

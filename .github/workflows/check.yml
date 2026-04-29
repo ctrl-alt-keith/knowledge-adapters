@@ -29,5 +29,8 @@ jobs:
       - name: Run smoke tests
         run: make smoke
 
+      - name: Run chaos canary
+        run: make chaos-random
+
       - name: Run checks
         run: make check
