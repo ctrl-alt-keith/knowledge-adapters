@@ -10,7 +10,7 @@ This repository follows the shared workflow defined in the
 - Workflow rules: `ai-workflow-playbook/docs/`
 
 Use the playbook for general workflow rules. Follow this AGENTS.md for
-repo-specific behavior when they differ.
+repo-specific execution details where they are more specific.
 
 ---
 
@@ -118,6 +118,8 @@ If `gh` is required but unavailable, explicitly report it instead of stopping ea
 Pull requests must:
 
 - target `main`
+- be ready for review when implementation is complete and `make check` passes,
+  unless draft status is explicitly requested
 - include a clear summary of changes
 - include a testing/verification section
 

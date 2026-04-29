@@ -904,6 +904,26 @@ runs:
         load_run_config(config_path)
 
 
+def test_load_run_config_requires_tree_for_confluence_max_depth(tmp_path: Path) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: docs-home
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home
+    max_depth: 1
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="must set 'tree' when using 'max_depth'"):
+        load_run_config(config_path)
+
+
 def test_run_command_executes_multiple_runs_in_sequence(
     tmp_path: Path,
     capsys: CaptureFixture[str],
