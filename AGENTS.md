@@ -23,6 +23,15 @@ take precedence only for repo-specific behavior.
 
 ---
 
+## Branches
+
+- Use repo-appropriate branch prefixes such as `feat/`, `fix/`, `docs/`,
+  `chore/`, `refactor/`, and `test/`.
+- Keep branch names short and descriptive, for example
+  `feat/<short-name>` or `docs/<short-name>`.
+
+---
+
 ## Validation
 
 Before committing or opening a PR:
