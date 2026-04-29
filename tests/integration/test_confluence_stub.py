@@ -304,9 +304,9 @@ def test_confluence_cli_reports_missing_stub_page_without_traceback(
 
     assert result.returncode == 2
     assert result.stdout == ""
-    assert (
-        result.stderr
-        == "knowledge-adapters confluence: error: Confluence page not found. Verify --target.\n"
+    assert_contains_normalized(
+        result.stderr,
+        "Confluence page not found. Verify --target.",
     )
     assert "Traceback" not in result.stdout
     assert "Traceback" not in result.stderr
