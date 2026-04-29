@@ -62,8 +62,17 @@ def _patch_large_real_confluence_tree(monkeypatch: MonkeyPatch) -> None:
         no_ca_bundle: bool = False,
         client_cert_file: str | None = None,
         client_key_file: str | None = None,
+        **_client_kwargs: object,
     ) -> dict[str, object]:
-        del base_url, auth_method, ca_bundle, no_ca_bundle, client_cert_file, client_key_file
+        del (
+            base_url,
+            auth_method,
+            ca_bundle,
+            no_ca_bundle,
+            client_cert_file,
+            client_key_file,
+            _client_kwargs,
+        )
         return dict(pages[str(target.page_id)])
 
     def stub_child_id_discovery(
@@ -76,6 +85,7 @@ def _patch_large_real_confluence_tree(monkeypatch: MonkeyPatch) -> None:
         client_cert_file: str | None = None,
         client_key_file: str | None = None,
         progress_callback: Any = None,
+        **_client_kwargs: object,
     ) -> list[str]:
         del (
             base_url,
@@ -85,6 +95,7 @@ def _patch_large_real_confluence_tree(monkeypatch: MonkeyPatch) -> None:
             client_cert_file,
             client_key_file,
             progress_callback,
+            _client_kwargs,
         )
         return children_by_parent[str(target.page_id)]
 
@@ -1666,7 +1677,9 @@ def test_run_command_no_ca_bundle_flag_disables_env_and_config_ca_bundle(
 
     def stub_real_fetch(*args: object, **kwargs: object) -> dict[str, object]:
         del args
-        observed_kwargs.append(dict(kwargs))
+        observed = dict(kwargs)
+        assert callable(observed.pop("request_counter"))
+        observed_kwargs.append(observed)
         return {
             "canonical_id": "12345",
             "title": "Real Page",
@@ -1765,7 +1778,9 @@ def test_run_command_passes_confluence_tls_config_to_real_client(
 
     def stub_real_fetch(*args: object, **kwargs: object) -> dict[str, object]:
         del args
-        observed_kwargs.append(dict(kwargs))
+        observed = dict(kwargs)
+        assert callable(observed.pop("request_counter"))
+        observed_kwargs.append(observed)
         return {
             "canonical_id": "12345",
             "title": "Real Page",

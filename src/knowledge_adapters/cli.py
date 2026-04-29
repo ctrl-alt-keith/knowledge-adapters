@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import inspect
 import io
 import math
 import re
@@ -1653,41 +1652,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         selected_list_space_page_ids: Callable[[str], list[str]] | None = None
         if confluence_config.client_mode == "real":
 
-            def supports_keyword_argument(
-                callable_object: Callable[..., object],
-                name: str,
-                *,
-                allow_var_keyword: bool = True,
-            ) -> bool:
-                try:
-                    signature = inspect.signature(callable_object)
-                except (TypeError, ValueError):
-                    return False
-                return any(
-                    (
-                        allow_var_keyword
-                        and parameter.kind is inspect.Parameter.VAR_KEYWORD
-                    )
-                    or parameter.name == name
-                    for parameter in signature.parameters.values()
-                )
-
-            def real_client_kwargs(callable_object: Callable[..., object]) -> RealClientKwargs:
+            def real_client_kwargs() -> RealClientKwargs:
                 kwargs = RealClientKwargs(
                     ca_bundle=confluence_config.ca_bundle,
                     client_cert_file=confluence_config.client_cert_file,
                     client_key_file=confluence_config.client_key_file,
+                    request_counter=run_metrics.record_live_api_request,
                 )
                 if confluence_config.no_ca_bundle:
                     kwargs["no_ca_bundle"] = True
-                if request_pace is not None and supports_keyword_argument(
-                    callable_object, "request_pacer"
-                ):
+                if request_pace is not None:
                     kwargs["request_pacer"] = request_pace
-                if supports_keyword_argument(
-                    callable_object, "request_counter", allow_var_keyword=False
-                ):
-                    kwargs["request_counter"] = run_metrics.record_live_api_request
                 return kwargs
 
             def selected_fetch_page(resolved_target: ResolvedTarget) -> dict[str, object]:
@@ -1698,7 +1673,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                             resolved_target,
                             base_url=confluence_config.base_url,
                             auth_method=confluence_config.auth_method,
-                            **real_client_kwargs(fetch_real_page),
+                            **real_client_kwargs(),
                         )
 
                     page_id = resolved_target.page_id
@@ -1711,7 +1686,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         resolved_target,
                         base_url=confluence_config.base_url,
                         auth_method=confluence_config.auth_method,
-                        **real_client_kwargs(fetch_real_page_raw),
+                        **real_client_kwargs(),
                     )
                     if not page_id:
                         raise ValueError("Response error: canonical_id mismatch.")
@@ -1727,7 +1702,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         resolved_target,
                         base_url=confluence_config.base_url,
                         auth_method=confluence_config.auth_method,
-                        **real_client_kwargs(fetch_real_page_summary),
+                        **real_client_kwargs(),
                     )
                     if fetch_cache is not None:
                         fetch_cache.record_metadata(page)
@@ -1743,7 +1718,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         base_url=confluence_config.base_url,
                         auth_method=confluence_config.auth_method,
                         progress_callback=_print_discovered_pages_progress,
-                        **real_client_kwargs(list_real_child_page_ids),
+                        **real_client_kwargs(),
                     )
 
                 page_id = resolved_target.page_id
@@ -1760,7 +1735,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         base_url=confluence_config.base_url,
                         auth_method=confluence_config.auth_method,
                         progress_callback=_print_discovered_pages_progress,
-                        **real_client_kwargs(list_real_space_page_ids),
+                        **real_client_kwargs(),
                     )
 
                 with run_metrics.time_discovery():
