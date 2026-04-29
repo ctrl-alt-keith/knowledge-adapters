@@ -36,29 +36,56 @@ def _run_cli(tmp_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 def test_top_level_help_introduces_shared_cli_flow(tmp_path: Path) -> None:
     result = _run_cli(tmp_path, "--help")
-    stdout = normalize_whitespace(result.stdout)
 
     assert result.returncode == 0, result.stderr
-    assert "Normalize knowledge sources into a shared local artifact layout." in stdout
-    assert "plans a markdown artifact under pages/ plus manifest.json" in stdout
-    assert "Execute multiple configured adapter runs from one YAML file." in stdout
-    assert "Normalize Confluence content into shared artifacts." in stdout
-    assert (
-        "Normalize selected UTF-8 text files from a Git repository into shared artifacts." in stdout
+    assert_contains_normalized(
+        result.stdout,
+        "Normalize knowledge sources into a shared local artifact layout.",
     )
-    assert (
+    assert_contains_normalized(
+        result.stdout,
+        "plans a markdown artifact under pages/ plus manifest.json",
+    )
+    assert_contains_normalized(
+        result.stdout,
+        "Execute multiple configured adapter runs from one YAML file.",
+    )
+    assert_contains_normalized(
+        result.stdout,
+        "Normalize Confluence content into shared artifacts.",
+    )
+    assert_contains_normalized(
+        result.stdout,
+        "Normalize selected UTF-8 text files from a Git repository into shared artifacts.",
+    )
+    assert_contains_normalized(
+        result.stdout,
         "Normalize GitHub issue, pull request, or release metadata from one repository "
-        "into shared artifacts."
-        in stdout
+        "into shared artifacts.",
     )
-    assert "Normalize one local UTF-8 text file into shared artifacts." in stdout
-    assert "Combine existing artifacts into one prompt-ready markdown file." in stdout
-    assert "Start with --dry-run to preview the source, artifact path, manifest path," in stdout
-    assert "Re-run without --dry-run to write the same artifact layout" in stdout
-    assert "knowledge-adapters run runs.yaml" in stdout
-    assert "knowledge-adapters git_repo --help" in stdout
-    assert "knowledge-adapters github_metadata --help" in stdout
-    assert "knowledge-adapters bundle ./artifacts --output ./bundle.md" in stdout
+    assert_contains_normalized(
+        result.stdout,
+        "Normalize one local UTF-8 text file into shared artifacts.",
+    )
+    assert_contains_normalized(
+        result.stdout,
+        "Combine existing artifacts into one prompt-ready markdown file.",
+    )
+    assert_contains_normalized(
+        result.stdout,
+        "Start with --dry-run to preview the source, artifact path, manifest path,",
+    )
+    assert_contains_normalized(
+        result.stdout,
+        "Re-run without --dry-run to write the same artifact layout",
+    )
+    assert_contains_normalized(result.stdout, "knowledge-adapters run runs.yaml")
+    assert_contains_normalized(result.stdout, "knowledge-adapters git_repo --help")
+    assert_contains_normalized(result.stdout, "knowledge-adapters github_metadata --help")
+    assert_contains_normalized(
+        result.stdout,
+        "knowledge-adapters bundle ./artifacts --output ./bundle.md",
+    )
 
 
 def test_local_files_cli_smoke_uses_installed_entrypoint_with_readme_style_args(
