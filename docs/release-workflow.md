@@ -26,14 +26,14 @@ unrelated cleanup into the same PR.
 8. publish the post-merge tag and GitHub release:
 
    ```bash
-   make release VERSION=0.8.1
+   make release-publish VERSION=0.8.1
    ```
 
 ## Notes
 
 - Keep the tag format consistent as `vX.Y.Z`.
-- `make release` accepts `VERSION=X.Y.Z` or `VERSION=vX.Y.Z`, creates the
-  annotated tag as `vX.Y.Z`, and uses the matching `## X.Y.Z` section from
+- `make release-publish` accepts `VERSION=X.Y.Z` or `VERSION=vX.Y.Z`, creates
+  the annotated tag as `vX.Y.Z`, and uses the matching `## X.Y.Z` section from
   `CHANGELOG.md` as the GitHub release notes.
 - Use `make release-check VERSION=0.8.1` to validate the post-merge release
   prerequisites without creating a tag or GitHub release.

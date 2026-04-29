@@ -1,4 +1,4 @@
-.PHONY: dev test smoke lint fix format typecheck check check-env check-gh-env release-notes release-check release clean
+.PHONY: dev test smoke lint fix format typecheck check check-env check-gh-env release-notes release-check release-publish clean
 
 VENV = .venv
 PYTHON = $(VENV)/bin/python
@@ -48,7 +48,7 @@ fix-all: fix format
 
 release-notes:
 	@if [ -z "$(VERSION)" ]; then \
-		echo "Error: VERSION is required. Usage: make release VERSION=0.8.1" >&2; \
+		echo "Error: VERSION is required. Usage: make release-publish VERSION=0.8.1" >&2; \
 		exit 1; \
 	fi
 	@if ! printf '%s\n' '$(RELEASE_VERSION)' | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$$'; then \
@@ -73,7 +73,7 @@ release-notes:
 
 release-check: check-gh-env
 	@if [ -z "$(VERSION)" ]; then \
-		echo "Error: VERSION is required. Usage: make release VERSION=0.8.1" >&2; \
+		echo "Error: VERSION is required. Usage: make release-publish VERSION=0.8.1" >&2; \
 		exit 1; \
 	fi
 	@if ! printf '%s\n' '$(RELEASE_VERSION)' | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$$'; then \
@@ -133,7 +133,7 @@ release-check: check-gh-env
 	fi
 	@echo "Release checks passed for $(RELEASE_TAG)."
 
-release: release-check
+release-publish: release-check
 	@set -e; \
 	notes_file=$$(mktemp); \
 	trap 'rm -f "$$notes_file"' EXIT; \
