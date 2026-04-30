@@ -7,8 +7,8 @@ This document is the thin release adapter for `knowledge-adapters`.
 Keep the release arc focused on versioning and release metadata. Avoid mixing
 unrelated cleanup into the same PR.
 
-For branch, PR, and validation workflow, follow `AGENTS.md` and
-`ai-workflow-playbook/docs/start-here.md`.
+For shared branch, PR, validation, and current-main workflow, follow
+`AGENTS.md` and `ai-workflow-playbook/docs/start-here.md`.
 
 ## Release Steps
 
@@ -21,8 +21,7 @@ For branch, PR, and validation workflow, follow `AGENTS.md` and
    make release-check VERSION=0.8.1
    ```
 
-4. after the release PR lands and `main` is current per the shared workflow,
-   publish the post-merge tag and GitHub release:
+4. after the release PR lands, publish the post-merge tag and GitHub release:
 
    ```bash
    make release-publish VERSION=0.8.1
