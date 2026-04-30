@@ -9,6 +9,7 @@ from pytest import CaptureFixture
 from knowledge_adapters.cli import main
 from knowledge_adapters.confluence.client import ConfluenceRequestError, fetch_real_page
 from knowledge_adapters.confluence.models import ResolvedTarget
+from tests.adapter_contracts import assert_no_partial_adapter_artifacts
 from tests.chaos import AdapterChaosScenario, ConfluenceHTTPChaos, select_chaos_scenario
 
 ConfluenceChaosInstaller = Callable[[AdapterChaosScenario], ConfluenceHTTPChaos]
@@ -148,9 +149,7 @@ def test_confluence_cli_real_mode_surfaces_chaos_without_artifacts(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == f"knowledge-adapters confluence: error: {expected_message}\n"
-    assert not (output_dir / "manifest.json").exists()
-    pages_dir = output_dir / "pages"
-    assert not pages_dir.exists() or list(pages_dir.glob("*.md")) == []
+    assert_no_partial_adapter_artifacts(output_dir)
 
 
 def test_chaos_random_selection_is_seeded() -> None:

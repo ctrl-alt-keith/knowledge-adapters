@@ -20,6 +20,10 @@ def assert_markdown_document(
     assert actual_content == content.rstrip("\n")
 
 
+def parse_markdown_document(markdown: str) -> tuple[str, dict[str, str], str]:
+    return _parse_markdown_document(markdown)
+
+
 def manifest_file(
     *,
     canonical_id: str,
