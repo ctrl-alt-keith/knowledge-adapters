@@ -10,9 +10,12 @@ from __future__ import annotations
 
 import json
 import random
+import shlex
+from collections.abc import Mapping
 from dataclasses import dataclass
 from email.message import Message
 from enum import StrEnum
+from hashlib import sha256
 from types import TracebackType
 from typing import Literal, Self
 from urllib.error import HTTPError, URLError
@@ -31,9 +34,83 @@ class AdapterChaosScenario(StrEnum):
     PARTIAL_PAYLOAD = "partial_payload"
 
 
+CHAOS_FINGERPRINT_VERSION = "chaos-v1"
+
+
+@dataclass(frozen=True)
+class ChaosFailureFingerprint:
+    """Stable identifier and payload for a chaos validation failure."""
+
+    identifier: str
+    payload: Mapping[str, str]
+
+    def as_line(self) -> str:
+        """Return a compact, copyable fingerprint line."""
+        payload_json = json.dumps(self.payload, sort_keys=True, separators=(",", ":"))
+        return f"{self.identifier} {payload_json}"
+
+
 def select_chaos_scenario(seed: str) -> AdapterChaosScenario:
     """Select one named chaos scenario deterministically from a seed."""
     return random.Random(seed).choice(tuple(AdapterChaosScenario))
+
+
+def build_chaos_failure_fingerprint(
+    *,
+    scenario: str,
+    nodeid: str,
+    failure_type: str,
+    failure_message: str,
+    command_context: str,
+) -> ChaosFailureFingerprint:
+    """Build a deterministic fingerprint for comparing repeated chaos failures."""
+    payload = {
+        "command_context": _normalize_fingerprint_text(command_context),
+        "failure_message": _normalize_fingerprint_text(failure_message),
+        "failure_type": _normalize_fingerprint_text(failure_type),
+        "nodeid": _normalize_fingerprint_text(nodeid),
+        "scenario": _normalize_fingerprint_text(scenario),
+    }
+    payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    digest = sha256(payload_json.encode("utf-8")).hexdigest()[:16]
+    return ChaosFailureFingerprint(
+        identifier=f"{CHAOS_FINGERPRINT_VERSION}:{digest}",
+        payload=payload,
+    )
+
+
+def build_chaos_command_context(*, target: str, seed: str | None, scenario: str) -> str:
+    """Describe the Make command context that selected the failing chaos run."""
+    if target == "chaos-random":
+        parts = ["make", "chaos-random"]
+        if seed:
+            parts.append(f"CHAOS_SEED={shlex.quote(seed)}")
+        parts.append(f"CHAOS_SCENARIO={shlex.quote(scenario)}")
+        return " ".join(parts)
+    if target == "chaos-all":
+        return "make chaos-all"
+    if target == "chaos-replay":
+        parts = ["make", "chaos-replay"]
+        if seed:
+            parts.append(f"CHAOS_SEED={shlex.quote(seed)}")
+        parts.append(f"CHAOS_SCENARIO={shlex.quote(scenario)}")
+        return " ".join(parts)
+    return target or "pytest -m chaos"
+
+
+def build_chaos_replay_command(
+    *,
+    seed: str | None,
+    scenario: str,
+    nodeid: str,
+) -> str:
+    """Build a shell-safe Make command that replays one chaos failure."""
+    parts = ["make", "chaos-replay"]
+    if seed:
+        parts.append(f"CHAOS_SEED={shlex.quote(seed)}")
+    parts.append(f"CHAOS_SCENARIO={shlex.quote(scenario)}")
+    parts.append(f"CHAOS_NODEID={shlex.quote(nodeid)}")
+    return " ".join(parts)
 
 
 @dataclass(frozen=True)
@@ -126,6 +203,10 @@ def _request_url(request: object) -> str:
     if isinstance(request, str):
         return request
     return "https://example.com/unknown-chaos-request"
+
+
+def _normalize_fingerprint_text(value: str) -> str:
+    return " ".join(value.split())
 
 
 def _partial_page_payload(chaos: ConfluenceHTTPChaos) -> dict[str, object]:

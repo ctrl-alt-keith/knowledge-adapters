@@ -1,4 +1,4 @@
-.PHONY: dev test smoke lint fix format typecheck check check-env check-gh-env chaos-random chaos-all release-notes release-check release-publish clean
+.PHONY: dev test smoke lint fix format typecheck check check-env check-gh-env chaos-random chaos-replay chaos-all release-notes release-check release-publish clean
 
 VENV = .venv
 PYTHON = $(VENV)/bin/python
@@ -9,8 +9,9 @@ PYTEST = $(VENV)/bin/pytest
 CLI = $(VENV)/bin/knowledge-adapters
 RELEASE_VERSION = $(patsubst v%,%,$(VERSION))
 RELEASE_TAG = v$(RELEASE_VERSION)
-CHAOS_SEED ?= $(shell date +%s)
+CHAOS_SEED ?=
 CHAOS_SCENARIO ?=
+CHAOS_NODEID ?=
 
 $(VENV)/bin/activate:
 	python3 -m venv $(VENV)
@@ -35,6 +36,9 @@ smoke: $(VENV)/bin/activate
 chaos-random: $(VENV)/bin/activate
 	@set -e; \
 	seed="$(CHAOS_SEED)"; \
+	if [ -z "$$seed" ]; then \
+		seed="$$(date +%s)"; \
+	fi; \
 	scenario="$(CHAOS_SCENARIO)"; \
 	if [ -z "$$scenario" ]; then \
 		scenario="$$(CHAOS_SEED="$$seed" $(PYTHON) -c 'import os; from tests.chaos import select_chaos_scenario; print(select_chaos_scenario(os.environ["CHAOS_SEED"]).value)')"; \
@@ -43,11 +47,33 @@ chaos-random: $(VENV)/bin/activate
 	fi; \
 	echo "Chaos seed: $$seed"; \
 	echo "Chaos scenario: $$scenario"; \
-	echo "Rerun: make chaos-random CHAOS_SEED=$$seed CHAOS_SCENARIO=$$scenario"; \
-	$(PYTEST) -m chaos -k "$$scenario"
+	echo "Rerun: make chaos-replay CHAOS_SEED=$$seed CHAOS_SCENARIO=$$scenario"; \
+	CHAOS_TARGET=chaos-random CHAOS_SEED="$$seed" CHAOS_SCENARIO="$$scenario" $(PYTEST) -m chaos -k "$$scenario"
+
+chaos-replay: $(VENV)/bin/activate
+	@set -e; \
+	seed="$(CHAOS_SEED)"; \
+	scenario="$(CHAOS_SCENARIO)"; \
+	nodeid="$(CHAOS_NODEID)"; \
+	if [ -z "$$scenario" ]; then \
+		echo "Error: CHAOS_SCENARIO is required. Usage: make chaos-replay CHAOS_SCENARIO=<scenario> [CHAOS_SEED=<seed>] [CHAOS_NODEID=<pytest-node-id>]" >&2; \
+		exit 1; \
+	fi; \
+	CHAOS_SCENARIO="$$scenario" $(PYTHON) -c 'import os; from tests.chaos import AdapterChaosScenario; AdapterChaosScenario(os.environ["CHAOS_SCENARIO"])'; \
+	if [ -n "$$seed" ]; then \
+		echo "Chaos seed: $$seed"; \
+	fi; \
+	echo "Chaos scenario: $$scenario"; \
+	if [ -n "$$nodeid" ]; then \
+		echo "Chaos node id: $$nodeid"; \
+		CHAOS_TARGET=chaos-replay CHAOS_SEED="$$seed" CHAOS_SCENARIO="$$scenario" $(PYTEST) -m chaos "$$nodeid"; \
+	else \
+		echo "Chaos node id: <all matching scenario tests>"; \
+		CHAOS_TARGET=chaos-replay CHAOS_SEED="$$seed" CHAOS_SCENARIO="$$scenario" $(PYTEST) -m chaos -k "$$scenario"; \
+	fi
 
 chaos-all: $(VENV)/bin/activate
-	$(PYTEST) -m chaos
+	CHAOS_TARGET=chaos-all $(PYTEST) -m chaos
 
 lint: $(VENV)/bin/activate
 	$(RUFF) check .
