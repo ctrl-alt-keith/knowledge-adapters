@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 import pytest
 
 from knowledge_adapters.adapter_readiness import (
@@ -7,6 +10,13 @@ from knowledge_adapters.adapter_readiness import (
     AdapterReadiness,
     adapter_readiness,
     render_adapter_readiness_report,
+)
+from knowledge_adapters.cli import build_parser
+
+NON_ADAPTER_CLI_COMMANDS = {"bundle", "run"}
+REPO_ROOT = Path(__file__).resolve().parents[1]
+EVIDENCE_PATH_RE = re.compile(
+    r"\b(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+\.(?:md|py)\b|\bMakefile\b"
 )
 
 
@@ -32,6 +42,29 @@ def test_adapter_readiness_model_is_sorted_and_complete() -> None:
         "replay": True,
         "no_partial_artifacts": True,
     }
+
+
+def test_adapter_readiness_model_matches_adapter_cli_surfaces() -> None:
+    adapter_commands = _adapter_cli_commands()
+    readiness_adapters = {row.adapter for row in adapter_readiness()}
+
+    assert readiness_adapters == adapter_commands
+
+
+def test_adapter_readiness_evidence_paths_exist() -> None:
+    evidence_paths = {
+        path
+        for row in adapter_readiness()
+        for evidence in row.evidence.values()
+        for path in _evidence_path_references(evidence)
+    }
+
+    assert evidence_paths == {
+        "tests/confluence/test_chaos.py",
+        "tests/confluence/test_contracts.py",
+    }
+    for path in evidence_paths:
+        assert (REPO_ROOT / path).is_file(), path
 
 
 def test_adapter_readiness_report_is_deterministic() -> None:
@@ -86,3 +119,16 @@ def test_adapter_readiness_report_rejects_incomplete_rows() -> None:
 
     with pytest.raises(ValueError, match="coverage keys"):
         render_adapter_readiness_report((row,))
+
+
+def _adapter_cli_commands() -> set[str]:
+    parser = build_parser()
+    for action in parser._actions:
+        choices = getattr(action, "choices", None)
+        if isinstance(choices, dict):
+            return set(choices) - NON_ADAPTER_CLI_COMMANDS
+    raise AssertionError("CLI parser has no subcommands.")
+
+
+def _evidence_path_references(evidence: str) -> tuple[str, ...]:
+    return tuple(match.group(0) for match in EVIDENCE_PATH_RE.finditer(evidence))

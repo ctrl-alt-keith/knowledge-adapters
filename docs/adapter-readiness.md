@@ -33,7 +33,8 @@ When an adapter gains one of these reliability dimensions, update the explicit
 readiness model with the observed coverage and a short evidence note pointing
 to the test, helper, or Makefile target that proves it. Keep entries factual:
 describe coverage that exists in the repository today, not planned or desired
-coverage.
+coverage. When an evidence note includes a repo-relative file path, keep it
+pointing at a real file so the readiness tests can catch stale references.
 
 Future adapters should be added to the model when they become real adapter CLI
 surfaces. They can start with `no` for dimensions they do not yet cover. Do not
