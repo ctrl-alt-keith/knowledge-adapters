@@ -1,4 +1,4 @@
-.PHONY: dev test smoke lint fix format typecheck check check-env check-gh-env chaos-random chaos-replay chaos-all release-notes release-check release-publish clean
+.PHONY: dev test smoke lint fix format typecheck check check-env check-gh-env adapter-readiness chaos-random chaos-replay chaos-all release-notes release-check release-publish clean
 
 VENV = .venv
 PYTHON = $(VENV)/bin/python
@@ -26,6 +26,9 @@ check-env:
 check-gh-env:
 	@command -v gh >/dev/null 2>&1 || { echo "Error: GitHub CLI (gh) is required but is not installed." >&2; exit 1; }
 	@gh auth status >/dev/null 2>&1 || { echo "Error: GitHub CLI authentication is required. Run 'gh auth login' and try again." >&2; exit 1; }
+
+adapter-readiness: $(VENV)/bin/activate
+	@$(PYTHON) -m knowledge_adapters.adapter_readiness
 
 test: $(VENV)/bin/activate
 	$(PYTEST)

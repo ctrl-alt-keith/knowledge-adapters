@@ -39,3 +39,7 @@ repository already has a deterministic seam for the failure. Use
 Keep these tests local and deterministic. They should not require live services,
 credentials, external network access, sleeps, or broad production validation
 changes.
+
+The adapter readiness report in [`adapter-readiness.md`](adapter-readiness.md)
+summarizes which current adapters have this coverage registered. Update that
+explicit model when an adapter gains contract or failure-safety coverage.
