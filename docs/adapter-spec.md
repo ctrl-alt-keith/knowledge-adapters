@@ -26,6 +26,13 @@ An adapter must:
 
 8. avoid embedding environment-specific details in the repo
 
+## Test Contracts
+
+Adapter invariant and contract tests live in the test suite, not in production
+validation code. See [`adapter-contract-tests.md`](adapter-contract-tests.md)
+for the current success and failure-safety expectations and how future adapters
+should add coverage.
+
 ## Runtime Inputs
 
 Adapters should accept, directly or indirectly, the following classes of input:

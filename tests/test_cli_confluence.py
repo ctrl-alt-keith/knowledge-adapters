@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from tests.adapter_contracts import assert_no_partial_adapter_artifacts
 from tests.cli_helpers import run_cli
 from tests.cli_output_assertions import (
     assert_contains_normalized,
@@ -178,6 +179,7 @@ def test_confluence_cli_rejects_missing_tls_path_before_execution(
     tmp_path: Path,
 ) -> None:
     missing_ca_bundle = tmp_path / "missing-ca.pem"
+    output_dir = tmp_path / "artifacts"
 
     result = run_cli(
         tmp_path,
@@ -187,7 +189,7 @@ def test_confluence_cli_rejects_missing_tls_path_before_execution(
         "--target",
         "12345",
         "--output-dir",
-        "./artifacts",
+        str(output_dir),
         "--ca-bundle",
         str(missing_ca_bundle),
     )
@@ -196,6 +198,7 @@ def test_confluence_cli_rejects_missing_tls_path_before_execution(
     assert result.stdout == ""
     assert "does not exist" in result.stderr
     assert str(missing_ca_bundle.resolve()) in result.stderr
+    assert_no_partial_adapter_artifacts(output_dir)
 
 
 def test_confluence_help_lists_supported_auth_methods_and_examples(
@@ -241,6 +244,8 @@ def test_confluence_help_lists_supported_auth_methods_and_examples(
 
 
 def test_confluence_cli_rejects_invalid_base_url_before_planning(tmp_path: Path) -> None:
+    output_dir = tmp_path / "artifacts"
+
     result = run_cli(
         tmp_path,
         "confluence",
@@ -249,7 +254,7 @@ def test_confluence_cli_rejects_invalid_base_url_before_planning(tmp_path: Path)
         "--target",
         "12345",
         "--output-dir",
-        "./artifacts",
+        str(output_dir),
     )
 
     assert result.returncode == 2
@@ -261,3 +266,4 @@ def test_confluence_cli_rejects_invalid_base_url_before_planning(tmp_path: Path)
         "is invalid. Provide a full http:// or https:// Confluence base URL, for "
         "example 'https://example.com/wiki'.\n"
     ) == result.stderr
+    assert_no_partial_adapter_artifacts(output_dir)

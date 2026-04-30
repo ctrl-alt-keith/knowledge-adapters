@@ -139,6 +139,8 @@ runtime rather than committed:
 The following docs define intended behavior beyond the current default client:
 
 - [`docs/adapter-spec.md`](../../docs/adapter-spec.md): generic adapter contract
+- [`docs/adapter-contract-tests.md`](../../docs/adapter-contract-tests.md):
+  minimal test-only success invariants and failure-safety expectations
 - [`docs/confluence-recursive-fetch.md`](../../docs/confluence-recursive-fetch.md):
   recursive traversal semantics for `--tree` and `--max-depth`
 - [`docs/confluence-incremental-sync.md`](../../docs/confluence-incremental-sync.md):
