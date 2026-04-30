@@ -4,9 +4,19 @@
 
 This document captures how to use Codex effectively in `knowledge-adapters`.
 
-For reusable prompt structures, thread habits, and broader AI workflow patterns,
-see `ai-workflow-playbook`. This file keeps only the local operating details
-that matter in this repository.
+For shared workflow rules, use:
+
+- `AGENTS.md` for repo-local execution requirements
+- `ai-workflow-playbook/docs/start-here.md` for the canonical workflow entry
+  point
+- `ai-workflow-playbook/docs/tool-adapters/codex.md` for Codex-specific
+  workflow behavior
+- `ai-workflow-playbook/docs/repo-readiness.md` and
+  `ai-workflow-playbook/docs/review-packet.md` for PR readiness and review
+  expectations
+
+This file keeps only the `knowledge-adapters` details that are worth knowing
+while using Codex in this repository.
 
 ## What Codex Is Best Used For Here
 
@@ -25,25 +35,8 @@ Use extra care before asking Codex to drive:
 - live private-system integration work without explicit task constraints
 - unrelated cleanup mixed into the same branch
 
-## Repo-Specific Working Agreement
-
-`AGENTS.md` is the canonical source for task completion requirements in this
-repo. If there is any overlap or inconsistency, `AGENTS.md` takes precedence.
-In practice, that means:
-
-1. start from `main` and work on a new branch
-2. keep the branch scoped to one PR-sized change
-3. run validation through the Makefile, not direct tool invocations
-4. do not consider the task complete until the change is committed, pushed, and
-   opened as a PR targeting `main`
-
-Branch names should follow the patterns in `AGENTS.md`, such as
-`feat/<short-name>` or `docs/<short-name>`.
-
-PRs should be ready for review by default and should include:
-
-- a short `Summary` section
-- a short `Testing` section
+For branch, PR, and validation workflow, follow `AGENTS.md` plus the playbook
+references above instead of treating this document as a second source of truth.
 
 ## Repository Guardrails
 
@@ -55,27 +48,5 @@ Keep changes aligned with the shape of this repository:
 - prefer contract and smoke coverage when changing adapter behavior
 - keep changes minimal and reversible when working on traversal, normalization,
   or incremental-sync behavior
-
-## Validation And CI
-
-The canonical local validation command is:
-
-```bash
-make check
-```
-
-Use the Makefile targets documented in this repo. Do not invoke `pytest`,
-`mypy`, or `ruff` directly when validating a task for completion.
-
-GitHub Actions mirrors that local path in `.github/workflows/ci.yml` through the
-`test` job, which runs `make check`.
-
-The enforced baseline on `main` is currently:
-
-- pull requests are required
-- admin enforcement is enabled
-- the required GitHub status check is `test`
-- required approving review count is `0`
-
-Do not rely on stronger GitHub enforcement than that baseline when writing or
-updating repo docs.
+- when working on CLI or adapter behavior, check nearby docs and examples so
+  command semantics, dry-run behavior, and artifact expectations stay accurate
