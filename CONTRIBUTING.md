@@ -6,6 +6,16 @@ This project is designed to be **public-safe, reproducible, and adapter-focused*
 
 ---
 
+## Repository Workflow
+
+This file is a thin adapter for repo-local contributor details.
+
+For branch, pull request, validation lifecycle, and release-auth workflow rules,
+follow `AGENTS.md`. Shared workflow guidance lives in the
+`ai-workflow-playbook` repository; start with `docs/start-here.md`.
+
+---
+
 ## Development Setup
 
 This document is for **repo-local development**. If you only want to install
@@ -26,15 +36,12 @@ These commands will:
 
 > Note: You do not need to manually activate the virtual environment when using `make` targets.
 
-GitHub authentication is not required for local setup or `make check`.
-GitHub-specific workflows stay explicit through:
+GitHub authentication is not required for local setup or `make check`. When a
+workflow requires GitHub CLI authentication, verify it with:
 
 ```bash
 make check-gh-env
 ```
-
-Use `make check-gh-env` before opening pull requests, cutting releases, or
-running any other workflow that depends on an authenticated GitHub CLI session.
 
 ---
 
@@ -45,7 +52,7 @@ Installed CLI users should not need them.
 
 ```bash
 make check-env      # verify local development prerequisites
-make check-gh-env   # verify GitHub CLI install + auth for PR/release workflows
+make check-gh-env   # verify GitHub CLI install + auth when required
 make test        # run tests
 make lint        # check linting (ruff)
 make fix         # auto-fix lint issues where possible
@@ -164,21 +171,6 @@ This project uses Mypy for static type checking.
 ```bash
 make typecheck
 ```
-
----
-
-## Pull Requests
-
-Before submitting a PR:
-
-```bash
-make check
-```
-
-Ensure:
-- tests pass
-- linting passes
-- type checking passes
 
 ---
 
