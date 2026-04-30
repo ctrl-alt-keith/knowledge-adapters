@@ -5,9 +5,16 @@
 This document explains what "feature delivery" should look like in
 `knowledge-adapters`.
 
-Reusable lifecycle models, review patterns, and prompt templates now belong in
-`ai-workflow-playbook`. This file keeps the repo-specific guidance needed to
-ship changes here without depending on that playbook.
+For the shared delivery model, use:
+
+- `AGENTS.md` for repo-local execution requirements
+- `ai-workflow-playbook/docs/feature-lifecycle.md` for the canonical delivery
+  lifecycle
+- `ai-workflow-playbook/docs/repo-readiness.md` for PR readiness defaults
+- `ai-workflow-playbook/docs/review-packet.md` for review packet expectations
+
+This file keeps only the `knowledge-adapters` guidance that is specific to how
+feature work should be shaped in this repository.
 
 ## What A Feature Usually Looks Like In This Repo
 
@@ -26,22 +33,8 @@ along repository seams such as:
 - adapter implementation next
 - CLI or documentation follow-up after behavior is stable
 
-## Repo-Specific Delivery Expectations
-
-When delivering a feature in this repo:
-
-1. work from a new branch based on `main`
-2. keep the change focused on the requested adapter, CLI path, or doc surface
-3. preserve public-safe defaults and avoid checking in secrets or private system
-   details
-4. validate through `make check`
-5. commit, push, and open a PR targeting `main`
-
-Open the PR as ready for review by default unless the task explicitly calls for
-a draft.
-
-`AGENTS.md` remains the canonical source for branch naming, validation, commit
-messages, and completion requirements.
+For branch, PR, and validation mechanics, follow `AGENTS.md` and the playbook
+references above.
 
 ## Feature-Specific Guardrails
 
@@ -51,19 +44,5 @@ Keep feature work grounded in the current design of this repo:
 - keep source-specific logic inside the relevant adapter package
 - update tests when behavior changes, especially around contract boundaries
 - avoid mixing live-integration work with unrelated cleanup
-- keep docs accurate to the current CLI, CI, and branch-protection baseline
-
-## CI And Merge Baseline
-
-The local and CI validation path for feature work is `make check`.
-
-The current enforced baseline on `main` is:
-
-- pull requests are required
-- admins are included in branch protection
-- the required status check is `test`
-- required approving review count is `0`
-
-That baseline is intentionally minimal. Repo docs may recommend a stricter
-working style, but they should not imply stronger enforced GitHub rules than
-those settings.
+- keep docs accurate to the current CLI, output layout, and adapter behavior
+- preserve public-safe defaults and avoid checking in private system details
