@@ -13,6 +13,8 @@ This repository follows the shared workflow defined in the
 Use the playbook for general workflow rules. Follow this AGENTS.md for
 repo-specific execution details where they are more specific. Repo-local rules
 take precedence only for repo-specific behavior.
+Do not restate shared workflow rules in repo docs; link to ai-workflow-playbook
+and keep only repo-specific guidance.
 
 ## File Placement
 
