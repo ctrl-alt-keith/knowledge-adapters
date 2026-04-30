@@ -93,3 +93,7 @@ database, dashboard, or production chaos behavior.
 
 The pull request CI workflow runs `make chaos-random` as a quick signal while
 leaving `make check` as the repository's canonical validation path.
+
+The adapter readiness report in [`adapter-readiness.md`](adapter-readiness.md)
+summarizes which current adapters have chaos and replay coverage registered.
+Update that explicit model when new adapter chaos scenarios are added.
