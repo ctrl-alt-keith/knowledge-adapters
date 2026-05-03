@@ -27,6 +27,7 @@ from knowledge_adapters.bundle import (
     describe_stale_mode,
 )
 from knowledge_adapters.confluence.auth import SUPPORTED_AUTH_METHODS, resolve_tls_inputs
+from knowledge_adapters.failures import adapter_failure_lines, response_or_config_failure
 
 TOP_LEVEL_HELP_EXAMPLES = """First steps:
   knowledge-adapters --help
@@ -1873,6 +1874,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"debug exception: {exc.underlying_error}",
             )
 
+        def _confluence_failure_lines(exc: RuntimeError | ValueError) -> tuple[str, ...] | None:
+            fallback = response_or_config_failure(exc) if isinstance(exc, ValueError) else None
+            lines = (
+                *adapter_failure_lines(exc, fallback=fallback),
+                *(_confluence_debug_lines(exc) or ()),
+            )
+            return lines or None
+
         def _build_manifest_entry_for_page(
             page: dict[str, object],
             output_path: Path,
@@ -2191,7 +2200,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 exit_with_cli_error(
                     str(exc),
                     command="confluence",
-                    debug_lines=_confluence_debug_lines(exc),
+                    debug_lines=_confluence_failure_lines(exc),
                 )
 
             _finish_progress_line()
@@ -2321,7 +2330,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 exit_with_cli_error(
                     str(exc),
                     command="confluence",
-                    debug_lines=_confluence_debug_lines(exc),
+                    debug_lines=_confluence_failure_lines(exc),
                 )
 
             try:
@@ -2397,7 +2406,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     exit_with_cli_error(
                         str(exc),
                         command="confluence",
-                        debug_lines=_confluence_debug_lines(exc),
+                        debug_lines=_confluence_failure_lines(exc),
                     )
             else:
                 root_page_id, pages = walk_pages(
@@ -2534,7 +2543,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 exit_with_cli_error(
                     str(exc),
                     command="confluence",
-                    debug_lines=_confluence_debug_lines(exc),
+                    debug_lines=_confluence_failure_lines(exc),
                 )
 
             try:
@@ -2605,7 +2614,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             exit_with_cli_error(
                 str(exc),
                 command="confluence",
-                debug_lines=_confluence_debug_lines(exc),
+                debug_lines=_confluence_failure_lines(exc),
             )
 
         _print_confluence_invocation()
@@ -2640,7 +2649,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     exit_with_cli_error(
                         str(exc),
                         command="confluence",
-                        debug_lines=_confluence_debug_lines(exc),
+                        debug_lines=_confluence_failure_lines(exc),
                     )
             planned_markdown = normalize_to_markdown(planned_page) if action == "write" else None
             _print_single_page_plan(
@@ -2704,7 +2713,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             exit_with_cli_error(
                 str(exc),
                 command="confluence",
-                debug_lines=_confluence_debug_lines(exc),
+                debug_lines=_confluence_failure_lines(exc),
             )
         except OSError as exc:
             exit_with_output_error(
@@ -3184,7 +3193,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                     max_items=github_metadata_config.max_items,
                 )
         except (GitHubMetadataRequestError, ValueError) as exc:
-            exit_with_cli_error(str(exc), command="github_metadata")
+            fallback = response_or_config_failure(exc) if isinstance(exc, ValueError) else None
+            exit_with_cli_error(
+                str(exc),
+                command="github_metadata",
+                debug_lines=adapter_failure_lines(exc, fallback=fallback) or None,
+            )
 
         print("GitHub metadata adapter invoked")
         print(f"  repo: {github_metadata_config.repo}")

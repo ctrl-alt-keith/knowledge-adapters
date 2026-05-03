@@ -8,6 +8,7 @@ from datetime import datetime
 from urllib import parse, request
 from urllib.error import HTTPError, URLError
 
+from knowledge_adapters.failures import AdapterFailureClass, AdapterFailureClassification
 from knowledge_adapters.github_metadata.auth import (
     RequestAuth,
     build_request_auth,
@@ -109,6 +110,15 @@ class GitHubRelease:
 
 class GitHubMetadataRequestError(RuntimeError):
     """Stable request failure for github_metadata API reads."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        classification: AdapterFailureClassification | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.classification = classification
 
 
 def resolve_base_urls(base_url: str | None = None) -> GitHubMetadataBaseUrls:
@@ -739,11 +749,13 @@ def _request_json_list(
                 repo=repo,
                 api_root=api_root,
                 token_env=request_auth.token_env,
-            )
+            ),
+            classification=_request_failure_classification(exc),
         ) from exc
     except URLError as exc:
         raise GitHubMetadataRequestError(
-            f"GitHub request failed while reading {repo} from {api_root}: {exc.reason}."
+            f"GitHub request failed while reading {repo} from {api_root}: {exc.reason}.",
+            classification=AdapterFailureClassification(AdapterFailureClass.EXPECTED_RETRYABLE),
         ) from exc
     except json.JSONDecodeError as exc:
         raise ValueError("Response error: invalid JSON payload.") from exc
@@ -778,6 +790,36 @@ def _request_failure_message(
     if 500 <= exc.code <= 599:
         return f"GitHub request failed (status {exc.code}) while reading {repo} from {api_root}."
     return f"GitHub request failed (status {exc.code}) while reading {repo} from {api_root}."
+
+
+def _request_failure_classification(exc: HTTPError) -> AdapterFailureClassification:
+    retry_after = exc.headers.get("Retry-After") if exc.headers is not None else None
+    if _rate_limit_hint(exc) is not None:
+        return AdapterFailureClassification(
+            AdapterFailureClass.EXPECTED_RETRYABLE,
+            provider_status_code=exc.code,
+            retry_after=retry_after,
+        )
+    if exc.code in {401, 403}:
+        return AdapterFailureClassification(
+            AdapterFailureClass.AUTH,
+            provider_status_code=exc.code,
+        )
+    if exc.code == 404:
+        return AdapterFailureClassification(
+            AdapterFailureClass.PERMANENT,
+            provider_status_code=exc.code,
+        )
+    if 500 <= exc.code <= 599:
+        return AdapterFailureClassification(
+            AdapterFailureClass.PROVIDER,
+            provider_status_code=exc.code,
+            retry_after=retry_after,
+        )
+    return AdapterFailureClassification(
+        AdapterFailureClass.PERMANENT,
+        provider_status_code=exc.code,
+    )
 
 
 def _rate_limit_hint(exc: HTTPError) -> str | None:

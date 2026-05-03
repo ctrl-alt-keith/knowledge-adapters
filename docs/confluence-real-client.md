@@ -226,6 +226,25 @@ The CLI should select the client mode and surface high-level errors, but it shou
 ## Error Behavior
 
 v1 should use fail-fast behavior with small, testable error categories surfaced by the real client.
+Confluence REST uses standard HTTP status codes and can return `429` with
+`Retry-After` for rate limits; see Atlassian's Confluence REST API reference and
+rate limiting guidance:
+
+- https://developer.atlassian.com/cloud/confluence/rest/v1/intro/
+- https://developer.atlassian.com/cloud/confluence/rate-limiting/
+
+The CLI keeps the existing concise error message and adds a stable
+`failure_class` detail line for classified real-client failures:
+
+- `auth`: authentication or authorization failure, including Confluence `401`
+  or `403`
+- `configuration`: missing or invalid local auth, TLS, or client certificate
+  inputs
+- `expected_retryable`: rate limiting, network timeouts, connection failures, or
+  other transport failures that operators may retry after the cause clears
+- `permanent`: not-found responses or malformed response payloads that should
+  not be retried without changing inputs or adapter behavior
+- `provider`: Confluence `5xx` provider-side failures
 
 ### Auth failure
 
@@ -240,9 +259,9 @@ Behavior:
 - do not write files
 - do not write or replace `manifest.json`
 
-Suggested error category:
+Failure class:
 
-- auth error
+- `auth`, except missing local credential material is `configuration`
 
 ### Page not found
 
@@ -256,9 +275,9 @@ Behavior:
 - do not write files
 - do not write or replace `manifest.json`
 
-Suggested error category:
+Failure class:
 
-- not found error
+- `permanent`
 
 ### Malformed or unexpected response shape
 
@@ -276,9 +295,9 @@ Behavior:
 - do not write files
 - do not write or replace `manifest.json`
 
-Suggested error category:
+Failure class:
 
-- response error
+- `permanent`
 
 ### Child-page discovery failure
 
@@ -298,7 +317,8 @@ v1 test coverage should rely on mocked or fixture-based tests for:
 - auth config validation for `bearer-env` and `client-cert-env`
 - request construction for the real client
 - response-to-payload mapping
-- error mapping for `401/403`, `404`, and malformed response bodies
+- error mapping and classification for `401/403`, `404`, `429`, `5xx`,
+  transport failures, and malformed response bodies
 - rejection of unsupported real-mode tree usage
 
 ### Preferred test style
