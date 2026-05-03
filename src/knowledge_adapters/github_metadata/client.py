@@ -3,16 +3,22 @@
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass, replace
 from datetime import datetime
 from urllib import parse, request
 from urllib.error import HTTPError, URLError
 
+from knowledge_adapters.github_metadata.auth import (
+    RequestAuth,
+    build_request_auth,
+)
+from knowledge_adapters.github_metadata.auth import (
+    resolve_token as resolve_token,
+)
+
 SUPPORTED_ISSUE_STATES = frozenset({"open", "closed", "all"})
 DEFAULT_GITHUB_WEB_ROOT = "https://github.com"
 DEFAULT_GITHUB_API_ROOT = "https://api.github.com"
-GITHUB_API_VERSION = "2022-11-28"
 _PAGE_SIZE = 100
 
 
@@ -189,20 +195,6 @@ def validate_max_items(max_items: int | None) -> int | None:
     return max_items
 
 
-def resolve_token(token_env: str) -> tuple[str, str]:
-    """Resolve the GitHub token from an environment variable name."""
-    normalized_token_env = token_env.strip()
-    if not normalized_token_env:
-        raise ValueError("token_env must name a non-empty environment variable.")
-
-    token = os.getenv(normalized_token_env)
-    if token is None or not token.strip():
-        raise ValueError(
-            f"token_env {normalized_token_env!r} is not set or contains an empty value."
-        )
-    return normalized_token_env, token.strip()
-
-
 def issue_list_api_url(
     *,
     api_root: str,
@@ -275,7 +267,7 @@ def list_repository_issues(
     normalized_since = validate_since(since)
     normalized_max_items = validate_max_items(max_items)
     base_urls = resolve_base_urls(base_url)
-    token_env_name, token = resolve_token(token_env)
+    request_auth = build_request_auth(token_env)
 
     next_url: str | None = issue_list_api_url(
         api_root=base_urls.api_root,
@@ -293,8 +285,7 @@ def list_repository_issues(
 
         payload, link_header = _request_json_list(
             next_url,
-            token=token,
-            token_env=token_env_name,
+            request_auth=request_auth,
             repo=normalized_repo,
             api_root=base_urls.api_root,
         )
@@ -328,8 +319,7 @@ def list_repository_issues(
                 repo_name=repo_name,
                 repo=normalized_repo,
                 api_root=base_urls.api_root,
-                token=token,
-                token_env=token_env_name,
+                request_auth=request_auth,
             ),
         )
         for issue in selected_issues
@@ -351,7 +341,7 @@ def list_repository_pull_requests(
     normalized_since = validate_since(since)
     normalized_max_items = validate_max_items(max_items)
     base_urls = resolve_base_urls(base_url)
-    token_env_name, token = resolve_token(token_env)
+    request_auth = build_request_auth(token_env)
 
     next_url: str | None = pull_request_list_api_url(
         api_root=base_urls.api_root,
@@ -368,8 +358,7 @@ def list_repository_pull_requests(
 
         payload, link_header = _request_json_list(
             next_url,
-            token=token,
-            token_env=token_env_name,
+            request_auth=request_auth,
             repo=normalized_repo,
             api_root=base_urls.api_root,
         )
@@ -413,7 +402,7 @@ def list_repository_releases(
     normalized_since = validate_since(since)
     normalized_max_items = validate_max_items(max_items)
     base_urls = resolve_base_urls(base_url)
-    token_env_name, token = resolve_token(token_env)
+    request_auth = build_request_auth(token_env)
 
     next_url: str | None = release_list_api_url(
         api_root=base_urls.api_root,
@@ -429,8 +418,7 @@ def list_repository_releases(
 
         payload, link_header = _request_json_list(
             next_url,
-            token=token,
-            token_env=token_env_name,
+            request_auth=request_auth,
             repo=normalized_repo,
             api_root=base_urls.api_root,
         )
@@ -642,8 +630,7 @@ def _list_issue_comments(
     repo_name: str,
     repo: str,
     api_root: str,
-    token: str,
-    token_env: str,
+    request_auth: RequestAuth,
 ) -> tuple[GitHubIssueComment, ...]:
     next_url: str | None = issue_comments_api_url(
         api_root=api_root,
@@ -660,8 +647,7 @@ def _list_issue_comments(
 
         payload, link_header = _request_json_list(
             next_url,
-            token=token,
-            token_env=token_env,
+            request_auth=request_auth,
             repo=repo,
             api_root=api_root,
         )
@@ -734,19 +720,13 @@ def _require_bool(payload: dict[str, object], key: str) -> bool:
 def _request_json_list(
     api_url: str,
     *,
-    token: str,
-    token_env: str,
+    request_auth: RequestAuth,
     repo: str,
     api_root: str,
 ) -> tuple[list[dict[str, object]], str | None]:
     api_request = request.Request(
         api_url,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {token}",
-            "User-Agent": "knowledge-adapters-github-metadata",
-            "X-GitHub-Api-Version": GITHUB_API_VERSION,
-        },
+        headers=dict(request_auth.headers),
     )
     try:
         with request.urlopen(api_request, timeout=30) as response:
@@ -754,7 +734,12 @@ def _request_json_list(
             link_header = response.headers.get("Link")
     except HTTPError as exc:
         raise GitHubMetadataRequestError(
-            _request_failure_message(exc, repo=repo, api_root=api_root, token_env=token_env)
+            _request_failure_message(
+                exc,
+                repo=repo,
+                api_root=api_root,
+                token_env=request_auth.token_env,
+            )
         ) from exc
     except URLError as exc:
         raise GitHubMetadataRequestError(

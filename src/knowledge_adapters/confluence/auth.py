@@ -5,8 +5,8 @@ from __future__ import annotations
 import os
 import ssl
 from dataclasses import dataclass
+from typing import Protocol
 
-SUPPORTED_AUTH_METHODS = ("bearer-env", "client-cert-env")
 CONFLUENCE_CA_BUNDLE_ENV = "KNOWLEDGE_ADAPTERS_CONFLUENCE_CA_BUNDLE"
 
 
@@ -27,6 +27,94 @@ class ResolvedTLSInputs:
     client_key_file: str | None
 
 
+class ConfluenceAuthStrategy(Protocol):
+    """Small interface for Confluence real-client auth material construction."""
+
+    @property
+    def name(self) -> str:
+        """Stable configuration name for this strategy."""
+
+    def build_request_auth(
+        self,
+        *,
+        ca_bundle: str | None = None,
+        no_ca_bundle: bool = False,
+        client_cert_file: str | None = None,
+        client_key_file: str | None = None,
+    ) -> RequestAuth:
+        """Build request auth material for this strategy."""
+
+
+@dataclass(frozen=True)
+class BearerEnvAuthStrategy:
+    """Build bearer-token auth from the supported Confluence token env var."""
+
+    name: str = "bearer-env"
+
+    def build_request_auth(
+        self,
+        *,
+        ca_bundle: str | None = None,
+        no_ca_bundle: bool = False,
+        client_cert_file: str | None = None,
+        client_key_file: str | None = None,
+    ) -> RequestAuth:
+        return RequestAuth(
+            headers=_bearer_env_headers(),
+            ssl_context=_client_cert_ssl_context(
+                self.name,
+                ca_bundle=ca_bundle,
+                no_ca_bundle=no_ca_bundle,
+                client_cert_file=client_cert_file,
+                client_key_file=client_key_file,
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class ClientCertEnvAuthStrategy:
+    """Build client-certificate auth from the supported Confluence cert env vars."""
+
+    name: str = "client-cert-env"
+
+    def build_request_auth(
+        self,
+        *,
+        ca_bundle: str | None = None,
+        no_ca_bundle: bool = False,
+        client_cert_file: str | None = None,
+        client_key_file: str | None = None,
+    ) -> RequestAuth:
+        return RequestAuth(
+            headers={},
+            ssl_context=_client_cert_ssl_context(
+                self.name,
+                ca_bundle=ca_bundle,
+                no_ca_bundle=no_ca_bundle,
+                client_cert_file=client_cert_file,
+                client_key_file=client_key_file,
+            ),
+        )
+
+
+_AUTH_STRATEGIES: dict[str, ConfluenceAuthStrategy] = {
+    "bearer-env": BearerEnvAuthStrategy(),
+    "client-cert-env": ClientCertEnvAuthStrategy(),
+}
+SUPPORTED_AUTH_METHODS = tuple(_AUTH_STRATEGIES)
+
+
+def select_auth_strategy(auth_method: str) -> ConfluenceAuthStrategy:
+    """Select a supported Confluence auth strategy by its stable config name."""
+    try:
+        return _AUTH_STRATEGIES[auth_method]
+    except KeyError as exc:
+        supported_values = " or ".join(repr(method) for method in SUPPORTED_AUTH_METHODS)
+        raise ValueError(
+            f"Unsupported Confluence auth method {auth_method!r}. Use {supported_values}."
+        ) from exc
+
+
 def build_request_auth(
     auth_method: str,
     *,
@@ -36,25 +124,11 @@ def build_request_auth(
     client_key_file: str | None = None,
 ) -> RequestAuth:
     """Build auth material for a supported auth method."""
-    if auth_method == "bearer-env":
-        headers = _bearer_env_headers()
-    elif auth_method == "client-cert-env":
-        headers = {}
-    else:
-        supported_values = " or ".join(repr(method) for method in SUPPORTED_AUTH_METHODS)
-        raise ValueError(
-            f"Unsupported Confluence auth method {auth_method!r}. Use {supported_values}."
-        )
-
-    return RequestAuth(
-        headers=headers,
-        ssl_context=_client_cert_ssl_context(
-            auth_method,
-            ca_bundle=ca_bundle,
-            no_ca_bundle=no_ca_bundle,
-            client_cert_file=client_cert_file,
-            client_key_file=client_key_file,
-        ),
+    return select_auth_strategy(auth_method).build_request_auth(
+        ca_bundle=ca_bundle,
+        no_ca_bundle=no_ca_bundle,
+        client_cert_file=client_cert_file,
+        client_key_file=client_key_file,
     )
 
 
