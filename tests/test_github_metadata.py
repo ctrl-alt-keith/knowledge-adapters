@@ -1,17 +1,22 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 from collections.abc import Mapping
+from email.message import Message
 from pathlib import Path
 from typing import Any, Literal
 from urllib import request
+from urllib.error import HTTPError
 
 import pytest
 from pytest import CaptureFixture, MonkeyPatch
 
 from knowledge_adapters.cli import main
+from knowledge_adapters.failures import AdapterFailureClass
 from knowledge_adapters.github_metadata.client import (
+    GitHubMetadataRequestError,
     issue_comments_api_url,
     issue_list_api_url,
     list_repository_issues,
@@ -165,6 +170,19 @@ def _install_fake_urlopen(
     return fake_urlopen
 
 
+def _github_http_error(status_code: int, *, headers: Mapping[str, str] | None = None) -> HTTPError:
+    header_message = Message()
+    for key, value in (headers or {}).items():
+        header_message[key] = value
+    return HTTPError(
+        url="https://api.github.com/repos/octo/project/issues",
+        code=status_code,
+        msg=f"synthetic http error {status_code}",
+        hdrs=header_message,
+        fp=io.BytesIO(b"{}"),
+    )
+
+
 def test_github_metadata_resolves_github_and_ghe_base_urls() -> None:
     github_urls = resolve_base_urls(None)
     assert github_urls.web_root == "https://github.com"
@@ -228,6 +246,70 @@ def test_github_metadata_missing_token_env_fails_before_request(
             repo="octo/project",
             token_env="GH_TOKEN",
         )
+
+
+@pytest.mark.parametrize(
+    ("status_code", "headers", "expected_failure_class", "expected_retry_after"),
+    [
+        (401, {}, AdapterFailureClass.AUTH, None),
+        (403, {}, AdapterFailureClass.AUTH, None),
+        (404, {}, AdapterFailureClass.PERMANENT, None),
+        (429, {"Retry-After": "60"}, AdapterFailureClass.EXPECTED_RETRYABLE, "60"),
+        (503, {}, AdapterFailureClass.PROVIDER, None),
+    ],
+)
+def test_github_metadata_classifies_request_failures(
+    monkeypatch: MonkeyPatch,
+    status_code: int,
+    headers: dict[str, str],
+    expected_failure_class: AdapterFailureClass,
+    expected_retry_after: str | None,
+) -> None:
+    def raise_http_error(api_request: request.Request, timeout: int) -> None:
+        del api_request, timeout
+        raise _github_http_error(status_code, headers=headers)
+
+    monkeypatch.setenv("GH_TOKEN", "secret-token")
+    monkeypatch.setattr(
+        "knowledge_adapters.github_metadata.client.request.urlopen",
+        raise_http_error,
+    )
+
+    with pytest.raises(GitHubMetadataRequestError) as exc_info:
+        list_repository_issues(repo="octo/project", token_env="GH_TOKEN")
+
+    assert exc_info.value.classification is not None
+    assert exc_info.value.classification.failure_class == expected_failure_class
+    assert exc_info.value.classification.provider_status_code == status_code
+    assert exc_info.value.classification.retry_after == expected_retry_after
+
+
+def test_github_metadata_cli_reports_configuration_failure_class(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            [
+                "github_metadata",
+                "--repo",
+                "octo/project",
+                "--token-env",
+                "GH_TOKEN",
+                "--output-dir",
+                str(tmp_path / "out"),
+            ]
+        )
+
+    assert exc_info.value.code == 2
+    assert capsys.readouterr().err == (
+        "knowledge-adapters github_metadata: error: "
+        "token_env 'GH_TOKEN' is not set or contains an empty value.\n"
+        "  failure_class: configuration\n"
+    )
 
 
 def test_github_metadata_paginates_filters_prs_orders_and_limits_after_filtering(

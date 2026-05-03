@@ -108,27 +108,36 @@ def test_confluence_chaos_payload_failures_are_clear(
 
 
 @pytest.mark.parametrize(
-    ("scenario", "expected_message"),
+    ("scenario", "expected_message", "expected_detail_lines"),
     [
         (
             AdapterChaosScenario.TIMEOUT,
             "Confluence network request failed. Verify --base-url and network access.",
+            ("failure_class: expected_retryable",),
         ),
         (
             AdapterChaosScenario.RATE_LIMIT,
             "Confluence request failed (status 429). Verify --base-url and access.",
+            (
+                "failure_class: expected_retryable",
+                "provider_status_code: 429",
+                "retry_after: 60",
+            ),
         ),
         (
             AdapterChaosScenario.INVALID_JSON,
             "Response error: invalid JSON payload.",
+            ("failure_class: permanent",),
         ),
         (
             AdapterChaosScenario.EMPTY_RESPONSE,
             "Response error: invalid JSON payload.",
+            ("failure_class: permanent",),
         ),
         (
             AdapterChaosScenario.PARTIAL_PAYLOAD,
             "Response error: missing content.",
+            ("failure_class: permanent",),
         ),
     ],
 )
@@ -138,6 +147,7 @@ def test_confluence_cli_real_mode_surfaces_chaos_without_artifacts(
     confluence_chaos: ConfluenceChaosInstaller,
     scenario: AdapterChaosScenario,
     expected_message: str,
+    expected_detail_lines: tuple[str, ...],
 ) -> None:
     confluence_chaos(scenario)
     output_dir = tmp_path / "out"
@@ -148,7 +158,11 @@ def test_confluence_cli_real_mode_surfaces_chaos_without_artifacts(
     assert exc_info.value.code == 2
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert captured.err == f"knowledge-adapters confluence: error: {expected_message}\n"
+    expected_detail_text = "".join(f"  {line}\n" for line in expected_detail_lines)
+    assert (
+        captured.err
+        == f"knowledge-adapters confluence: error: {expected_message}\n{expected_detail_text}"
+    )
     assert_no_partial_adapter_artifacts(output_dir)
 
 

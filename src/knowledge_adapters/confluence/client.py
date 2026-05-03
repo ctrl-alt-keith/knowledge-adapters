@@ -13,6 +13,7 @@ from urllib.error import HTTPError, URLError
 from knowledge_adapters.confluence.auth import build_request_auth
 from knowledge_adapters.confluence.models import ResolvedTarget
 from knowledge_adapters.confluence.traversal import DISCOVERY_PROGRESS_INTERVAL
+from knowledge_adapters.failures import AdapterFailureClass, AdapterFailureClassification
 
 
 class ConfluenceRequestError(RuntimeError):
@@ -25,11 +26,13 @@ class ConfluenceRequestError(RuntimeError):
         request_url: str,
         auth_method: str,
         underlying_error: str,
+        classification: AdapterFailureClassification | None = None,
     ) -> None:
         super().__init__(message)
         self.request_url = request_url
         self.auth_method = auth_method
         self.underlying_error = underlying_error
+        self.classification = classification
 
 
 DiscoveryProgressCallback = Callable[[int], None]
@@ -347,6 +350,42 @@ def _looks_like_network_error(reason: object) -> bool:
     )
 
 
+def _request_failure_classification(exc: HTTPError | URLError) -> AdapterFailureClassification:
+    if isinstance(exc, HTTPError):
+        retry_after = exc.headers.get("Retry-After") if exc.headers is not None else None
+        if exc.code in {401, 403}:
+            return AdapterFailureClassification(
+                AdapterFailureClass.AUTH,
+                provider_status_code=exc.code,
+            )
+        if exc.code == 429:
+            return AdapterFailureClassification(
+                AdapterFailureClass.EXPECTED_RETRYABLE,
+                provider_status_code=exc.code,
+                retry_after=retry_after,
+            )
+        if exc.code == 404:
+            return AdapterFailureClassification(
+                AdapterFailureClass.PERMANENT,
+                provider_status_code=exc.code,
+            )
+        if 500 <= exc.code <= 599:
+            return AdapterFailureClassification(
+                AdapterFailureClass.PROVIDER,
+                provider_status_code=exc.code,
+                retry_after=retry_after,
+            )
+        return AdapterFailureClassification(
+            AdapterFailureClass.PERMANENT,
+            provider_status_code=exc.code,
+        )
+
+    reason = exc.reason
+    if _looks_like_tls_or_cert_error(reason):
+        return AdapterFailureClassification(AdapterFailureClass.CONFIGURATION)
+    return AdapterFailureClassification(AdapterFailureClass.EXPECTED_RETRYABLE)
+
+
 def _request_failure_message(exc: HTTPError | URLError, *, auth_method: str) -> str:
     if isinstance(exc, HTTPError):
         if exc.code in {401, 403}:
@@ -399,6 +438,7 @@ def _request_json(
             request_url=api_url,
             auth_method=auth_method,
             underlying_error=_underlying_request_error_message(exc),
+            classification=_request_failure_classification(exc),
         ) from exc
     except json.JSONDecodeError as exc:
         raise ValueError("Response error: invalid JSON payload.") from exc

@@ -80,6 +80,12 @@ run must fail before making an API request. Authentication and authorization
 failures from GitHub should report the status code and repository being read,
 without printing the token.
 
+GitHub REST troubleshooting documents rate-limit responses, retry headers,
+authentication and permission troubleshooting, `404` behavior for inaccessible
+private resources, validation failures, and server timeouts:
+
+- https://docs.github.com/en/rest/using-the-rest-api/troubleshooting-the-rest-api
+
 ## API Behavior
 
 v1 uses the REST API only.
@@ -108,12 +114,22 @@ Basic error behavior:
 
 - invalid `repo`, `state`, `since`, or `max_items` values fail before requests
   where possible
-- 401 and 403 responses fail clearly with auth or authorization context
-- rate-limit responses fail clearly with the reset time or retry hint when
-  present
-- 404 responses fail clearly with the repository and base URL context
-- transient 5xx responses may be retried with a small fixed retry count, but v1
-  should not introduce a long-running scheduler or background retry system
+- classified failures add a stable `failure_class` detail line while preserving
+  the concise error message
+- `configuration`: invalid adapter inputs or missing local token environment
+  configuration
+- `auth`: `401` or non-rate-limit `403` responses
+- `expected_retryable`: GitHub rate-limit responses, including `403` or `429`
+  with rate-limit headers, and transport failures
+- `permanent`: `404`, invalid response payloads, and other non-retryable
+  request errors
+- `provider`: GitHub `5xx` provider-side failures
+
+GitHub may return `404` for an existing private resource when authentication or
+permissions are insufficient. The adapter keeps `404` classified as
+`permanent` because the response is not enough to reliably distinguish an
+unknown repository from a private inaccessible one; the message still says
+`not found or inaccessible`.
 
 ## Ordering
 

@@ -200,11 +200,13 @@ def _assert_concise_cli_error(
     capsys: CaptureFixture[str],
     *,
     expected_message: str,
+    expected_detail_lines: tuple[str, ...] = (),
 ) -> None:
     captured = capsys.readouterr()
+    expected_detail_text = "".join(f"  {line}\n" for line in expected_detail_lines)
     assert (
         captured.err
-        == f"knowledge-adapters confluence: error: {expected_message}\n"
+        == f"knowledge-adapters confluence: error: {expected_message}\n{expected_detail_text}"
     )
 
 
@@ -1733,6 +1735,7 @@ def test_real_tree_stops_immediately_on_malformed_child_list_response(
     _assert_concise_cli_error(
         capsys,
         expected_message="Response error: invalid child-list payload.",
+        expected_detail_lines=("failure_class: permanent",),
     )
     _assert_no_artifacts_written(output_dir)
 
@@ -1823,6 +1826,7 @@ def test_real_tree_stops_immediately_on_missing_or_invalid_child_ids(
     _assert_concise_cli_error(
         capsys,
         expected_message="Response error: invalid child page ID.",
+        expected_detail_lines=("failure_class: permanent",),
     )
     _assert_no_artifacts_written(output_dir)
 
