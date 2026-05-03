@@ -211,6 +211,9 @@ runs:
     dry_run: true
 ```
 
+- `auth_method` selects the adapter auth strategy for real Confluence runs.
+- The default remains `bearer-env`; existing CLI commands and `runs.yaml`
+  entries do not need migration.
 - `bearer-env` reads `CONFLUENCE_BEARER_TOKEN`.
 - Omit `ca_bundle` to fall back to `REQUESTS_CA_BUNDLE` or `SSL_CERT_FILE`.
 - Omit `client_cert_file` and `client_key_file` to fall back to

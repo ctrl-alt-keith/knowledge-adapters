@@ -67,6 +67,8 @@ issues, but must not create directories, write issue artifacts, or write
 v1 reads credentials from the environment only:
 
 - `token_env` names the environment variable.
+- `token_env` remains the only user-facing auth selector and maps to the
+  default `token-env` adapter auth strategy.
 - the token value is never supplied directly in CLI arguments or committed
   config
 - the adapter does not store credentials
