@@ -44,10 +44,13 @@ make chaos-random CHAOS_SEED=issue-247
 When `chaos-random` runs, it also prints a rerun command that pins both values:
 
 ```bash
-make chaos-replay CHAOS_SEED=<printed-seed> CHAOS_SCENARIO=<printed-scenario>
+CHAOS_REPLAY_COMMAND: make chaos-replay CHAOS_SEED=<printed-seed> CHAOS_SCENARIO=<printed-scenario>
 ```
 
-Use that command to reproduce a random CI or local canary failure exactly.
+In GitHub Actions, `chaos-random` uses `ci-$GITHUB_SHA` when no explicit
+`CHAOS_SEED` is supplied. Local developer runs keep their existing timestamp
+fallback unless you pass `CHAOS_SEED` yourself. Use the printed command to
+reproduce a CI or local canary failure exactly.
 
 Use `make chaos-all` when you want the complete current chaos suite. That is the
 right target for local hardening before changing adapter failure behavior, and
@@ -66,7 +69,7 @@ When a chaos test fails, pytest prints a node-specific replay command in the
 terminal summary:
 
 ```bash
-make chaos-replay CHAOS_SEED=<seed> CHAOS_SCENARIO=<scenario> CHAOS_NODEID='<pytest-node-id>'
+CHAOS_FAILURE_REPLAY_COMMAND: make chaos-replay CHAOS_SEED=<seed> CHAOS_SCENARIO=<scenario> CHAOS_NODEID='<pytest-node-id>'
 ```
 
 `CHAOS_SEED` is included when the failing run had one, such as a
@@ -76,8 +79,9 @@ the pinned scenario.
 
 ## Failure Fingerprints
 
-Chaos failures also print a `chaos-v1:<digest>` fingerprint with a compact JSON
-payload. The digest and payload are deterministic for the same failure context:
+Chaos failures also print a `CHAOS_FAILURE_FINGERPRINT: chaos-v1:<digest>`
+line with a compact JSON payload. The digest and payload are deterministic for
+the same failure context:
 
 - `scenario`
 - `nodeid`

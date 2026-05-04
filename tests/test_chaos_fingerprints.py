@@ -66,6 +66,15 @@ def test_chaos_replay_command_quotes_node_ids() -> None:
     )
 
 
+def test_chaos_replay_command_can_target_scenario_only() -> None:
+    command = build_chaos_replay_command(
+        seed="ci abc123",
+        scenario="rate_limit",
+    )
+
+    assert command == "make chaos-replay CHAOS_SEED='ci abc123' CHAOS_SCENARIO=rate_limit"
+
+
 def test_chaos_command_context_describes_make_target() -> None:
     assert (
         build_chaos_command_context(

@@ -102,14 +102,15 @@ def build_chaos_replay_command(
     *,
     seed: str | None,
     scenario: str,
-    nodeid: str,
+    nodeid: str | None = None,
 ) -> str:
     """Build a shell-safe Make command that replays one chaos failure."""
     parts = ["make", "chaos-replay"]
     if seed:
         parts.append(f"CHAOS_SEED={shlex.quote(seed)}")
     parts.append(f"CHAOS_SCENARIO={shlex.quote(scenario)}")
-    parts.append(f"CHAOS_NODEID={shlex.quote(nodeid)}")
+    if nodeid:
+        parts.append(f"CHAOS_NODEID={shlex.quote(nodeid)}")
     return " ".join(parts)
 
 
