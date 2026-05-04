@@ -28,6 +28,11 @@ from knowledge_adapters.bundle import (
 )
 from knowledge_adapters.confluence.auth import SUPPORTED_AUTH_METHODS, resolve_tls_inputs
 from knowledge_adapters.failures import adapter_failure_lines, response_or_config_failure
+from knowledge_adapters.run_report import (
+    RunReportRecord,
+    SkippedRunRecord,
+    render_run_report_markdown,
+)
 
 TOP_LEVEL_HELP_EXAMPLES = """First steps:
   knowledge-adapters --help
@@ -139,6 +144,7 @@ RUN_HELP_EXAMPLES = """Examples:
   knowledge-adapters run ./configs/runs.yaml
   knowledge-adapters run runs.yaml --only team-notes,docs-home
   knowledge-adapters run runs.yaml --continue-on-error
+  knowledge-adapters run runs.yaml --report-output ./artifacts/run-report.md
 """
 
 BUNDLE_HELP_EXAMPLES = """Examples:
@@ -1034,6 +1040,14 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     run_parser.add_argument(
+        "--report-output",
+        metavar="PATH",
+        help=(
+            "Write a lightweight Markdown report for this config-driven run, including "
+            "per-run status and failure classification details when available."
+        ),
+    )
+    run_parser.add_argument(
         "--debug",
         action="store_true",
         help=(
@@ -1216,6 +1230,39 @@ def _execute_configured_run(
         return main(argv)
 
 
+def _resolve_run_report_output(report_output: str) -> Path:
+    """Resolve a user-provided run report output path."""
+    return Path(report_output).expanduser().resolve()
+
+
+def _write_run_report(
+    *,
+    report_output_path: Path,
+    config_path: Path,
+    selected_run_count: int,
+    skipped_disabled_runs: tuple[SkippedRunRecord, ...],
+    records: tuple[RunReportRecord, ...],
+) -> None:
+    """Write the optional config-driven run report."""
+    try:
+        report_output_path.parent.mkdir(parents=True, exist_ok=True)
+        report_output_path.write_text(
+            render_run_report_markdown(
+                config_path=config_path,
+                selected_run_count=selected_run_count,
+                skipped_disabled_runs=skipped_disabled_runs,
+                records=records,
+            ),
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        exit_with_cli_error(
+            f"Could not write run report {report_output_path}: {exc}.",
+            command="run",
+        )
+    print(f"Run report: {render_user_path(report_output_path)}")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI."""
     raw_argv = tuple(sys.argv[1:] if argv is None else argv)
@@ -1242,6 +1289,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 configured_run for configured_run in run_config.runs if not configured_run.enabled
             )
         )
+        skipped_disabled_report_runs = tuple(
+            SkippedRunRecord(name=configured_run.name, run_type=configured_run.run_type)
+            for configured_run in skipped_disabled_runs
+        )
+        report_output_path = (
+            _resolve_run_report_output(args.report_output)
+            if args.report_output is not None
+            else None
+        )
+        run_report_records: list[RunReportRecord] = []
 
         print("Config-driven run invoked")
         print(f"  config_path: {render_user_path(run_config.config_path)}")
@@ -1299,6 +1356,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 print("Run interrupted: skipping remaining work for this run")
                 print("Run summary: interrupted, skipped remaining work for this run")
+                run_report_records.append(
+                    RunReportRecord(
+                        index=index,
+                        total=len(selected_runs),
+                        name=configured_run.name,
+                        run_type=configured_run.run_type,
+                        command=display_command,
+                        status="interrupted",
+                    )
+                )
                 continue
             except SystemExit:
                 print(
@@ -1311,7 +1378,27 @@ def main(argv: Sequence[str] | None = None) -> int:
                     display_command=display_command,
                     stderr_output=captured_stderr.getvalue(),
                 )
+                run_report_records.append(
+                    RunReportRecord(
+                        index=index,
+                        total=len(selected_runs),
+                        name=configured_run.name,
+                        run_type=configured_run.run_type,
+                        command=display_command,
+                        status="failed",
+                        failure_message=message,
+                        failure_details=nested_details,
+                    )
+                )
                 if not args.continue_on_error:
+                    if report_output_path is not None:
+                        _write_run_report(
+                            report_output_path=report_output_path,
+                            config_path=run_config.config_path,
+                            selected_run_count=len(selected_runs),
+                            skipped_disabled_runs=skipped_disabled_report_runs,
+                            records=tuple(run_report_records),
+                        )
                     exit_with_cli_error(
                         message,
                         command="run",
@@ -1333,7 +1420,27 @@ def main(argv: Sequence[str] | None = None) -> int:
                     stderr_output=captured_stderr.getvalue(),
                     exit_code=exit_code,
                 )
+                run_report_records.append(
+                    RunReportRecord(
+                        index=index,
+                        total=len(selected_runs),
+                        name=configured_run.name,
+                        run_type=configured_run.run_type,
+                        command=display_command,
+                        status="failed",
+                        failure_message=message,
+                        failure_details=nested_details,
+                    )
+                )
                 if not args.continue_on_error:
+                    if report_output_path is not None:
+                        _write_run_report(
+                            report_output_path=report_output_path,
+                            config_path=run_config.config_path,
+                            selected_run_count=len(selected_runs),
+                            skipped_disabled_runs=skipped_disabled_report_runs,
+                            records=tuple(run_report_records),
+                        )
                     exit_with_cli_error(
                         message,
                         command="run",
@@ -1353,6 +1460,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(
                 f"Run {index}/{len(selected_runs)} completed: "
                 f"{configured_run.name} ({configured_run.run_type})"
+            )
+            run_report_records.append(
+                RunReportRecord(
+                    index=index,
+                    total=len(selected_runs),
+                    name=configured_run.name,
+                    run_type=configured_run.run_type,
+                    command=display_command,
+                    status="completed",
+                    dry_run=summary.dry_run,
+                    wrote=summary.wrote,
+                    skipped=summary.skipped,
+                )
             )
             completed_runs += 1
             if summary.dry_run:
@@ -1378,6 +1498,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         if dry_run_runs > 0:
             print(f"  would_write: {total_would_write}")
             print(f"  would_skip: {total_would_skip}")
+        if report_output_path is not None:
+            _write_run_report(
+                report_output_path=report_output_path,
+                config_path=run_config.config_path,
+                selected_run_count=len(selected_runs),
+                skipped_disabled_runs=skipped_disabled_report_runs,
+                records=tuple(run_report_records),
+            )
         if failed_runs > 0:
             if interrupted_runs > 0:
                 print(

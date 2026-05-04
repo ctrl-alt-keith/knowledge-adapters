@@ -245,6 +245,17 @@ adapter-specific inputs such as `base_url`/`target` or `file_path`, and its own
 `output_dir`. `runs.example.yaml` is committed for reference, while `runs.yaml`
 is gitignored for local use.
 
+To keep a lightweight human-readable record of a config-driven execution, pass
+`--report-output`:
+
+```bash
+knowledge-adapters run runs.yaml --report-output ./artifacts/run-report.md
+```
+
+The report is Markdown and includes the selected runs, per-run success or
+failure status, write/skip counts, and failure classification details when an
+adapter exposes them.
+
 ### Bundle Usage
 
 Bundle one or more existing adapter outputs directly:

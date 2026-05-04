@@ -53,6 +53,87 @@ runs:
     assert "Hello from config run." in local_output_path.read_text(encoding="utf-8")
 
 
+def test_run_cli_writes_markdown_report(tmp_path: Path) -> None:
+    inputs_dir = tmp_path / "inputs"
+    inputs_dir.mkdir()
+    source_file = inputs_dir / "today.txt"
+    source_file.write_text("Hello from config run.\n", encoding="utf-8")
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: team-notes
+    type: local_files
+    file_path: ./inputs/today.txt
+    output_dir: ./artifacts/local/team-notes
+  - name: docs-home
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = run_cli(tmp_path, "run", "./runs.yaml", "--report-output", "./reports/run.md")
+
+    report_path = tmp_path / "reports" / "run.md"
+    assert result.returncode == 0, result.stderr
+    assert f"Run report: {report_path.resolve()}" in result.stdout
+    report = report_path.read_text(encoding="utf-8")
+    assert "# Knowledge Adapter Run Report" in report
+    assert f"- Config: `{config_path.resolve()}`" in report
+    assert "- Runs selected: 2" in report
+    assert "- Runs completed: 2" in report
+    assert "- Runs failed: 0" in report
+    assert "| 1/2 | team-notes | local_files | completed | wrote 1, skipped 0 | - |" in report
+    assert "| 2/2 | docs-home | confluence | completed | wrote 1, skipped 0 | - |" in report
+
+
+def test_run_cli_report_includes_failure_classification(tmp_path: Path) -> None:
+    inputs_dir = tmp_path / "inputs"
+    inputs_dir.mkdir()
+    source_file = inputs_dir / "today.txt"
+    source_file.write_text("Hello from config run.\n", encoding="utf-8")
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: docs-home
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home
+    client_mode: real
+  - name: team-notes
+    type: local_files
+    file_path: ./inputs/today.txt
+    output_dir: ./artifacts/local/team-notes
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = run_cli(
+        tmp_path,
+        "run",
+        "./runs.yaml",
+        "--continue-on-error",
+        "--report-output",
+        "./reports/run.md",
+    )
+
+    report = (tmp_path / "reports" / "run.md").read_text(encoding="utf-8")
+    assert result.returncode == 1
+    assert "- Runs completed: 1" in report
+    assert "- Runs failed: 1" in report
+    assert "| 1/2 | docs-home | confluence | failed | " in report
+    assert "| configuration |" in report
+    assert "failure_class: configuration" in report
+    assert "| 2/2 | team-notes | local_files | completed | wrote 1, skipped 0 | - |" in report
+
+
 def test_run_cli_supports_only_and_disabled_runs(tmp_path: Path) -> None:
     inputs_dir = tmp_path / "inputs"
     inputs_dir.mkdir()
