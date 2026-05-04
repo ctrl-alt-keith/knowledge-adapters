@@ -143,6 +143,11 @@ release-check: check-gh-env
 				exit 1; \
 			} \
 		}' CHANGELOG.md >/dev/null
+	@echo "Running canonical validation: make check"
+	@$(MAKE) check || { \
+		echo "Error: canonical validation failed; release-check requires 'make check' to pass." >&2; \
+		exit 1; \
+	}
 	@if [ "$$(git branch --show-current)" != "main" ]; then \
 		echo "Error: release must run from main after the release PR is merged." >&2; \
 		exit 1; \
