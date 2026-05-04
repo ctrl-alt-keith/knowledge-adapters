@@ -40,7 +40,11 @@ chaos-random: $(VENV)/bin/activate
 	@set -e; \
 	seed="$(CHAOS_SEED)"; \
 	if [ -z "$$seed" ]; then \
-		seed="$$(date +%s)"; \
+		if [ -n "$$GITHUB_SHA" ]; then \
+			seed="ci-$$GITHUB_SHA"; \
+		else \
+			seed="$$(date +%s)"; \
+		fi; \
 	fi; \
 	scenario="$(CHAOS_SCENARIO)"; \
 	if [ -z "$$scenario" ]; then \
@@ -48,9 +52,10 @@ chaos-random: $(VENV)/bin/activate
 	else \
 		CHAOS_SCENARIO="$$scenario" $(PYTHON) -c 'import os; from tests.chaos import AdapterChaosScenario; AdapterChaosScenario(os.environ["CHAOS_SCENARIO"])'; \
 	fi; \
+	replay_command="$$(CHAOS_SEED="$$seed" CHAOS_SCENARIO="$$scenario" $(PYTHON) -c 'import os; from tests.chaos import build_chaos_replay_command; print(build_chaos_replay_command(seed=os.environ["CHAOS_SEED"], scenario=os.environ["CHAOS_SCENARIO"]))')"; \
 	echo "Chaos seed: $$seed"; \
 	echo "Chaos scenario: $$scenario"; \
-	echo "Rerun: make chaos-replay CHAOS_SEED=$$seed CHAOS_SCENARIO=$$scenario"; \
+	echo "CHAOS_REPLAY_COMMAND: $$replay_command"; \
 	CHAOS_TARGET=chaos-random CHAOS_SEED="$$seed" CHAOS_SCENARIO="$$scenario" $(PYTEST) -m chaos -k "$$scenario"
 
 chaos-replay: $(VENV)/bin/activate
@@ -63,15 +68,18 @@ chaos-replay: $(VENV)/bin/activate
 		exit 1; \
 	fi; \
 	CHAOS_SCENARIO="$$scenario" $(PYTHON) -c 'import os; from tests.chaos import AdapterChaosScenario; AdapterChaosScenario(os.environ["CHAOS_SCENARIO"])'; \
+	replay_command="$$(CHAOS_SEED="$$seed" CHAOS_SCENARIO="$$scenario" CHAOS_NODEID="$$nodeid" $(PYTHON) -c 'import os; from tests.chaos import build_chaos_replay_command; print(build_chaos_replay_command(seed=os.environ.get("CHAOS_SEED") or None, scenario=os.environ["CHAOS_SCENARIO"], nodeid=os.environ.get("CHAOS_NODEID") or None))')"; \
 	if [ -n "$$seed" ]; then \
 		echo "Chaos seed: $$seed"; \
 	fi; \
 	echo "Chaos scenario: $$scenario"; \
 	if [ -n "$$nodeid" ]; then \
 		echo "Chaos node id: $$nodeid"; \
+		echo "CHAOS_REPLAY_COMMAND: $$replay_command"; \
 		CHAOS_TARGET=chaos-replay CHAOS_SEED="$$seed" CHAOS_SCENARIO="$$scenario" $(PYTEST) -m chaos "$$nodeid"; \
 	else \
 		echo "Chaos node id: <all matching scenario tests>"; \
+		echo "CHAOS_REPLAY_COMMAND: $$replay_command"; \
 		CHAOS_TARGET=chaos-replay CHAOS_SEED="$$seed" CHAOS_SCENARIO="$$scenario" $(PYTEST) -m chaos -k "$$scenario"; \
 	fi
 

@@ -90,8 +90,8 @@ def pytest_terminal_summary(
 
     terminalreporter.section("chaos failure replay")
     for failure in failures:
-        terminalreporter.write_line(f"fingerprint: {failure.fingerprint_line}")
-        terminalreporter.write_line(f"replay: {failure.replay_command}")
+        terminalreporter.write_line(f"CHAOS_FAILURE_FINGERPRINT: {failure.fingerprint_line}")
+        terminalreporter.write_line(f"CHAOS_FAILURE_REPLAY_COMMAND: {failure.replay_command}")
 
 
 @pytest.fixture
