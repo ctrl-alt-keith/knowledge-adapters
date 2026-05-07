@@ -714,3 +714,5 @@ page unless you replace or monkeypatch the client in tests or other integration
 code. `title` is included only when it is already available as part of the
 current run. In `--dry-run` mode, the tool does not create or update
 `manifest.json`, and it does not create directories for the manifest.
+
+> AI-generated. Human-verified. Occasionally argued about.
