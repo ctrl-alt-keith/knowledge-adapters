@@ -1,4 +1,6 @@
-.PHONY: dev test smoke lint fix format typecheck check check-env check-gh-env adapter-readiness chaos-random chaos-replay chaos-all release-notes release-check release-publish clean
+.PHONY: help dev test smoke lint fix format typecheck check fix-all check-env check-gh-env adapter-readiness chaos-random chaos-replay chaos-all release-notes release-check release-publish clean
+
+.DEFAULT_GOAL := dev
 
 VENV = .venv
 PYTHON = $(VENV)/bin/python
@@ -18,25 +20,28 @@ $(VENV)/bin/activate:
 	$(PIP) install --upgrade pip
 	$(PIP) install -e '.[dev]'
 
-dev: $(VENV)/bin/activate
+help: ## List available repo-local Makefile targets with short descriptions.
+	@awk 'BEGIN {FS = ":.*## "}; /^[a-zA-Z0-9_.-]+:.*## / {printf "  %-24s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-check-env:
+dev: $(VENV)/bin/activate ## Create or refresh the local development environment.
+
+check-env: ## Verify local development prerequisites.
 	@command -v python3 >/dev/null 2>&1 || { echo "Error: python3 is required for local development." >&2; exit 1; }
 
-check-gh-env:
+check-gh-env: ## Verify GitHub CLI availability and authentication.
 	@command -v gh >/dev/null 2>&1 || { echo "Error: GitHub CLI (gh) is required but is not installed." >&2; exit 1; }
 	@gh auth status >/dev/null 2>&1 || { echo "Error: GitHub CLI authentication is required. Run 'gh auth login' and try again." >&2; exit 1; }
 
-adapter-readiness: $(VENV)/bin/activate
+adapter-readiness: $(VENV)/bin/activate ## Run adapter readiness diagnostics.
 	@$(PYTHON) -m knowledge_adapters.adapter_readiness
 
-test: $(VENV)/bin/activate
+test: $(VENV)/bin/activate ## Run the test suite.
 	$(PYTEST)
 
-smoke: $(VENV)/bin/activate
+smoke: $(VENV)/bin/activate ## Run CLI smoke tests.
 	$(PYTEST) tests/test_cli_smoke.py
 
-chaos-random: $(VENV)/bin/activate
+chaos-random: $(VENV)/bin/activate ## Run one randomly selected chaos scenario.
 	@set -e; \
 	seed="$(CHAOS_SEED)"; \
 	if [ -z "$$seed" ]; then \
@@ -58,7 +63,7 @@ chaos-random: $(VENV)/bin/activate
 	echo "CHAOS_REPLAY_COMMAND: $$replay_command"; \
 	CHAOS_TARGET=chaos-random CHAOS_SEED="$$seed" CHAOS_SCENARIO="$$scenario" $(PYTEST) -m chaos -k "$$scenario"
 
-chaos-replay: $(VENV)/bin/activate
+chaos-replay: $(VENV)/bin/activate ## Replay a selected chaos scenario.
 	@set -e; \
 	seed="$(CHAOS_SEED)"; \
 	scenario="$(CHAOS_SCENARIO)"; \
@@ -83,26 +88,26 @@ chaos-replay: $(VENV)/bin/activate
 		CHAOS_TARGET=chaos-replay CHAOS_SEED="$$seed" CHAOS_SCENARIO="$$scenario" $(PYTEST) -m chaos -k "$$scenario"; \
 	fi
 
-chaos-all: $(VENV)/bin/activate
+chaos-all: $(VENV)/bin/activate ## Run all chaos scenarios.
 	CHAOS_TARGET=chaos-all $(PYTEST) -m chaos
 
-lint: $(VENV)/bin/activate
+lint: $(VENV)/bin/activate ## Run Ruff lint checks.
 	$(RUFF) check .
 
-fix: $(VENV)/bin/activate
+fix: $(VENV)/bin/activate ## Apply Ruff lint fixes.
 	$(RUFF) check . --fix
 
-format: $(VENV)/bin/activate
+format: $(VENV)/bin/activate ## Format code with Ruff.
 	$(RUFF) format .
 
-typecheck: $(VENV)/bin/activate
+typecheck: $(VENV)/bin/activate ## Run MyPy type checks.
 	$(MYPY) .
 
-check: lint typecheck test
+check: lint typecheck test ## Run canonical local validation.
 
-fix-all: fix format
+fix-all: fix format ## Apply lint fixes and formatting.
 
-release-notes:
+release-notes: ## Print release notes for VERSION.
 	@if [ -z "$(VERSION)" ]; then \
 		echo "Error: VERSION is required. Usage: make release-publish VERSION=0.8.1" >&2; \
 		exit 1; \
@@ -127,7 +132,7 @@ release-notes:
 			} \
 		}' CHANGELOG.md
 
-release-check: check-gh-env
+release-check: check-gh-env ## Run local release readiness checks for VERSION.
 	@if [ -z "$(VERSION)" ]; then \
 		echo "Error: VERSION is required. Usage: make release-publish VERSION=0.8.1" >&2; \
 		exit 1; \
@@ -194,7 +199,7 @@ release-check: check-gh-env
 	fi
 	@echo "Release checks passed for $(RELEASE_TAG)."
 
-release-publish: release-check
+release-publish: release-check ## Publish VERSION as a tag and GitHub release.
 	@set -e; \
 	notes_file=$$(mktemp); \
 	trap 'rm -f "$$notes_file"' EXIT; \
@@ -218,5 +223,5 @@ release-publish: release-check
 	gh release create "$(RELEASE_TAG)" --title "$(RELEASE_TAG)" --notes-file "$$notes_file"; \
 	echo "Published GitHub release $(RELEASE_TAG)."
 
-clean:
+clean: ## Remove local development artifacts.
 	rm -rf $(VENV)
