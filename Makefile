@@ -1,5 +1,7 @@
 .PHONY: help dev test smoke lint fix format typecheck check fix-all check-env check-gh-env adapter-readiness chaos-random chaos-replay chaos-all release-notes release-check release-publish clean
 
+.DEFAULT_GOAL := dev
+
 VENV = .venv
 PYTHON = $(VENV)/bin/python
 PIP = $(VENV)/bin/pip
