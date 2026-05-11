@@ -28,6 +28,37 @@ For shared branch, PR, validation, and current-main workflow, follow
    make release-publish VERSION=0.8.1
    ```
 
+## Release Recovery
+
+If `make release-publish VERSION=X.Y.Z` creates a local or remote `vX.Y.Z` tag
+but fails before the GitHub release is created, inspect the partial state before
+rerunning release commands:
+
+```bash
+make release-recover VERSION=X.Y.Z
+```
+
+The recovery target reports whether the local tag, remote tag, and GitHub
+release exist. It does not create, delete, move, or push tags.
+
+If only the local tag exists and the publish should be retried from scratch, the
+target prints the exact manual local deletion command:
+
+```bash
+git tag -d vX.Y.Z
+```
+
+If the remote tag exists but the GitHub release is missing, create the release
+from the existing remote tag without creating, deleting, or moving tags:
+
+```bash
+make release-create-from-tag VERSION=X.Y.Z
+```
+
+Do not delete, recreate, or force-push a public release tag during this recovery
+path. If the pushed tag points at the wrong commit, stop and handle it as an
+explicit release correction.
+
 ## Notes
 
 - Keep the tag format consistent as `vX.Y.Z`.
