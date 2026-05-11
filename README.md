@@ -41,6 +41,8 @@ adapter:
 ```bash
 knowledge-adapters --help
 knowledge-adapters local_files --help
+knowledge-adapters public_webpage --help
+knowledge-adapters public_pdf --help
 knowledge-adapters confluence --help
 ```
 
@@ -79,6 +81,37 @@ files.
 
 Files that are not valid UTF-8 text, including binary files or files saved with
 another encoding, fail fast with guidance to re-save the input as UTF-8.
+
+Public webpage/article first run:
+
+```bash
+knowledge-adapters public_webpage \
+  --url https://meaningfultech.com/p/the-vibe-coding-illusion-why-faster \
+  --output-dir ./artifacts/public-web/meaningfultech-vibe-coding \
+  --dry-run
+```
+
+This fetches the public HTTP(S) URL, extracts visible text with the Python
+standard-library HTML parser, previews the generated candidate markdown, and
+does not write files in dry-run mode. Raw fetched HTML is held only in memory.
+The output is explicitly unreviewed candidate material; links, images, tables,
+comments, and publication metadata may be incomplete.
+
+Public PDF/report first run:
+
+```bash
+knowledge-adapters public_pdf \
+  --url https://dora.dev/research/2023/dora-report/2023-dora-accelerate-state-of-devops-report.pdf \
+  --output-dir ./artifacts/public-pdf/dora-2023 \
+  --dry-run
+```
+
+This fetches the public PDF URL, extracts text with `pypdf`, previews candidate
+markdown with extraction limitations, and does not write files in dry-run mode.
+Raw fetched PDF bytes are held only in memory. PDF layout, tables, figures,
+footnotes, headers, reading order, and scanned image-only pages may be
+incomplete or missing, so review against the source PDF before retaining any
+knowledge.
 
 Recommended Confluence first run:
 

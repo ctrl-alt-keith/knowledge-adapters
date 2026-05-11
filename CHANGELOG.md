@@ -9,6 +9,14 @@ Formal changelog coverage begins at `0.2.0`, when this repository started using
 `CHANGELOG.md` as part of the release flow. Earlier tagged releases `v0.1.0` and
 `v0.1.1` predate that practice and are not backfilled here.
 
+## Unreleased
+
+- Added `public_webpage` and `public_pdf` adapters for producing unreviewed
+  markdown-first candidate artifacts from public webpage/article and PDF/report
+  URLs without retaining raw fetched bytes.
+- Added `pypdf` as the PDF text extraction dependency and documented the
+  extraction limitations surfaced in generated candidate output.
+
 ## 0.8.0
 
 This minor release moves the project from capability to control: more adapters,

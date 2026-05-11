@@ -31,6 +31,37 @@ def test_local_files_cli_help_includes_first_run_guidance(tmp_path: Path) -> Non
     assert "--dry-run" in stdout
 
 
+def test_public_webpage_cli_help_includes_candidate_guidance(tmp_path: Path) -> None:
+    result = run_cli(tmp_path, "public_webpage", "--help")
+    stdout = normalize_whitespace(result.stdout)
+
+    assert result.returncode == 0, result.stderr
+    assert "Fetch one public HTTP(S) webpage URL" in stdout
+    assert "standard-library HTML parser" in stdout
+    assert "Output is explicitly unreviewed candidate material" in stdout
+    assert "Raw fetched HTML is held only in memory" in stdout
+    assert "--url URL" in stdout
+    assert "--output-dir DIR" in stdout
+    assert "--dry-run" in stdout
+    assert "meaningfultech.com/p/the-vibe-coding-illusion-why-faster" in stdout
+
+
+def test_public_pdf_cli_help_includes_extraction_limitations(tmp_path: Path) -> None:
+    result = run_cli(tmp_path, "public_pdf", "--help")
+    stdout = normalize_whitespace(result.stdout)
+
+    assert result.returncode == 0, result.stderr
+    assert "Fetch one public HTTP(S) PDF/report URL" in stdout
+    assert "extract text with pypdf" in stdout
+    assert "PDF layout, tables, figures" in stdout
+    assert "scanned image-only pages may be incomplete or missing" in stdout
+    assert "Raw fetched PDF bytes are held only in memory" in stdout
+    assert "--url URL" in stdout
+    assert "--output-dir DIR" in stdout
+    assert "--dry-run" in stdout
+    assert "2023-dora-accelerate-state-of-devops-report.pdf" in stdout
+
+
 def test_git_repo_cli_help_includes_filter_and_binary_guidance(tmp_path: Path) -> None:
     result = run_cli(tmp_path, "git_repo", "--help")
     stdout = normalize_whitespace(result.stdout)

@@ -109,6 +109,36 @@ ADAPTER_READINESS: tuple[AdapterReadiness, ...] = (
             "no_partial_artifacts": "No no-partial-artifact failure coverage is registered.",
         },
     ),
+    AdapterReadiness(
+        adapter="public_pdf",
+        coverage={
+            "contract_invariant": False,
+            "chaos": False,
+            "replay": False,
+            "no_partial_artifacts": False,
+        },
+        evidence={
+            "contract_invariant": "Not yet registered in the readiness model.",
+            "chaos": "No public_pdf chaos scenarios are registered.",
+            "replay": "Replay applies to registered chaos scenarios; public_pdf has none.",
+            "no_partial_artifacts": "No no-partial-artifact failure coverage is registered.",
+        },
+    ),
+    AdapterReadiness(
+        adapter="public_webpage",
+        coverage={
+            "contract_invariant": False,
+            "chaos": False,
+            "replay": False,
+            "no_partial_artifacts": False,
+        },
+        evidence={
+            "contract_invariant": "Not yet registered in the readiness model.",
+            "chaos": "No public_webpage chaos scenarios are registered.",
+            "replay": "Replay applies to registered chaos scenarios; public_webpage has none.",
+            "no_partial_artifacts": "No no-partial-artifact failure coverage is registered.",
+        },
+    ),
 )
 
 

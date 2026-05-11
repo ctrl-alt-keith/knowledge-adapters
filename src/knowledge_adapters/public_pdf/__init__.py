@@ -1,0 +1,2 @@
+"""Public PDF/report adapter."""
+

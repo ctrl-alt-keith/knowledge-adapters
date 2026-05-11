@@ -205,6 +205,68 @@ runs:
     )
 
 
+def test_load_run_config_supports_public_webpage_and_pdf_urls(tmp_path: Path) -> None:
+    meaningfultech_url = "https://meaningfultech.com/p/the-vibe-coding-illusion-why-faster"
+    dora_pdf_url = (
+        "https://dora.dev/research/2023/dora-report/"
+        "2023-dora-accelerate-state-of-devops-report.pdf"
+    )
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        f"""
+runs:
+  - name: meaningfultech-vibe-coding
+    type: public_webpage
+    url: {meaningfultech_url}
+    output_dir: ./artifacts/public-web/meaningfultech-vibe-coding
+    dry_run: true
+  - name: dora-2023-report
+    type: public_pdf
+    url: {dora_pdf_url}
+    output_dir: ./artifacts/public-pdf/dora-2023
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    run_config = load_run_config(config_path)
+
+    assert run_config.runs == (
+        ConfiguredRun(
+            name="meaningfultech-vibe-coding",
+            run_type="public_webpage",
+            argv=(
+                "public_webpage",
+                "--url",
+                meaningfultech_url,
+                "--output-dir",
+                str(
+                    (
+                        tmp_path
+                        / "artifacts"
+                        / "public-web"
+                        / "meaningfultech-vibe-coding"
+                    ).resolve()
+                ),
+                "--dry-run",
+            ),
+            dry_run=True,
+        ),
+        ConfiguredRun(
+            name="dora-2023-report",
+            run_type="public_pdf",
+            argv=(
+                "public_pdf",
+                "--url",
+                dora_pdf_url,
+                "--output-dir",
+                str((tmp_path / "artifacts" / "public-pdf" / "dora-2023").resolve()),
+            ),
+            dry_run=False,
+        ),
+    )
+
+
 def test_load_run_config_supports_bundle_stale_mode(tmp_path: Path) -> None:
     config_path = tmp_path / "runs.yaml"
     config_path.write_text(
