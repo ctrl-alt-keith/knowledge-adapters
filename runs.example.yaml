@@ -8,6 +8,22 @@ runs:
     file_path: ./example-inputs/team-notes.txt
     output_dir: ./artifacts/local/team-notes
 
+  # Public webpage/article example. Output is unreviewed candidate material,
+  # not retained knowledge.
+  - name: meaningfultech-vibe-coding
+    type: public_webpage
+    url: https://meaningfultech.com/p/the-vibe-coding-illusion-why-faster
+    output_dir: ./artifacts/public-web/meaningfultech-vibe-coding
+    dry_run: true
+
+  # Public PDF/report example. PDF text extraction uses pypdf and has visible
+  # limitations in the generated candidate markdown.
+  - name: dora-2023-report
+    type: public_pdf
+    url: https://dora.dev/research/2023/dora-report/2023-dora-accelerate-state-of-devops-report.pdf
+    output_dir: ./artifacts/public-pdf/dora-2023
+    dry_run: true
+
   # Minimal git_repo example. Use include filters by default; ingesting an
   # entire repository is usually not the safest starting point.
   - name: example-repo

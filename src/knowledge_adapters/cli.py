@@ -38,6 +38,8 @@ TOP_LEVEL_HELP_EXAMPLES = """First steps:
   knowledge-adapters --help
   knowledge-adapters run runs.yaml
   knowledge-adapters local_files --help
+  knowledge-adapters public_webpage --help
+  knowledge-adapters public_pdf --help
   knowledge-adapters git_repo --help
   knowledge-adapters github_metadata --help
   knowledge-adapters confluence --help
@@ -89,6 +91,29 @@ LOCAL_FILES_HELP_EXAMPLES = """Examples:
     --file-path ./notes/today.txt \\
     --output-dir ./artifacts
 """
+
+PUBLIC_WEBPAGE_HELP_EXAMPLES = """Examples:
+  knowledge-adapters public_webpage \\
+    --url https://meaningfultech.com/p/the-vibe-coding-illusion-why-faster \\
+    --output-dir ./artifacts/public-web/meaningfultech-vibe-coding \\
+    --dry-run
+  knowledge-adapters public_webpage \\
+    --url https://meaningfultech.com/p/the-vibe-coding-illusion-why-faster \\
+    --output-dir ./artifacts/public-web/meaningfultech-vibe-coding
+"""
+
+PUBLIC_PDF_HELP_EXAMPLES = (
+    "Examples:\n"
+    "  knowledge-adapters public_pdf \\\n"
+    "    --url https://dora.dev/research/2023/dora-report/"
+    "2023-dora-accelerate-state-of-devops-report.pdf \\\n"
+    "    --output-dir ./artifacts/public-pdf/dora-2023 \\\n"
+    "    --dry-run\n"
+    "  knowledge-adapters public_pdf \\\n"
+    "    --url https://dora.dev/research/2023/dora-report/"
+    "2023-dora-accelerate-state-of-devops-report.pdf \\\n"
+    "    --output-dir ./artifacts/public-pdf/dora-2023\n"
+)
 
 GIT_REPO_HELP_EXAMPLES = """Examples:
   knowledge-adapters git_repo \\
@@ -706,6 +731,82 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Preview the resolved file path, artifact path, manifest path, and "
             "normalized markdown without writing files."
+        ),
+    )
+
+    public_webpage_parser = subparsers.add_parser(
+        "public_webpage",
+        help="Fetch one public webpage URL into unreviewed candidate markdown.",
+        description=(
+            "Fetch one public HTTP(S) webpage URL, extract visible text with a "
+            "standard-library HTML parser, and write one markdown-first candidate "
+            "artifact plus manifest.json. Output is explicitly unreviewed candidate "
+            "material; scripts, styles, links, images, tables, comments, and "
+            "publication metadata may be incomplete. Localhost, .local, private, "
+            "link-local, multicast, unspecified, reserved, and credential-bearing "
+            "targets are rejected before fetch and after redirects. Raw fetched HTML "
+            "is held only in memory and is not retained unless the caller chooses to "
+            "keep the generated candidate output."
+        ),
+        epilog=PUBLIC_WEBPAGE_HELP_EXAMPLES,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    add_verbose_argument(public_webpage_parser)
+    public_webpage_parser.add_argument(
+        "--url",
+        required=True,
+        help="Public http or https webpage/article URL to fetch.",
+    )
+    public_webpage_parser.add_argument(
+        "--output-dir",
+        required=True,
+        metavar="DIR",
+        help="Directory where pages/ and manifest.json are written.",
+    )
+    public_webpage_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Fetch and extract the source, then preview artifact path, manifest path, "
+            "and normalized candidate markdown without writing files."
+        ),
+    )
+
+    public_pdf_parser = subparsers.add_parser(
+        "public_pdf",
+        help="Fetch one public PDF/report URL into unreviewed candidate markdown.",
+        description=(
+            "Fetch one public HTTP(S) PDF/report URL, extract text with pypdf, and "
+            "write one markdown-first candidate artifact plus manifest.json. Output "
+            "is explicitly unreviewed candidate material; PDF layout, tables, figures, "
+            "footnotes, headers, reading order, and scanned image-only pages may be "
+            "incomplete or missing. Localhost, .local, private, link-local, multicast, "
+            "unspecified, reserved, and credential-bearing targets are rejected before "
+            "fetch and after redirects. Raw fetched PDF bytes are held only in memory "
+            "and are not retained unless the caller chooses to keep the generated "
+            "candidate output."
+        ),
+        epilog=PUBLIC_PDF_HELP_EXAMPLES,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    add_verbose_argument(public_pdf_parser)
+    public_pdf_parser.add_argument(
+        "--url",
+        required=True,
+        help="Public http or https PDF/report URL to fetch.",
+    )
+    public_pdf_parser.add_argument(
+        "--output-dir",
+        required=True,
+        metavar="DIR",
+        help="Directory where pages/ and manifest.json are written.",
+    )
+    public_pdf_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Fetch and extract the source, then preview artifact path, manifest path, "
+            "extraction limitations, and normalized candidate markdown without writing files."
         ),
     )
 
@@ -3230,6 +3331,187 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("\nSummary: wrote 1, skipped 0")
         print(f"  stale_artifacts: {len(stale_artifacts)}")
         print_stale_artifacts(local_files_config.output_dir, stale_artifacts)
+        print(f"Artifact path: {render_user_path(output_path)}")
+        print(f"Manifest path: {render_user_path(manifest)}")
+        print_write_complete(output_dir)
+        return 0
+
+    if args.command in {"public_webpage", "public_pdf"}:
+        import hashlib
+
+        from knowledge_adapters.manifest import (
+            build_manifest_entry,
+            write_manifest,
+        )
+        from knowledge_adapters.manifest_stale import (
+            find_stale_artifacts,
+            load_previous_manifest_index,
+        )
+
+        command = str(args.command)
+        url = str(args.url)
+        output_dir_arg = str(args.output_dir)
+        dry_run = bool(args.dry_run)
+        output_dir_input = Path(output_dir_arg).expanduser()
+        output_dir = output_dir_input.resolve()
+        if output_dir_input.exists() and not output_dir_input.is_dir():
+            exit_with_cli_error(
+                (
+                    f"Output path is not a directory: {output_dir}. "
+                    "Verify --output-dir and use a directory path."
+                ),
+                command=command,
+            )
+
+        try:
+            if command == "public_webpage":
+                from knowledge_adapters.public_webpage.client import fetch_webpage
+                from knowledge_adapters.public_webpage.config import PublicWebpageConfig
+                from knowledge_adapters.public_webpage.normalize import normalize_to_markdown
+                from knowledge_adapters.public_webpage.writer import (
+                    markdown_path as public_markdown_path,
+                )
+                from knowledge_adapters.public_webpage.writer import (
+                    write_markdown as public_write_markdown,
+                )
+
+                public_webpage_config = PublicWebpageConfig(
+                    url=url,
+                    output_dir=output_dir_arg,
+                    dry_run=dry_run,
+                )
+                webpage_document = fetch_webpage(public_webpage_config.url)
+                title = webpage_document.title
+                canonical_id = webpage_document.canonical_id
+                source_url = webpage_document.source_url
+                fetched_at = webpage_document.fetched_at
+                content = webpage_document.content
+                extraction_notes = webpage_document.extraction_notes
+                page_count: int | None = None
+                source = webpage_document.source
+                adapter = webpage_document.adapter
+                adapter_title = "Public webpage"
+                plan_title = "Public webpage run"
+            else:
+                from knowledge_adapters.public_pdf.client import fetch_pdf
+                from knowledge_adapters.public_pdf.config import PublicPdfConfig
+                from knowledge_adapters.public_pdf.normalize import normalize_to_markdown
+                from knowledge_adapters.public_pdf.writer import (
+                    markdown_path as public_markdown_path,
+                )
+                from knowledge_adapters.public_pdf.writer import (
+                    write_markdown as public_write_markdown,
+                )
+
+                public_pdf_config = PublicPdfConfig(
+                    url=url,
+                    output_dir=output_dir_arg,
+                    dry_run=dry_run,
+                )
+                pdf_document = fetch_pdf(public_pdf_config.url)
+                title = pdf_document.title
+                canonical_id = pdf_document.canonical_id
+                source_url = pdf_document.source_url
+                fetched_at = pdf_document.fetched_at
+                content = pdf_document.content
+                extraction_notes = pdf_document.extraction_notes
+                page_count = pdf_document.page_count
+                source = pdf_document.source
+                adapter = pdf_document.adapter
+                adapter_title = "Public PDF/report"
+                plan_title = "Public PDF/report run"
+        except ValueError as exc:
+            exit_with_cli_error(str(exc), command=command)
+
+        candidate: dict[str, object] = {
+            "title": title,
+            "canonical_id": canonical_id,
+            "source_url": source_url,
+            "fetched_at": fetched_at,
+            "content": content,
+            "extraction_notes": extraction_notes,
+            "source": source,
+            "adapter": adapter,
+        }
+        if page_count is not None:
+            candidate["page_count"] = page_count
+        markdown = normalize_to_markdown(candidate)
+
+        print(f"{adapter_title} adapter invoked")
+        print(f"  url: {url}")
+        print(f"  output_dir: {render_user_path(output_dir_arg)}")
+        print(f"  run_mode: {'dry-run' if dry_run else 'write'}")
+
+        try:
+            previous_manifest_index = load_previous_manifest_index(output_dir_arg)
+        except RuntimeError as exc:
+            exit_with_cli_error(str(exc), command=command)
+
+        output_path = public_markdown_path(output_dir_arg, source_url)
+        manifest_output_path = output_dir / "manifest.json"
+        manifest_entry = build_manifest_entry(
+            canonical_id=canonical_id,
+            source_url=source_url,
+            output_path=output_path,
+            output_dir=output_dir_arg,
+            title=title,
+            content_hash=hashlib.sha256(markdown.encode("utf-8")).hexdigest(),
+        )
+        stale_artifacts = [
+            (artifact.canonical_id, artifact.output_path)
+            for artifact in find_stale_artifacts(
+                output_dir_arg,
+                previous_manifest_index,
+                current_output_paths=[str(manifest_entry["output_path"])],
+            )
+        ]
+
+        print(f"\nPlan: {plan_title}")
+        print(f"  source_url: {source_url}")
+        print(f"  title: {title}")
+        print(f"  fetched_at: {fetched_at}")
+        if page_count is not None:
+            print(f"  page_count: {page_count}")
+        print(f"  Artifact path: {render_user_path(output_path)}")
+        print(f"  Manifest path: {render_user_path(manifest_output_path)}")
+        print("  candidate_status: unreviewed")
+        print(f"  extraction_notes: {extraction_notes}")
+        if content:
+            print("  content_status: extracted text with content")
+        else:
+            print(
+                "  content_status: no text extracted; output will contain metadata, "
+                "candidate warning, and an empty content section"
+            )
+        print(f"  action: {'would write' if dry_run else 'write'}")
+
+        if dry_run:
+            print("  Summary: would write 1, would skip 0")
+            print(f"  stale_artifacts: {len(stale_artifacts)}")
+            print_stale_artifacts(output_dir_arg, stale_artifacts)
+            print()
+            print(markdown)
+            print_dry_run_complete()
+            return 0
+
+        try:
+            public_write_markdown(
+                output_dir_arg,
+                source_url,
+                markdown,
+            )
+            manifest = write_manifest(output_dir_arg, [manifest_entry])
+        except OSError as exc:
+            exit_with_output_error(
+                output_dir_arg,
+                command=command,
+                exc=exc,
+            )
+
+        print(f"\nWrote: {render_user_path(output_path)}")
+        print("\nSummary: wrote 1, skipped 0")
+        print(f"  stale_artifacts: {len(stale_artifacts)}")
+        print_stale_artifacts(output_dir_arg, stale_artifacts)
         print(f"Artifact path: {render_user_path(output_path)}")
         print(f"Manifest path: {render_user_path(manifest)}")
         print_write_complete(output_dir)

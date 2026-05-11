@@ -29,6 +29,8 @@ def test_adapter_readiness_model_is_sorted_and_complete() -> None:
         "git_repo",
         "github_metadata",
         "local_files",
+        "public_pdf",
+        "public_webpage",
     )
     assert tuple(row.adapter for row in rows) == tuple(sorted(row.adapter for row in rows))
     for row in rows:
@@ -82,6 +84,8 @@ def test_adapter_readiness_report_is_deterministic() -> None:
         "git_repo         no                  no     no      no\n"
         "github_metadata  no                  no     no      no\n"
         "local_files      no                  no     no      no\n"
+        "public_pdf       no                  no     no      no\n"
+        "public_webpage   no                  no     no      no\n"
         "\n"
         "Evidence:\n"
         "confluence:\n"
@@ -106,6 +110,16 @@ def test_adapter_readiness_report_is_deterministic() -> None:
         "  Contract/invariant: no - Not yet registered in the readiness model.\n"
         "  Chaos: no - No local_files chaos scenarios are registered.\n"
         "  Replay: no - Replay applies to registered chaos scenarios; local_files has none.\n"
+        "  No partial artifacts: no - No no-partial-artifact failure coverage is registered.\n"
+        "public_pdf:\n"
+        "  Contract/invariant: no - Not yet registered in the readiness model.\n"
+        "  Chaos: no - No public_pdf chaos scenarios are registered.\n"
+        "  Replay: no - Replay applies to registered chaos scenarios; public_pdf has none.\n"
+        "  No partial artifacts: no - No no-partial-artifact failure coverage is registered.\n"
+        "public_webpage:\n"
+        "  Contract/invariant: no - Not yet registered in the readiness model.\n"
+        "  Chaos: no - No public_webpage chaos scenarios are registered.\n"
+        "  Replay: no - Replay applies to registered chaos scenarios; public_webpage has none.\n"
         "  No partial artifacts: no - No no-partial-artifact failure coverage is registered.\n"
     )
 

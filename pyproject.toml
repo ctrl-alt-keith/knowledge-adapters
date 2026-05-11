@@ -13,6 +13,7 @@ authors = [
   { name = "Keith Minnig" }
 ]
 dependencies = [
+  "pypdf>=5.0",
   "PyYAML>=6.0",
 ]
 

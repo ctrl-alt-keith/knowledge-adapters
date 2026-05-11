@@ -32,7 +32,15 @@ from knowledge_adapters.confluence.resolve import (
 from knowledge_adapters.github_metadata.config import SUPPORTED_RESOURCE_TYPES
 
 SUPPORTED_RUN_TYPES = frozenset(
-    {"bundle", "confluence", "git_repo", "github_metadata", "local_files"}
+    {
+        "bundle",
+        "confluence",
+        "git_repo",
+        "github_metadata",
+        "local_files",
+        "public_pdf",
+        "public_webpage",
+    }
 )
 _SUPPORTED_CONFLUENCE_CLIENT_MODES = frozenset({"real", "stub"})
 _SUPPORTED_GITHUB_METADATA_STATES = frozenset({"open", "closed", "all"})
@@ -83,6 +91,9 @@ _BUNDLE_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | _BUNDLE_OPTION_KEYS | frozenset(
 _NAMED_BUNDLE_ALLOWED_KEYS = _BUNDLE_OPTION_KEYS | frozenset({"name", "runs"})
 _LOCAL_FILES_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
     {"dry_run", "enabled", "file_path", "output_dir"}
+)
+_PUBLIC_URL_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
+    {"dry_run", "enabled", "output_dir", "url"}
 )
 _GIT_REPO_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
     {"dry_run", "enabled", "exclude", "include", "output_dir", "ref", "repo_url", "subdir"}
@@ -330,6 +341,20 @@ def _parse_run(
         argv = _build_git_repo_argv(run_config, name=name, config_path=config_path)
     elif run_type == "github_metadata":
         argv = _build_github_metadata_argv(run_config, name=name, config_path=config_path)
+    elif run_type == "public_webpage":
+        argv = _build_public_url_argv(
+            run_config,
+            command="public_webpage",
+            name=name,
+            config_path=config_path,
+        )
+    elif run_type == "public_pdf":
+        argv = _build_public_url_argv(
+            run_config,
+            command="public_pdf",
+            name=name,
+            config_path=config_path,
+        )
     else:
         argv = _build_local_files_argv(run_config, name=name, config_path=config_path)
     dry_run = _optional_bool(
@@ -1035,6 +1060,37 @@ def _build_git_repo_argv(
     ):
         argv.extend(["--exclude", exclude_pattern])
 
+    if _optional_bool(run_config, "dry_run", index=index, config_path=config_path, default=False):
+        argv.append("--dry-run")
+    return tuple(argv)
+
+
+def _build_public_url_argv(
+    run_config: dict[str, object],
+    *,
+    command: str,
+    name: str,
+    config_path: Path,
+) -> tuple[str, ...]:
+    _reject_unknown_keys(
+        run_config,
+        allowed_keys=_PUBLIC_URL_ALLOWED_KEYS,
+        name=name,
+        config_path=config_path,
+    )
+    index = _run_index(name=name, config_path=config_path)
+    url = _require_string(run_config, "url", index=index, config_path=config_path)
+    output_dir = _resolve_path_string(
+        _require_string(run_config, "output_dir", index=index, config_path=config_path),
+        config_path=config_path,
+    )
+    argv: list[str] = [
+        command,
+        "--url",
+        url,
+        "--output-dir",
+        output_dir,
+    ]
     if _optional_bool(run_config, "dry_run", index=index, config_path=config_path, default=False):
         argv.append("--dry-run")
     return tuple(argv)
