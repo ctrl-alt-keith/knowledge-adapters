@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -81,7 +82,7 @@ def fetch_public_url(
 
 
 def validate_public_http_url(url: str) -> None:
-    """Validate the adapter URL surface without accepting local file paths."""
+    """Validate that a source URL stays on the public HTTP(S) surface."""
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"}:
         raise ValueError("URL must use http or https.")
@@ -89,6 +90,40 @@ def validate_public_http_url(url: str) -> None:
         raise ValueError("URL must include a host.")
     if parsed.username or parsed.password:
         raise ValueError("URL must not include embedded credentials.")
+    try:
+        hostname = parsed.hostname
+    except ValueError as exc:
+        raise ValueError("URL host is invalid.") from exc
+    if hostname is None or not hostname.strip():
+        raise ValueError("URL must include a host.")
+
+    _validate_public_hostname(hostname)
+
+
+def _validate_public_hostname(hostname: str) -> None:
+    normalized_hostname = hostname.rstrip(".").lower()
+    if normalized_hostname == "localhost":
+        raise ValueError("URL host must not be localhost.")
+    if normalized_hostname.endswith(".local"):
+        raise ValueError("URL host must not be a .local hostname.")
+
+    try:
+        address = ipaddress.ip_address(normalized_hostname)
+    except ValueError:
+        return
+
+    if address.is_loopback:
+        raise ValueError("URL host must not be a loopback IP address.")
+    if address.is_link_local:
+        raise ValueError("URL host must not be a link-local IP address.")
+    if address.is_multicast:
+        raise ValueError("URL host must not be a multicast IP address.")
+    if address.is_unspecified:
+        raise ValueError("URL host must not be an unspecified IP address.")
+    if address.is_reserved:
+        raise ValueError("URL host must not be a reserved IP address.")
+    if address.is_private:
+        raise ValueError("URL host must not be a private IP address.")
 
 
 def output_name_for_url(url: str) -> str:

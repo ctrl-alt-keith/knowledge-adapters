@@ -39,6 +39,8 @@ def test_public_webpage_cli_help_includes_candidate_guidance(tmp_path: Path) -> 
     assert "Fetch one public HTTP(S) webpage URL" in stdout
     assert "standard-library HTML parser" in stdout
     assert "Output is explicitly unreviewed candidate material" in stdout
+    assert "Localhost, .local, private, link-local, multicast" in stdout
+    assert "rejected before fetch and after redirects" in stdout
     assert "Raw fetched HTML is held only in memory" in stdout
     assert "--url URL" in stdout
     assert "--output-dir DIR" in stdout
@@ -55,6 +57,8 @@ def test_public_pdf_cli_help_includes_extraction_limitations(tmp_path: Path) -> 
     assert "extract text with pypdf" in stdout
     assert "PDF layout, tables, figures" in stdout
     assert "scanned image-only pages may be incomplete or missing" in stdout
+    assert "Localhost, .local, private, link-local, multicast" in stdout
+    assert "rejected before fetch and after redirects" in stdout
     assert "Raw fetched PDF bytes are held only in memory" in stdout
     assert "--url URL" in stdout
     assert "--output-dir DIR" in stdout

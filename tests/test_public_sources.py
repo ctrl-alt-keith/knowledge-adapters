@@ -4,13 +4,18 @@ from email.message import Message
 from pathlib import Path
 from typing import Any, Literal
 
+import pytest
 from pytest import CaptureFixture, MonkeyPatch
 
 from knowledge_adapters.cli import main
 from knowledge_adapters.public_pdf.client import PublicPdfDocument
 from knowledge_adapters.public_pdf.normalize import normalize_to_markdown as normalize_pdf
 from knowledge_adapters.public_pdf.writer import markdown_path as pdf_markdown_path
-from knowledge_adapters.public_sources import fetch_public_url, output_name_for_url
+from knowledge_adapters.public_sources import (
+    fetch_public_url,
+    output_name_for_url,
+    validate_public_http_url,
+)
 from knowledge_adapters.public_webpage.client import PublicWebpageDocument, fetch_webpage
 from knowledge_adapters.public_webpage.normalize import normalize_to_markdown as normalize_webpage
 from knowledge_adapters.public_webpage.writer import markdown_path as webpage_markdown_path
@@ -82,6 +87,89 @@ def test_fetch_public_url_uses_in_memory_response_and_metadata(
     assert fetched.content_type == "text/html"
     assert fetched.content_charset == "utf-8"
     assert fetched.retrieved_at.endswith("Z")
+
+
+@pytest.mark.parametrize(
+    "url",
+    (
+        "https://example.com/article",
+        "http://subdomain.example.org/report",
+        "https://8.8.8.8/dns-over-https",
+        "https://[2606:4700:4700::1111]/",
+    ),
+)
+def test_validate_public_http_url_accepts_public_http_targets(url: str) -> None:
+    validate_public_http_url(url)
+
+
+@pytest.mark.parametrize(
+    "url",
+    (
+        "ftp://example.com/report",
+        "file:///etc/passwd",
+        "https://user:pass@example.com/report",
+        "https://localhost/report",
+        "https://localhost./report",
+        "https://printer.local/report",
+        "https://printer.local./report",
+        "https://127.0.0.1/report",
+        "https://[::1]/report",
+        "https://10.0.0.1/report",
+        "https://172.16.0.1/report",
+        "https://192.168.0.1/report",
+        "https://169.254.1.1/report",
+        "https://169.254.169.254/latest/meta-data/",
+        "https://[fe80::1]/report",
+        "https://224.0.0.1/report",
+        "https://[ff02::1]/report",
+        "https://0.0.0.0/report",
+        "https://[::]/report",
+        "https://240.0.0.1/report",
+        "https://[2001:db8::1]/report",
+    ),
+)
+def test_validate_public_http_url_rejects_local_private_internal_targets(url: str) -> None:
+    with pytest.raises(ValueError):
+        validate_public_http_url(url)
+
+
+def test_fetch_public_url_does_not_request_rejected_original_url(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    def fake_urlopen(request: object, timeout: int) -> _FakeResponse:
+        del request, timeout
+        raise AssertionError("blocked original URL should not be requested")
+
+    monkeypatch.setattr("knowledge_adapters.public_sources.urlopen", fake_urlopen)
+
+    with pytest.raises(ValueError, match="private IP"):
+        fetch_public_url(
+            "https://10.0.0.1/report",
+            accepted_content_types=("text/html",),
+            max_bytes=1000,
+        )
+
+
+def test_fetch_public_url_revalidates_and_rejects_redirect_final_url(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    def fake_urlopen(request: object, timeout: int) -> _FakeResponse:
+        del request, timeout
+        return _FakeResponse(
+            url="https://169.254.169.254/latest/meta-data/",
+            content=b"metadata",
+            content_type="text/html",
+            charset="utf-8",
+        )
+
+    monkeypatch.setattr("knowledge_adapters.public_sources.urlopen", fake_urlopen)
+
+    with pytest.raises(ValueError, match="link-local"):
+        fetch_public_url(
+            "https://example.com/redirect",
+            accepted_content_types=("text/html",),
+            max_bytes=1000,
+        )
 
 
 def test_fetch_webpage_extracts_title_and_visible_text(monkeypatch: MonkeyPatch) -> None:

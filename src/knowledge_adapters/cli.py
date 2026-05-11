@@ -742,9 +742,11 @@ def build_parser() -> argparse.ArgumentParser:
             "standard-library HTML parser, and write one markdown-first candidate "
             "artifact plus manifest.json. Output is explicitly unreviewed candidate "
             "material; scripts, styles, links, images, tables, comments, and "
-            "publication metadata may be incomplete. Raw fetched HTML is held only "
-            "in memory and is not retained unless the caller chooses to keep the "
-            "generated candidate output."
+            "publication metadata may be incomplete. Localhost, .local, private, "
+            "link-local, multicast, unspecified, reserved, and credential-bearing "
+            "targets are rejected before fetch and after redirects. Raw fetched HTML "
+            "is held only in memory and is not retained unless the caller chooses to "
+            "keep the generated candidate output."
         ),
         epilog=PUBLIC_WEBPAGE_HELP_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -778,8 +780,10 @@ def build_parser() -> argparse.ArgumentParser:
             "write one markdown-first candidate artifact plus manifest.json. Output "
             "is explicitly unreviewed candidate material; PDF layout, tables, figures, "
             "footnotes, headers, reading order, and scanned image-only pages may be "
-            "incomplete or missing. Raw fetched PDF bytes are held only in memory and "
-            "are not retained unless the caller chooses to keep the generated "
+            "incomplete or missing. Localhost, .local, private, link-local, multicast, "
+            "unspecified, reserved, and credential-bearing targets are rejected before "
+            "fetch and after redirects. Raw fetched PDF bytes are held only in memory "
+            "and are not retained unless the caller chooses to keep the generated "
             "candidate output."
         ),
         epilog=PUBLIC_PDF_HELP_EXAMPLES,
