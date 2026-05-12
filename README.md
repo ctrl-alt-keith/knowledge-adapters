@@ -123,7 +123,13 @@ PDFs, or auto-promote extracted material. Public PDF candidate markdown omits
 the volatile per-run fetch timestamp and stores it in `manifest.json` instead,
 so rerunning unchanged extracted content keeps the reviewable candidate file and
 its `content_hash` stable; the manifest still includes run metadata such as
-`generated_at`.
+`generated_at`. Public PDF outputs also include descriptive replay-quality
+metadata in the candidate metadata block and manifest entry. These fields report
+mechanical extraction conditions such as footer suppression counts, URL spacing
+normalization counts, page-count context, possible layout-artifact line density,
+and adapter-known extraction warnings. They are informational review aids only:
+they do not approve the candidate, authorize retention, promote content, rank
+documents, or assert semantic correctness.
 
 Recommended Confluence first run:
 

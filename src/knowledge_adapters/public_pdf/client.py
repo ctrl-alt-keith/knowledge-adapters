@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import io
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from pypdf import PdfReader
 
-from knowledge_adapters.public_pdf.normalize import normalize_extracted_pages
+from knowledge_adapters.public_pdf.normalize import (
+    normalize_extracted_pages_with_replay_metadata,
+)
 from knowledge_adapters.public_sources import fetch_public_url
 
 MAX_PDF_BYTES = 50_000_000
@@ -31,6 +33,7 @@ class PublicPdfDocument:
     fetched_at: str
     content: str
     page_count: int
+    replay_quality_metadata: dict[str, object] = field(default_factory=dict)
     extraction_notes: str = PDF_EXTRACTION_NOTES
     source: str = "public_pdf"
     adapter: str = "public_pdf"
@@ -65,9 +68,12 @@ def fetch_pdf(url: str) -> PublicPdfDocument:
             raise ValueError(f"Could not extract text from PDF page {index}.") from exc
         raw_pages.append(text)
 
+    normalized_page_texts, replay_quality_metadata = (
+        normalize_extracted_pages_with_replay_metadata(raw_pages)
+    )
     pages = [
         f"## Page {index}\n\n{text.strip()}"
-        for index, text in enumerate(normalize_extracted_pages(raw_pages), start=1)
+        for index, text in enumerate(normalized_page_texts, start=1)
     ]
 
     return PublicPdfDocument(
@@ -77,4 +83,5 @@ def fetch_pdf(url: str) -> PublicPdfDocument:
         fetched_at=fetched.retrieved_at,
         content="\n\n".join(pages).strip(),
         page_count=len(reader.pages),
+        replay_quality_metadata=replay_quality_metadata,
     )
