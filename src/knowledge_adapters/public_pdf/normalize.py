@@ -7,10 +7,19 @@ import re
 from collections.abc import Mapping, Sequence
 
 _BROKEN_URL_SCHEME_RE = re.compile(
-    r"\b(?P<scheme>https?)\s*:\s*/\s*/\s*"
+    r"\b(?P<scheme>https?)"
+    r"(?:\s+:\s*/\s*/\s*|\s*:\s+/\s*/\s*|\s*:\s*/\s+/\s*|\s*:\s*/\s*/\s+)"
     r"(?P<host>[A-Za-z0-9][A-Za-z0-9.-]*(?::\d+)?)"
     r"(?P<path>[/#?][^\s<>()\[\]{}\"']*)?",
     re.IGNORECASE,
+)
+_URL_PATH_LINE_WRAP_RE = re.compile(
+    r"\bhttps?://[A-Za-z0-9][A-Za-z0-9.-]*(?::\d+)?/"
+    r"[^\s<>()\[\]{}\"']*-$",
+    re.IGNORECASE,
+)
+_URL_PATH_CONTINUATION_RE = re.compile(
+    r"(?=.*[-._~/%!$&'()*+,;=:@?#])[a-z0-9][a-z0-9._~%!$&'()*+,;=:@/?#-]*"
 )
 _WIDE_SPACING_RE = re.compile(r"\S\s{3,}\S")
 _HYPHENATED_LINE_BREAK_RE = re.compile(r"[A-Za-z]{2,}-$")
@@ -37,14 +46,22 @@ def normalize_extracted_pages_with_replay_metadata(
 ) -> tuple[list[str], dict[str, object]]:
     """Normalize extracted pages and describe deterministic replay-quality signals."""
     normalized_pages: list[str] = []
-    url_replacement_count = 0
-    url_affected_page_count = 0
+    url_scheme_replacement_count = 0
+    url_scheme_affected_page_count = 0
+    url_path_line_wrap_repair_count = 0
+    url_path_line_wrap_affected_page_count = 0
     for page_text in page_texts:
         normalized_page, replacement_count = _normalize_broken_url_spacing_with_count(page_text)
+        normalized_page, path_repair_count = _normalize_url_path_line_wraps_with_count(
+            normalized_page
+        )
         normalized_pages.append(normalized_page)
-        url_replacement_count += replacement_count
+        url_scheme_replacement_count += replacement_count
         if replacement_count:
-            url_affected_page_count += 1
+            url_scheme_affected_page_count += 1
+        url_path_line_wrap_repair_count += path_repair_count
+        if path_repair_count:
+            url_path_line_wrap_affected_page_count += 1
 
     normalized_pages, footer_metadata = _suppress_repeated_footer_lines_with_metadata(
         normalized_pages
@@ -60,9 +77,14 @@ def normalize_extracted_pages_with_replay_metadata(
             "empty_page_count": empty_page_count,
         },
         "url_spacing_normalization": {
-            "activity": "normalized" if url_replacement_count else "none",
-            "replacement_count": url_replacement_count,
-            "affected_page_count": url_affected_page_count,
+            "activity": "normalized" if url_scheme_replacement_count else "none",
+            "replacement_count": url_scheme_replacement_count,
+            "affected_page_count": url_scheme_affected_page_count,
+        },
+        "url_path_line_wrap_normalization": {
+            "activity": "normalized" if url_path_line_wrap_repair_count else "none",
+            "repair_count": url_path_line_wrap_repair_count,
+            "affected_page_count": url_path_line_wrap_affected_page_count,
         },
         "repeated_footer_suppression": footer_metadata,
         "possible_layout_artifact_density": _possible_layout_artifact_density(
@@ -124,6 +146,39 @@ def _normalize_broken_url_spacing_with_count(text: str) -> tuple[str, int]:
 def _join_broken_url_scheme(match: re.Match[str]) -> str:
     path = match.group("path") or ""
     return f"{match.group('scheme')}://{match.group('host')}{path}"
+
+
+def _normalize_url_path_line_wraps_with_count(text: str) -> tuple[str, int]:
+    lines = text.splitlines()
+    normalized_lines: list[str] = []
+    repair_count = 0
+    index = 0
+    while index < len(lines):
+        line = lines[index].rstrip()
+        if index + 1 >= len(lines):
+            normalized_lines.append(line)
+            index += 1
+            continue
+
+        next_line = lines[index + 1].strip()
+        if _is_url_path_line_wrap_pair(line, next_line):
+            normalized_lines.append(f"{line}{next_line}")
+            repair_count += 1
+            index += 2
+            continue
+
+        normalized_lines.append(line)
+        index += 1
+
+    return "\n".join(normalized_lines).strip(), repair_count
+
+
+def _is_url_path_line_wrap_pair(line: str, next_line: str) -> bool:
+    return bool(
+        next_line
+        and _URL_PATH_LINE_WRAP_RE.search(line)
+        and _URL_PATH_CONTINUATION_RE.fullmatch(next_line)
+    )
 
 
 def _suppress_repeated_footer_lines(page_texts: list[str]) -> list[str]:
@@ -235,6 +290,7 @@ def _extraction_warning_codes(empty_page_count: int) -> list[str]:
 def _render_replay_quality_metadata(metadata: Mapping[str, object]) -> str:
     page_context = _mapping_value(metadata, "page_count_context")
     url_spacing = _mapping_value(metadata, "url_spacing_normalization")
+    url_path_wrap = _mapping_value(metadata, "url_path_line_wrap_normalization")
     footer = _mapping_value(metadata, "repeated_footer_suppression")
     layout_density = _mapping_value(metadata, "possible_layout_artifact_density")
     warnings = metadata.get("extraction_warnings", ())
@@ -254,6 +310,10 @@ def _render_replay_quality_metadata(metadata: Mapping[str, object]) -> str:
             (
                 "- replay_quality_url_spacing_normalization_count: "
                 f"{_metadata_value(url_spacing, 'replacement_count')}"
+            ),
+            (
+                "- replay_quality_url_path_line_wrap_repair_count: "
+                f"{_metadata_value(url_path_wrap, 'repair_count')}"
             ),
             (
                 "- replay_quality_repeated_footer_suppressed_line_count: "

@@ -116,20 +116,25 @@ fetched PDF bytes are held only in memory. PDF layout, tables, figures,
 footnotes, headers, reading order, and scanned image-only pages may be incomplete
 or missing, so review against the source PDF before retaining any knowledge. The
 PDF adapter applies only mechanical replay-noise normalization: it repairs
-broken `http://` and `https://` scheme spacing from extraction and suppresses
-short repeated trailing footer lines when they recur by page position across a
-majority of pages. It does not infer sections, rewrite prose, retain source
-PDFs, or auto-promote extracted material. Public PDF candidate markdown omits
-the volatile per-run fetch timestamp and stores it in `manifest.json` instead,
-so rerunning unchanged extracted content keeps the reviewable candidate file and
-its `content_hash` stable; the manifest still includes run metadata such as
-`generated_at`. Public PDF outputs also include descriptive replay-quality
-metadata in the candidate metadata block and manifest entry. These fields report
+broken `http://` and `https://` scheme spacing from extraction, joins clearly
+split URL path line wraps only when an extracted URL path ends a line with `-`
+and the immediately following nonblank line is a standalone URL path fragment,
+and suppresses short repeated trailing footer lines when they recur by page
+position across a majority of pages. It does not repair ordinary prose
+hyphenation, join across blank lines or page boundaries, infer sections, rewrite
+prose, retain source PDFs, or auto-promote extracted material. Public PDF
+candidate markdown omits the volatile per-run fetch timestamp and stores it in
+`manifest.json` instead, so rerunning unchanged extracted content keeps the
+reviewable candidate file and its `content_hash` stable; the manifest still
+includes run metadata such as `generated_at`. Public PDF outputs also include
+descriptive replay-quality metadata in the candidate metadata block and
+manifest entry. These fields report
 mechanical extraction conditions such as footer suppression counts, URL spacing
-normalization counts, page-count context, possible layout-artifact line density,
-and adapter-known extraction warnings. They are informational review aids only:
-they do not approve the candidate, authorize retention, promote content, rank
-documents, or assert semantic correctness.
+normalization counts, URL path line-wrap repair counts, page-count context,
+possible layout-artifact line density, and adapter-known extraction warnings.
+They are informational review aids only: they do not approve the candidate,
+authorize retention, promote content, rank documents, or assert semantic
+correctness.
 
 Recommended Confluence first run:
 

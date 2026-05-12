@@ -306,6 +306,75 @@ def test_public_pdf_page_normalization_repairs_broken_url_spacing() -> None:
     ]
 
 
+def test_public_pdf_page_normalization_repairs_url_path_line_wrap() -> None:
+    normalized_pages = normalize_pdf_pages(
+        [
+            (
+                "Source: https://cloud.google.com/resources/content/dora-roi-of-ai-\n"
+                "assisted-software-development"
+            )
+        ]
+    )
+
+    assert normalized_pages == [
+        (
+            "Source: https://cloud.google.com/resources/content/dora-roi-of-ai-"
+            "assisted-software-development"
+        )
+    ]
+
+
+def test_public_pdf_page_normalization_keeps_normal_hyphenated_prose() -> None:
+    normalized_pages = normalize_pdf_pages(
+        [
+            (
+                "The review describes AI-assisted-\n"
+                "software delivery without a URL on the prior line."
+            )
+        ]
+    )
+
+    assert normalized_pages == [
+        (
+            "The review describes AI-assisted-\n"
+            "software delivery without a URL on the prior line."
+        )
+    ]
+
+
+def test_public_pdf_page_normalization_keeps_url_path_split_across_blank_line() -> None:
+    normalized_pages = normalize_pdf_pages(
+        [
+            (
+                "Source: https://cloud.google.com/resources/content/dora-roi-of-ai-\n"
+                "\n"
+                "assisted-software-development"
+            )
+        ]
+    )
+
+    assert normalized_pages == [
+        (
+            "Source: https://cloud.google.com/resources/content/dora-roi-of-ai-\n\n"
+            "assisted-software-development"
+        )
+    ]
+
+
+def test_public_pdf_page_normalization_keeps_url_path_split_across_pages() -> None:
+    normalized_pages = normalize_pdf_pages(
+        [
+            "Source: https://cloud.google.com/resources/content/dora-roi-of-ai-",
+            "assisted-software-development",
+        ]
+    )
+
+    assert normalized_pages == [
+        "Source: https://cloud.google.com/resources/content/dora-roi-of-ai-",
+        "assisted-software-development",
+    ]
+
+
 def test_public_pdf_page_normalization_suppresses_repeated_footer_lines() -> None:
     normalized_pages = normalize_pdf_pages(
         [
@@ -324,7 +393,13 @@ def test_public_pdf_page_normalization_suppresses_repeated_footer_lines() -> Non
 
 def test_public_pdf_page_normalization_reports_replay_quality_metadata() -> None:
     raw_pages = [
-        "Metric   Value\nRead https:/ /example.com/report\nDORA Report | 1",
+        (
+            "Metric   Value\n"
+            "Read https:/ /example.com/report\n"
+            "Source: https://cloud.google.com/resources/content/dora-roi-of-ai-\n"
+            "assisted-software-development\n"
+            "DORA Report | 1"
+        ),
         "Findings\nDORA Report | 2",
     ]
 
@@ -332,7 +407,12 @@ def test_public_pdf_page_normalization_reports_replay_quality_metadata() -> None
     second_pages, second_metadata = normalize_pdf_pages_with_metadata(raw_pages)
 
     assert first_pages == [
-        "Metric   Value\nRead https://example.com/report",
+        (
+            "Metric   Value\n"
+            "Read https://example.com/report\n"
+            "Source: https://cloud.google.com/resources/content/dora-roi-of-ai-"
+            "assisted-software-development"
+        ),
         "Findings",
     ]
     assert first_pages == second_pages
@@ -340,6 +420,11 @@ def test_public_pdf_page_normalization_reports_replay_quality_metadata() -> None
     assert first_metadata["url_spacing_normalization"] == {
         "activity": "normalized",
         "replacement_count": 1,
+        "affected_page_count": 1,
+    }
+    assert first_metadata["url_path_line_wrap_normalization"] == {
+        "activity": "normalized",
+        "repair_count": 1,
         "affected_page_count": 1,
     }
     assert first_metadata["repeated_footer_suppression"] == {
@@ -355,9 +440,9 @@ def test_public_pdf_page_normalization_reports_replay_quality_metadata() -> None
     }
     assert first_metadata["possible_layout_artifact_density"] == {
         "basis": "normalized_extracted_text_lines",
-        "line_count": 3,
+        "line_count": 4,
         "possible_artifact_line_count": 1,
-        "possible_artifact_line_ratio": "0.333",
+        "possible_artifact_line_ratio": "0.250",
     }
 
     markdown = normalize_pdf(
@@ -377,8 +462,9 @@ def test_public_pdf_page_normalization_reports_replay_quality_metadata() -> None
         "or promotion"
     ) in markdown
     assert "- replay_quality_url_spacing_normalization_count: 1" in markdown
+    assert "- replay_quality_url_path_line_wrap_repair_count: 1" in markdown
     assert "- replay_quality_repeated_footer_suppressed_line_count: 2" in markdown
-    assert "- replay_quality_possible_layout_artifact_lines: 1/3 (0.333)" in markdown
+    assert "- replay_quality_possible_layout_artifact_lines: 1/4 (0.250)" in markdown
 
 
 def test_public_pdf_page_normalization_keeps_non_repeated_trailing_text() -> None:
@@ -688,6 +774,11 @@ def _sample_replay_quality_metadata() -> dict[str, object]:
             "activity": "normalized",
             "replacement_count": 1,
             "affected_page_count": 1,
+        },
+        "url_path_line_wrap_normalization": {
+            "activity": "none",
+            "repair_count": 0,
+            "affected_page_count": 0,
         },
         "repeated_footer_suppression": {
             "activity": "suppressed",

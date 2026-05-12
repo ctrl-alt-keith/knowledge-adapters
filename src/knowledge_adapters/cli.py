@@ -1222,6 +1222,7 @@ def print_stale_artifacts(
 def _print_public_pdf_replay_quality_metadata(metadata: Mapping[str, object]) -> None:
     page_context = _metadata_mapping(metadata, "page_count_context")
     url_spacing = _metadata_mapping(metadata, "url_spacing_normalization")
+    url_path_wrap = _metadata_mapping(metadata, "url_path_line_wrap_normalization")
     footer = _metadata_mapping(metadata, "repeated_footer_suppression")
     layout_density = _metadata_mapping(metadata, "possible_layout_artifact_density")
     warnings = metadata.get("extraction_warnings", ())
@@ -1237,6 +1238,10 @@ def _print_public_pdf_replay_quality_metadata(metadata: Mapping[str, object]) ->
     print(
         "    url_spacing_normalization_count: "
         f"{url_spacing.get('replacement_count', '')}"
+    )
+    print(
+        "    url_path_line_wrap_repair_count: "
+        f"{url_path_wrap.get('repair_count', '')}"
     )
     print(
         "    repeated_footer_suppressed_line_count: "
