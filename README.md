@@ -139,6 +139,14 @@ correctness. Footer and page-number noise measurement is documented in
 safe-looking repeated footer blocks and risky numeric content shapes without
 adding new suppression behavior.
 
+For CAK-15 extraction-quality iteration, use the deterministic sanitized
+DORA-derived fixtures in `tests/fixtures/public_pdf/` as the primary feedback
+loop. Add or update a fixture for each replay-observed artifact, validate the
+normalization and replay-quality metadata in `knowledge-adapters`, and reserve
+knowledge-vault replay for milestone or integration validation. See
+`docs/public-pdf-dora-regression-fixtures.md` for when full replay validation is
+still required.
+
 Recommended Confluence first run:
 
 1. Start with the default `stub` client and `--dry-run` to confirm the resolve
