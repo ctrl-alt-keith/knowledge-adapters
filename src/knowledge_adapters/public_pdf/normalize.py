@@ -29,13 +29,17 @@ _PAGE_NUMBERED_FOOTER_LIKE_RE = re.compile(
     r"\d+\s*(of|/)\s*\d+\b|[|:/-]\s*\d+(\s*(of|/)\s*\d+)?$)",
     re.IGNORECASE,
 )
+_PAGE_NUMBER_LINE_RE = re.compile(
+    r"^(?:page\s+|p\.\s*)?(?P<page>\d{1,4})(?:\s*(?:of|/)\s*\d{1,4})?$",
+    re.IGNORECASE,
+)
 _MEANINGFUL_NUMERIC_CONTEXT_RE = re.compile(
     r"(\b(total|metric|value|score|cost|savings|roi|result|input|output|"
     r"calculator|table|figure|formula|baseline|target|year|month|rate|percent|"
     r"percentage)\b|[$%+=*/])",
     re.IGNORECASE,
 )
-_MAX_FOOTER_CANDIDATE_LINES = 3
+_MAX_FOOTER_CANDIDATE_LINES = 4
 _MAX_FOOTER_LINE_LENGTH = 140
 _BASE_EXTRACTION_WARNINGS = (
     "pdf_layout_tables_figures_footnotes_headers_reading_order_may_be_incomplete",
@@ -259,12 +263,13 @@ def _suppress_repeated_footer_lines_with_metadata(
                     break
 
                 numeric_line = page_lines[page_index][numeric_line_index].strip()
-                if not _is_bare_numeric_line(numeric_line):
+                numeric_value = _page_number_line_value(numeric_line)
+                if numeric_value is None:
                     missing_numeric_line = True
                     break
 
                 numeric_occurrences.append(
-                    (page_index, numeric_line_index, int(numeric_line))
+                    (page_index, numeric_line_index, numeric_value)
                 )
                 if _has_nearby_meaningful_numeric_context(
                     page_lines[page_index],
@@ -304,9 +309,22 @@ def _suppress_repeated_footer_lines_with_metadata(
                 )
                 continue
 
+            footer_depths = _repeated_footer_block_depths(
+                trailing_entries_by_page,
+                tuple(page_to_anchor_index),
+                anchor_depth,
+                numeric_depth,
+            )
+            if not footer_depths:
+                continue
+
             for page_index, numeric_line_index, _numeric_value in numeric_occurrences:
-                anchor_line_index = page_to_anchor_index[page_index]
-                indexes_to_remove.add((page_index, anchor_line_index))
+                for footer_depth in footer_depths:
+                    footer_line_index = _line_index_at_trailing_depth(
+                        trailing_entries_by_page[page_index], footer_depth
+                    )
+                    if footer_line_index is not None:
+                        indexes_to_remove.add((page_index, footer_line_index))
                 indexes_to_remove.add((page_index, numeric_line_index))
             suppressed_numeric_page_line_count += len(numeric_occurrences)
             detected_blocks.append(
@@ -314,6 +332,7 @@ def _suppress_repeated_footer_lines_with_metadata(
                     "anchor_signature": anchor_signature,
                     "anchor_depth": anchor_depth,
                     "numeric_depth": numeric_depth,
+                    "footer_depths": footer_depths,
                     "page_count": len(numeric_occurrences),
                     "numeric_values": [
                         numeric_value
@@ -379,6 +398,44 @@ def _line_index_at_trailing_depth(
     for candidate_depth, line_index, _line in trailing_entries:
         if candidate_depth == depth:
             return line_index
+    return None
+
+
+def _repeated_footer_block_depths(
+    trailing_entries_by_page: Sequence[Sequence[tuple[int, int, str]]],
+    page_indexes: Sequence[int],
+    anchor_depth: int,
+    numeric_depth: int,
+) -> list[int]:
+    page_index_set = set(page_indexes)
+    if numeric_depth < anchor_depth:
+        candidate_depths = range(anchor_depth, _MAX_FOOTER_CANDIDATE_LINES + 1)
+    else:
+        candidate_depths = range(anchor_depth, 0, -1)
+
+    footer_depths: list[int] = []
+    for candidate_depth in candidate_depths:
+        signatures = {
+            _signature_at_trailing_depth(
+                trailing_entries_by_page[page_index], candidate_depth
+            )
+            for page_index in page_index_set
+        }
+        if len(signatures) != 1:
+            break
+        signature = next(iter(signatures))
+        if signature is None:
+            break
+        footer_depths.append(candidate_depth)
+    return footer_depths
+
+
+def _signature_at_trailing_depth(
+    trailing_entries: Sequence[tuple[int, int, str]], depth: int
+) -> str | None:
+    for candidate_depth, _line_index, line in trailing_entries:
+        if candidate_depth == depth:
+            return _footer_anchor_signature(line)
     return None
 
 
@@ -525,6 +582,11 @@ def _footer_signature(line: str) -> str | None:
 
 def _is_bare_numeric_line(line: str) -> bool:
     return bool(_BARE_NUMERIC_LINE_RE.fullmatch(line.strip()))
+
+
+def _page_number_line_value(line: str) -> int | None:
+    match = _PAGE_NUMBER_LINE_RE.fullmatch(" ".join(line.strip().split()))
+    return int(match.group("page")) if match else None
 
 
 def _is_page_numbered_footer_like_line(line: str) -> bool:

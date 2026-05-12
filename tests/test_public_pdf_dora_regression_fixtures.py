@@ -21,6 +21,8 @@ FIXTURE_PATH = (
 REQUIRED_CASE_IDS = {
     "repeated_footer_blocks",
     "leading_space_numeric_page_lines",
+    "page_number_footer_pairs",
+    "repeated_trailing_footer_blocks",
     "url_scheme_spacing_artifacts",
     "url_path_line_wrap_artifacts",
     "mid_page_footer_like_text",

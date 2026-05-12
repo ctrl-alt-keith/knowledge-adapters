@@ -12,7 +12,7 @@ Public PDF replay-quality metadata includes
 and before the existing repeated footer suppression pass. The diagnostic block
 records:
 
-- repeated trailing footer block and signature counts inside the last three
+- repeated trailing footer block and signature counts inside the last four
   nonempty lines of each extracted page
 - bare numeric line counts, including whether those lines appear in the trailing
   footer candidate window
@@ -25,11 +25,11 @@ records:
   reading order
 
 `repeated_footer_suppression` records the narrow suppression pass that runs
-after diagnostics. It only suppresses anchored two-line trailing footer blocks
-where repeated nonnumeric footer text and an adjacent bare numeric page line
-appear in the trailing candidate window on the same required majority of pages.
-The metadata includes detected anchored blocks, suppressed numeric page-line
-counts, and skipped numeric-risk cases.
+after diagnostics. It only suppresses anchored trailing footer blocks where
+repeated nonnumeric footer text and an adjacent page-number line appear in the
+trailing candidate window on the same required majority of pages. The metadata
+includes detected anchored blocks, the repeated footer depths removed with each
+anchor, suppressed numeric page-line counts, and skipped numeric-risk cases.
 
 The metadata is deterministic and informational. Counts are review aids, not
 retention decisions.
@@ -94,9 +94,10 @@ Footer/page-number suppression is intentionally narrow:
 
 - suppress repeated multi-line trailing footer blocks only when the nonnumeric
   footer text repeats by page position across the required page majority
-- treat bare numeric lines as suppressible only when anchored to a repeated
-  nonnumeric footer block on the same pages and at adjacent trailing positions
-- require anchored bare numeric values to increase in extracted page order
+- treat bare numeric lines and ordinary `Page 1`/`1 of 10` page-number lines as
+  suppressible only when anchored to a repeated nonnumeric footer block on the
+  same pages and at adjacent trailing positions
+- require anchored page-number values to increase in extracted page order
 - do not suppress a bare numeric line solely because it repeats as a normalized
   `#` signature
 - do not suppress footer-like text found outside the trailing candidate window
@@ -109,6 +110,6 @@ Footer/page-number suppression is intentionally narrow:
 ## Non-Goals
 
 This slice does not suppress standalone bare numeric signatures, suppress
-single-line footer/page strings, repair ordinary prose hyphenation, infer
+single-line fused footer/page strings, repair ordinary prose hyphenation, infer
 semantic sections, auto-promote candidates, rank document quality, or assert
 that a diagnostic count is safe to remove.

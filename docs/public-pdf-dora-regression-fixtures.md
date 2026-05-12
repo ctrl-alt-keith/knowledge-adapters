@@ -13,6 +13,8 @@ The fixture area captures small DORA-derived extraction shapes for:
 
 - repeated footer blocks
 - leading-space numeric page lines
+- ordinary page-number/footer pairs
+- repeated multi-line trailing footer blocks
 - URL scheme-spacing artifacts
 - URL path line-wrap artifacts
 - mid-page footer-like text
