@@ -13,6 +13,7 @@ _BROKEN_URL_SCHEME_RE = re.compile(
 )
 _MAX_FOOTER_CANDIDATE_LINES = 3
 _MAX_FOOTER_LINE_LENGTH = 140
+STABLE_FETCHED_AT_NOTE = "see manifest fetched_at; omitted from candidate markdown for stable diffs"
 
 
 def normalize_extracted_pages(page_texts: Sequence[str]) -> list[str]:
@@ -26,7 +27,6 @@ def normalize_to_markdown(page: Mapping[str, object]) -> str:
     title = str(page.get("title", "untitled"))
     canonical_id = str(page.get("canonical_id", ""))
     source_url = str(page.get("source_url", ""))
-    fetched_at = str(page.get("fetched_at", ""))
     source = str(page.get("source", "public_pdf"))
     adapter = str(page.get("adapter", "public_pdf"))
     page_count = str(page.get("page_count", ""))
@@ -40,7 +40,7 @@ def normalize_to_markdown(page: Mapping[str, object]) -> str:
 - canonical_id: {canonical_id}
 - parent_id:
 - source_url: {source_url}
-- fetched_at: {fetched_at}
+- fetched_at: {STABLE_FETCHED_AT_NOTE}
 - updated_at:
 - adapter: {adapter}
 - candidate_status: unreviewed

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from email.message import Message
 from pathlib import Path
 from typing import Any, Literal
@@ -9,6 +10,9 @@ from pytest import CaptureFixture, MonkeyPatch
 
 from knowledge_adapters.cli import main
 from knowledge_adapters.public_pdf.client import PublicPdfDocument
+from knowledge_adapters.public_pdf.normalize import (
+    STABLE_FETCHED_AT_NOTE,
+)
 from knowledge_adapters.public_pdf.normalize import (
     normalize_extracted_pages as normalize_pdf_pages,
 )
@@ -267,7 +271,7 @@ def test_public_pdf_normalizer_marks_limitations() -> None:
             "canonical_id": DORA_2023_PDF_URL,
             "parent_id": "",
             "source_url": DORA_2023_PDF_URL,
-            "fetched_at": "2026-05-11T12:00:00Z",
+            "fetched_at": STABLE_FETCHED_AT_NOTE,
             "updated_at": "",
             "adapter": "public_pdf",
             "candidate_status": "unreviewed",
@@ -329,6 +333,153 @@ def test_public_pdf_page_normalization_keeps_non_repeated_trailing_text() -> Non
         "Key findings\nDifferent closing detail: 13",
         "Closing notes\n2023 Accelerate State of DevOps Report | 3",
     ]
+
+
+def test_public_pdf_cli_keeps_candidate_content_stable_across_fetch_times(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    output_dir = tmp_path / "out"
+    documents = iter(
+        (
+            PublicPdfDocument(
+                title="DORA 2023 Accelerate State of DevOps Report",
+                canonical_id=DORA_2023_PDF_URL,
+                source_url=DORA_2023_PDF_URL,
+                fetched_at="2026-05-11T12:00:00Z",
+                content="## Page 1\n\nStable report candidate text.",
+                page_count=1,
+            ),
+            PublicPdfDocument(
+                title="DORA 2023 Accelerate State of DevOps Report",
+                canonical_id=DORA_2023_PDF_URL,
+                source_url=DORA_2023_PDF_URL,
+                fetched_at="2026-05-11T12:30:00Z",
+                content="## Page 1\n\nStable report candidate text.",
+                page_count=1,
+            ),
+        )
+    )
+
+    def fake_fetch(url: str) -> PublicPdfDocument:
+        assert url == DORA_2023_PDF_URL
+        return next(documents)
+
+    monkeypatch.setattr("knowledge_adapters.public_pdf.client.fetch_pdf", fake_fetch)
+
+    assert (
+        main(
+            [
+                "public_pdf",
+                "--url",
+                DORA_2023_PDF_URL,
+                "--output-dir",
+                str(output_dir),
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    output_path = pdf_markdown_path(str(output_dir), DORA_2023_PDF_URL)
+    first_markdown = output_path.read_text(encoding="utf-8")
+    first_manifest = _manifest_payload(output_dir / "manifest.json")
+
+    assert (
+        main(
+            [
+                "public_pdf",
+                "--url",
+                DORA_2023_PDF_URL,
+                "--output-dir",
+                str(output_dir),
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    second_markdown = output_path.read_text(encoding="utf-8")
+    second_manifest = _manifest_payload(output_dir / "manifest.json")
+
+    assert first_markdown == second_markdown
+    assert STABLE_FETCHED_AT_NOTE in first_markdown
+    assert "2026-05-11T12:00:00Z" not in first_markdown
+    assert "2026-05-11T12:30:00Z" not in second_markdown
+    assert first_manifest["files"][0]["content_hash"] == second_manifest["files"][0]["content_hash"]
+    assert first_manifest["files"][0]["fetched_at"] == "2026-05-11T12:00:00Z"
+    assert second_manifest["files"][0]["fetched_at"] == "2026-05-11T12:30:00Z"
+
+
+def test_public_pdf_cli_changes_candidate_hash_when_extracted_content_changes(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    output_dir = tmp_path / "out"
+    documents = iter(
+        (
+            PublicPdfDocument(
+                title="DORA 2023 Accelerate State of DevOps Report",
+                canonical_id=DORA_2023_PDF_URL,
+                source_url=DORA_2023_PDF_URL,
+                fetched_at="2026-05-11T12:00:00Z",
+                content="## Page 1\n\nOriginal report candidate text.",
+                page_count=1,
+            ),
+            PublicPdfDocument(
+                title="DORA 2023 Accelerate State of DevOps Report",
+                canonical_id=DORA_2023_PDF_URL,
+                source_url=DORA_2023_PDF_URL,
+                fetched_at="2026-05-11T12:30:00Z",
+                content="## Page 1\n\nUpdated report candidate text.",
+                page_count=1,
+            ),
+        )
+    )
+
+    def fake_fetch(url: str) -> PublicPdfDocument:
+        assert url == DORA_2023_PDF_URL
+        return next(documents)
+
+    monkeypatch.setattr("knowledge_adapters.public_pdf.client.fetch_pdf", fake_fetch)
+
+    assert (
+        main(
+            [
+                "public_pdf",
+                "--url",
+                DORA_2023_PDF_URL,
+                "--output-dir",
+                str(output_dir),
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    output_path = pdf_markdown_path(str(output_dir), DORA_2023_PDF_URL)
+    first_markdown = output_path.read_text(encoding="utf-8")
+    first_manifest = _manifest_payload(output_dir / "manifest.json")
+
+    assert (
+        main(
+            [
+                "public_pdf",
+                "--url",
+                DORA_2023_PDF_URL,
+                "--output-dir",
+                str(output_dir),
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    second_markdown = output_path.read_text(encoding="utf-8")
+    second_manifest = _manifest_payload(output_dir / "manifest.json")
+
+    assert first_markdown != second_markdown
+    assert "Original report candidate text." in first_markdown
+    assert "Updated report candidate text." in second_markdown
+    assert first_manifest["files"][0]["content_hash"] != second_manifest["files"][0]["content_hash"]
 
 
 def test_public_webpage_cli_writes_candidate_markdown(
@@ -437,11 +588,15 @@ def test_output_name_for_url_includes_slug_and_hash() -> None:
 
 
 def _content_hash_from_manifest(manifest_path: Path) -> str:
-    import json
-
-    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload = _manifest_payload(manifest_path)
     files = payload["files"]
     assert isinstance(files, list)
     content_hash = files[0]["content_hash"]
     assert isinstance(content_hash, str)
     return content_hash
+
+
+def _manifest_payload(manifest_path: Path) -> dict[str, Any]:
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert isinstance(payload, dict)
+    return payload
