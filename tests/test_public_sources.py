@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from email.message import Message
 from pathlib import Path
 from typing import Any, Literal
@@ -467,6 +468,97 @@ def test_public_pdf_page_normalization_reports_replay_quality_metadata() -> None
     assert "- replay_quality_possible_layout_artifact_lines: 1/4 (0.250)" in markdown
 
 
+def test_public_pdf_footer_page_number_diagnostics_measure_safe_repeated_blocks() -> None:
+    raw_pages = [
+        "Executive summary\nDORA Report\n1",
+        "Key findings\nDORA Report\n2",
+        "Closing notes\nDORA Report\n3",
+    ]
+
+    normalized_pages, metadata = normalize_pdf_pages_with_metadata(raw_pages)
+
+    assert normalized_pages == [
+        "Executive summary",
+        "Key findings",
+        "Closing notes",
+    ]
+    footer_page_noise = _metadata_mapping(
+        metadata, "footer_page_number_noise_diagnostics"
+    )
+    assert footer_page_noise == {
+        "activity": "measured",
+        "basis": "post_url_normalization_pre_footer_suppression_extracted_pages",
+        "candidate_window": {
+            "trailing_nonempty_line_count": 3,
+            "min_repeated_pages": 2,
+        },
+        "repeated_trailing_footer_block_count": 2,
+        "repeated_trailing_footer_signature_count": 2,
+        "bare_numeric_line_count": 3,
+        "bare_numeric_trailing_line_count": 3,
+        "repeated_bare_numeric_trailing_signature_count": 1,
+        "bare_numeric_adjacent_to_numeric_content_count": 0,
+        "mid_page_footer_like_line_count": 0,
+        "risk_note": (
+            "bare numeric lines may be page numbers or meaningful table, calculator, "
+            "or report values; diagnostics do not authorize suppression"
+        ),
+    }
+
+
+def test_public_pdf_footer_page_number_diagnostics_measure_numeric_content_risk() -> None:
+    raw_pages = [
+        "Calculator\nInput value 10\n15\nOutput value 25\nNotes A\nCheck A\nKeep A",
+        "Calculator\nInput value 12\n18\nOutput value 30\nNotes B\nCheck B\nKeep B",
+    ]
+
+    normalized_pages, metadata = normalize_pdf_pages_with_metadata(raw_pages)
+
+    assert normalized_pages == raw_pages
+    footer_page_noise = _metadata_mapping(
+        metadata, "footer_page_number_noise_diagnostics"
+    )
+    assert footer_page_noise["bare_numeric_line_count"] == 2
+    assert footer_page_noise["bare_numeric_trailing_line_count"] == 0
+    assert footer_page_noise["bare_numeric_adjacent_to_numeric_content_count"] == 2
+    assert footer_page_noise["repeated_bare_numeric_trailing_signature_count"] == 0
+
+
+def test_public_pdf_footer_page_number_diagnostics_measure_mid_page_footer_like_text() -> None:
+    raw_pages = [
+        "Intro\nDORA Report | 1\nBody\nMetric 5\nDetail A\nClosing A",
+        "Intro\nDORA Report | 2\nBody\nMetric 6\nDetail B\nClosing B",
+    ]
+
+    normalized_pages, metadata = normalize_pdf_pages_with_metadata(raw_pages)
+
+    assert normalized_pages == raw_pages
+    footer_page_noise = _metadata_mapping(
+        metadata, "footer_page_number_noise_diagnostics"
+    )
+    assert footer_page_noise["mid_page_footer_like_line_count"] == 2
+    assert footer_page_noise["repeated_trailing_footer_block_count"] == 0
+    assert footer_page_noise["bare_numeric_line_count"] == 0
+
+
+def test_public_pdf_footer_page_number_diagnostics_measure_page_numbers_near_values() -> None:
+    raw_pages = [
+        "Table\nMetric value 12\n1\nTotal value 13\nNotes A\nCheck A\nEnd A",
+        "Table\nMetric value 20\n2\nTotal value 22\nNotes B\nCheck B\nEnd B",
+    ]
+
+    normalized_pages, metadata = normalize_pdf_pages_with_metadata(raw_pages)
+
+    assert normalized_pages == raw_pages
+    footer_page_noise = _metadata_mapping(
+        metadata, "footer_page_number_noise_diagnostics"
+    )
+    assert footer_page_noise["bare_numeric_line_count"] == 2
+    assert footer_page_noise["bare_numeric_trailing_line_count"] == 0
+    assert footer_page_noise["bare_numeric_adjacent_to_numeric_content_count"] == 2
+    assert footer_page_noise["mid_page_footer_like_line_count"] == 0
+
+
 def test_public_pdf_page_normalization_keeps_non_repeated_trailing_text() -> None:
     normalized_pages = normalize_pdf_pages(
         [
@@ -759,6 +851,14 @@ def _manifest_payload(manifest_path: Path) -> dict[str, Any]:
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert isinstance(payload, dict)
     return payload
+
+
+def _metadata_mapping(
+    metadata: Mapping[str, object], key: str
+) -> Mapping[str, object]:
+    value = metadata[key]
+    assert isinstance(value, Mapping)
+    return value
 
 
 def _sample_replay_quality_metadata() -> dict[str, object]:

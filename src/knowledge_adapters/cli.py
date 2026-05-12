@@ -1223,6 +1223,7 @@ def _print_public_pdf_replay_quality_metadata(metadata: Mapping[str, object]) ->
     page_context = _metadata_mapping(metadata, "page_count_context")
     url_spacing = _metadata_mapping(metadata, "url_spacing_normalization")
     url_path_wrap = _metadata_mapping(metadata, "url_path_line_wrap_normalization")
+    footer_page_noise = _metadata_mapping(metadata, "footer_page_number_noise_diagnostics")
     footer = _metadata_mapping(metadata, "repeated_footer_suppression")
     layout_density = _metadata_mapping(metadata, "possible_layout_artifact_density")
     warnings = metadata.get("extraction_warnings", ())
@@ -1242,6 +1243,22 @@ def _print_public_pdf_replay_quality_metadata(metadata: Mapping[str, object]) ->
     print(
         "    url_path_line_wrap_repair_count: "
         f"{url_path_wrap.get('repair_count', '')}"
+    )
+    print(
+        "    footer_page_number_repeated_trailing_block_count: "
+        f"{footer_page_noise.get('repeated_trailing_footer_block_count', '')}"
+    )
+    print(
+        "    footer_page_number_bare_numeric_line_count: "
+        f"{footer_page_noise.get('bare_numeric_line_count', '')}"
+    )
+    print(
+        "    footer_page_number_numeric_context_risk_count: "
+        f"{footer_page_noise.get('bare_numeric_adjacent_to_numeric_content_count', '')}"
+    )
+    print(
+        "    footer_page_number_mid_page_footer_like_line_count: "
+        f"{footer_page_noise.get('mid_page_footer_like_line_count', '')}"
     )
     print(
         "    repeated_footer_suppressed_line_count: "
