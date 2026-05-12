@@ -139,6 +139,42 @@
       ]
     },
     {
+      "id": "version_footer_after_bare_page_number",
+      "description": "Real DORA ROI replay shape with the bare page number before the short repeated version footer is suppressed when safely anchored.",
+      "expectation": "normalized",
+      "tags": ["required_case", "previous_dora_replay_failure", "footer"],
+      "raw_pages": [
+        "ROI calculation and\nfinancial modeling\n2\nv. 2026.1",
+        "Generating more code\nwithout proper oversight can\nincrease verification overhead and\nlead to long-term technical debt.\n3\nv. 2026.1",
+        "Track delivery performance\nto manage risk and velocity\n5\nv. 2026.1"
+      ],
+      "expected_pages": [
+        "ROI calculation and\nfinancial modeling",
+        "Generating more code\nwithout proper oversight can\nincrease verification overhead and\nlead to long-term technical debt.",
+        "Track delivery performance\nto manage risk and velocity"
+      ],
+      "expected_metadata": {
+        "repeated_footer_suppression": {
+          "activity": "suppressed",
+          "suppressed_line_count": 6,
+          "affected_page_count": 3,
+          "detected_anchored_footer_block_count": 1,
+          "suppressed_anchored_footer_block_count": 1,
+          "suppressed_numeric_page_line_count": 3,
+          "skipped_numeric_risk_count": 0
+        },
+        "footer_page_number_noise_diagnostics": {
+          "repeated_trailing_footer_block_count": 2,
+          "repeated_bare_numeric_trailing_signature_count": 1,
+          "mid_page_footer_like_line_count": 0
+        }
+      },
+      "expected_markdown_metadata_lines": [
+        "- replay_quality_repeated_footer_suppressed_line_count: 6",
+        "- replay_quality_repeated_footer_suppressed_numeric_page_line_count: 3"
+      ]
+    },
+    {
       "id": "url_scheme_spacing_artifacts",
       "description": "Broken URL scheme spacing from extraction is repaired without changing surrounding prose.",
       "expectation": "normalized",
@@ -211,6 +247,25 @@
         "repeated_footer_suppression": {
           "activity": "none",
           "suppressed_line_count": 0
+        }
+      }
+    },
+    {
+      "id": "in_reading_order_version_footer_pair",
+      "description": "Real DORA ROI replay page-6 shape with a repeated version footer pair before later body text stays unchanged without a stronger deterministic rule.",
+      "expectation": "unchanged",
+      "tags": ["required_case", "no_op_safety", "footer"],
+      "raw_pages": [
+        "Executive summary\nStart the conversation about ROI\n6\nv. 2026.1\nMeasuring software delivery performance\nUnderstanding performance tiers"
+      ],
+      "expected_pages": [
+        "Executive summary\nStart the conversation about ROI\n6\nv. 2026.1\nMeasuring software delivery performance\nUnderstanding performance tiers"
+      ],
+      "expected_metadata": {
+        "repeated_footer_suppression": {
+          "activity": "none",
+          "suppressed_line_count": 0,
+          "suppressed_numeric_page_line_count": 0
         }
       }
     },

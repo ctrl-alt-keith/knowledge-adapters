@@ -23,9 +23,11 @@ REQUIRED_CASE_IDS = {
     "leading_space_numeric_page_lines",
     "page_number_footer_pairs",
     "repeated_trailing_footer_blocks",
+    "version_footer_after_bare_page_number",
     "url_scheme_spacing_artifacts",
     "url_path_line_wrap_artifacts",
     "mid_page_footer_like_text",
+    "in_reading_order_version_footer_pair",
     "calculator_table_numeric_traps",
     "fused_extraction_artifact_roadmap43",
 }

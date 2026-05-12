@@ -459,7 +459,7 @@ def _has_nearby_meaningful_numeric_context(
     first_line_index = max(0, min(anchor_line_index, numeric_line_index) - 1)
     last_line_index = min(len(lines) - 1, max(anchor_line_index, numeric_line_index) + 1)
     for line_index in range(first_line_index, last_line_index + 1):
-        if line_index == numeric_line_index:
+        if line_index in {anchor_line_index, numeric_line_index}:
             continue
         if _is_meaningful_numeric_context_line(lines[line_index]):
             return True
