@@ -71,6 +71,74 @@
       }
     },
     {
+      "id": "page_number_footer_pairs",
+      "description": "Ordinary page-number lines paired with a repeated trailing footer are suppressed only when anchored.",
+      "expectation": "normalized",
+      "tags": ["required_case", "previous_dora_replay_failure", "footer"],
+      "raw_pages": [
+        "Executive summary\nPage 1\n2023 Accelerate State of DevOps Report",
+        "Key findings\nPage 2\n2023 Accelerate State of DevOps Report",
+        "Closing notes\nPage 3\n2023 Accelerate State of DevOps Report"
+      ],
+      "expected_pages": [
+        "Executive summary",
+        "Key findings",
+        "Closing notes"
+      ],
+      "expected_metadata": {
+        "repeated_footer_suppression": {
+          "activity": "suppressed",
+          "suppressed_line_count": 6,
+          "affected_page_count": 3,
+          "detected_anchored_footer_block_count": 1,
+          "suppressed_anchored_footer_block_count": 1,
+          "suppressed_numeric_page_line_count": 3,
+          "skipped_numeric_risk_count": 0
+        },
+        "footer_page_number_noise_diagnostics": {
+          "bare_numeric_line_count": 0,
+          "repeated_trailing_footer_block_count": 2,
+          "mid_page_footer_like_line_count": 0
+        }
+      }
+    },
+    {
+      "id": "repeated_trailing_footer_blocks",
+      "description": "DORA-shaped repeated multi-line trailing footer blocks are suppressed with their anchored page numbers.",
+      "expectation": "normalized",
+      "tags": ["required_case", "previous_dora_replay_failure", "footer"],
+      "raw_pages": [
+        "Deployment performance\nGoogle Cloud DORA\n2023 Accelerate State of DevOps Report\n  41",
+        "Delivery stability\nGoogle Cloud DORA\n2023 Accelerate State of DevOps Report\n  42",
+        "Organizational performance\nGoogle Cloud DORA\n2023 Accelerate State of DevOps Report\n  43"
+      ],
+      "expected_pages": [
+        "Deployment performance",
+        "Delivery stability",
+        "Organizational performance"
+      ],
+      "expected_metadata": {
+        "repeated_footer_suppression": {
+          "activity": "suppressed",
+          "suppressed_line_count": 9,
+          "affected_page_count": 3,
+          "detected_anchored_footer_block_count": 1,
+          "suppressed_anchored_footer_block_count": 1,
+          "suppressed_numeric_page_line_count": 3,
+          "skipped_numeric_risk_count": 0
+        },
+        "footer_page_number_noise_diagnostics": {
+          "repeated_trailing_footer_block_count": 3,
+          "repeated_bare_numeric_trailing_signature_count": 1,
+          "mid_page_footer_like_line_count": 0
+        }
+      },
+      "expected_markdown_metadata_lines": [
+        "- replay_quality_repeated_footer_suppressed_line_count: 9",
+        "- replay_quality_repeated_footer_suppressed_numeric_page_line_count: 3"
+      ]
+    },
+    {
       "id": "url_scheme_spacing_artifacts",
       "description": "Broken URL scheme spacing from extraction is repaired without changing surrounding prose.",
       "expectation": "normalized",

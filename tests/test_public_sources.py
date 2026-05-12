@@ -445,6 +445,7 @@ def test_public_pdf_page_normalization_reports_replay_quality_metadata() -> None
                 "anchor_signature": "dora report",
                 "anchor_depth": 2,
                 "numeric_depth": 1,
+                "footer_depths": [2],
                 "page_count": 2,
                 "numeric_values": [1, 2],
             }
@@ -515,7 +516,7 @@ def test_public_pdf_footer_page_number_diagnostics_measure_safe_repeated_blocks(
         "activity": "measured",
         "basis": "post_url_normalization_pre_footer_suppression_extracted_pages",
         "candidate_window": {
-            "trailing_nonempty_line_count": 3,
+            "trailing_nonempty_line_count": 4,
             "min_repeated_pages": 2,
         },
         "repeated_trailing_footer_block_count": 2,
@@ -988,6 +989,7 @@ def _sample_replay_quality_metadata() -> dict[str, object]:
                     "anchor_signature": "sample report",
                     "anchor_depth": 2,
                     "numeric_depth": 1,
+                    "footer_depths": [2],
                     "page_count": 1,
                     "numeric_values": [1],
                 }
