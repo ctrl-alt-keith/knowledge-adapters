@@ -134,7 +134,10 @@ normalization counts, URL path line-wrap repair counts, page-count context,
 possible layout-artifact line density, and adapter-known extraction warnings.
 They are informational review aids only: they do not approve the candidate,
 authorize retention, promote content, rank documents, or assert semantic
-correctness.
+correctness. Footer and page-number noise measurement is documented in
+`docs/public-pdf-footer-page-number-noise.md`; those diagnostics characterize
+safe-looking repeated footer blocks and risky numeric content shapes without
+adding new suppression behavior.
 
 Recommended Confluence first run:
 
