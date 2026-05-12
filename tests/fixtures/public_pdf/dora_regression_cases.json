@@ -1,0 +1,208 @@
+{
+  "schema_version": 1,
+  "source": "sanitized_dora_derived_public_pdf_extraction_cases",
+  "cases": [
+    {
+      "id": "repeated_footer_blocks",
+      "description": "Repeated trailing report footer plus bare numeric page lines are suppressed when safely anchored.",
+      "expectation": "normalized",
+      "tags": ["required_case", "previous_dora_replay_failure", "footer"],
+      "raw_pages": [
+        "Executive summary\nDORA Report\n1",
+        "Key findings\nDORA Report\n2",
+        "Closing notes\nDORA Report\n3"
+      ],
+      "expected_pages": [
+        "Executive summary",
+        "Key findings",
+        "Closing notes"
+      ],
+      "expected_metadata": {
+        "repeated_footer_suppression": {
+          "activity": "suppressed",
+          "suppressed_line_count": 6,
+          "affected_page_count": 3,
+          "detected_anchored_footer_block_count": 1,
+          "suppressed_anchored_footer_block_count": 1,
+          "suppressed_numeric_page_line_count": 3,
+          "skipped_numeric_risk_count": 0
+        },
+        "footer_page_number_noise_diagnostics": {
+          "repeated_trailing_footer_block_count": 2,
+          "repeated_bare_numeric_trailing_signature_count": 1,
+          "mid_page_footer_like_line_count": 0
+        }
+      },
+      "expected_markdown_metadata_lines": [
+        "- replay_quality_metadata_note: informational only; does not authorize retention or promotion",
+        "- replay_quality_repeated_footer_suppressed_line_count: 6",
+        "- replay_quality_repeated_footer_suppressed_numeric_page_line_count: 3"
+      ]
+    },
+    {
+      "id": "leading_space_numeric_page_lines",
+      "description": "Leading whitespace before extracted page numbers does not prevent anchored footer suppression.",
+      "expectation": "normalized",
+      "tags": ["required_case", "previous_dora_replay_failure", "footer"],
+      "raw_pages": [
+        "Deployment performance\n2023 Accelerate State of DevOps Report\n  41",
+        "Delivery stability\n2023 Accelerate State of DevOps Report\n  42",
+        "Organizational performance\n2023 Accelerate State of DevOps Report\n  43"
+      ],
+      "expected_pages": [
+        "Deployment performance",
+        "Delivery stability",
+        "Organizational performance"
+      ],
+      "expected_metadata": {
+        "repeated_footer_suppression": {
+          "activity": "suppressed",
+          "suppressed_line_count": 6,
+          "affected_page_count": 3,
+          "detected_anchored_footer_block_count": 1,
+          "suppressed_anchored_footer_block_count": 1,
+          "suppressed_numeric_page_line_count": 3,
+          "skipped_numeric_risk_count": 0
+        },
+        "footer_page_number_noise_diagnostics": {
+          "bare_numeric_line_count": 3,
+          "bare_numeric_trailing_line_count": 3
+        }
+      }
+    },
+    {
+      "id": "url_scheme_spacing_artifacts",
+      "description": "Broken URL scheme spacing from extraction is repaired without changing surrounding prose.",
+      "expectation": "normalized",
+      "tags": ["required_case", "previous_dora_replay_failure", "url"],
+      "raw_pages": [
+        "Read the report at https:/ /dora.dev/research/2023/dora-report/ and mirror https: //example.com/report.pdf."
+      ],
+      "expected_pages": [
+        "Read the report at https://dora.dev/research/2023/dora-report/ and mirror https://example.com/report.pdf."
+      ],
+      "expected_metadata": {
+        "url_spacing_normalization": {
+          "activity": "normalized",
+          "replacement_count": 2,
+          "affected_page_count": 1
+        },
+        "url_path_line_wrap_normalization": {
+          "activity": "none",
+          "repair_count": 0
+        }
+      },
+      "expected_markdown_metadata_lines": [
+        "- replay_quality_url_spacing_normalization_count: 2"
+      ]
+    },
+    {
+      "id": "url_path_line_wrap_artifacts",
+      "description": "A URL path split at a terminal hyphen is joined only when the next line is a path fragment.",
+      "expectation": "normalized",
+      "tags": ["required_case", "previous_dora_replay_failure", "url"],
+      "raw_pages": [
+        "Source: https://cloud.google.com/resources/content/dora-roi-of-ai-\nassisted-software-development"
+      ],
+      "expected_pages": [
+        "Source: https://cloud.google.com/resources/content/dora-roi-of-ai-assisted-software-development"
+      ],
+      "expected_metadata": {
+        "url_path_line_wrap_normalization": {
+          "activity": "normalized",
+          "repair_count": 1,
+          "affected_page_count": 1
+        },
+        "possible_layout_artifact_density": {
+          "possible_artifact_line_count": 0
+        }
+      },
+      "expected_markdown_metadata_lines": [
+        "- replay_quality_url_path_line_wrap_repair_count: 1"
+      ]
+    },
+    {
+      "id": "mid_page_footer_like_text",
+      "description": "Footer-like page-number text in the middle of reading order is measured but not suppressed.",
+      "expectation": "unchanged",
+      "tags": ["required_case", "no_op_safety", "footer"],
+      "raw_pages": [
+        "Intro\nDORA Report | 1\nBody\nMetric 5\nDetail A\nClosing A",
+        "Intro\nDORA Report | 2\nBody\nMetric 6\nDetail B\nClosing B"
+      ],
+      "expected_pages": [
+        "Intro\nDORA Report | 1\nBody\nMetric 5\nDetail A\nClosing A",
+        "Intro\nDORA Report | 2\nBody\nMetric 6\nDetail B\nClosing B"
+      ],
+      "expected_metadata": {
+        "footer_page_number_noise_diagnostics": {
+          "mid_page_footer_like_line_count": 2,
+          "repeated_trailing_footer_block_count": 0,
+          "bare_numeric_line_count": 0
+        },
+        "repeated_footer_suppression": {
+          "activity": "none",
+          "suppressed_line_count": 0
+        }
+      }
+    },
+    {
+      "id": "calculator_table_numeric_traps",
+      "description": "Bare numeric table and calculator values near meaningful numeric context are retained.",
+      "expectation": "unchanged",
+      "tags": ["required_case", "no_op_safety", "numeric"],
+      "raw_pages": [
+        "Calculator\nInput value 10\n15\nOutput value 25\nNotes A\nCheck A\nKeep A",
+        "Calculator\nInput value 12\n18\nOutput value 30\nNotes B\nCheck B\nKeep B"
+      ],
+      "expected_pages": [
+        "Calculator\nInput value 10\n15\nOutput value 25\nNotes A\nCheck A\nKeep A",
+        "Calculator\nInput value 12\n18\nOutput value 30\nNotes B\nCheck B\nKeep B"
+      ],
+      "expected_metadata": {
+        "footer_page_number_noise_diagnostics": {
+          "bare_numeric_line_count": 2,
+          "bare_numeric_trailing_line_count": 0,
+          "bare_numeric_adjacent_to_numeric_content_count": 2
+        },
+        "repeated_footer_suppression": {
+          "activity": "none",
+          "suppressed_numeric_page_line_count": 0,
+          "skipped_numeric_risk_count": 0
+        }
+      }
+    },
+    {
+      "id": "fused_extraction_artifact_roadmap43",
+      "description": "A fused body-text/page-number artifact such as roadmap43 is captured as a known no-op limitation.",
+      "expectation": "unchanged",
+      "tags": ["required_case", "previous_dora_replay_failure", "known_limitation"],
+      "raw_pages": [
+        "Strategy notes\nThe roadmap43 item remains fused in extracted body text.\nReview against source PDF before retention."
+      ],
+      "expected_pages": [
+        "Strategy notes\nThe roadmap43 item remains fused in extracted body text.\nReview against source PDF before retention."
+      ],
+      "expected_metadata": {
+        "url_spacing_normalization": {
+          "activity": "none",
+          "replacement_count": 0
+        },
+        "url_path_line_wrap_normalization": {
+          "activity": "none",
+          "repair_count": 0
+        },
+        "repeated_footer_suppression": {
+          "activity": "none",
+          "suppressed_line_count": 0
+        },
+        "possible_layout_artifact_density": {
+          "possible_artifact_line_count": 0
+        }
+      },
+      "expected_markdown_metadata_lines": [
+        "- replay_quality_metadata_note: informational only; does not authorize retention or promotion"
+      ]
+    }
+  ]
+}

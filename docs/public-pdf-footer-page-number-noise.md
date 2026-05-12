@@ -34,6 +34,12 @@ counts, and skipped numeric-risk cases.
 The metadata is deterministic and informational. Counts are review aids, not
 retention decisions.
 
+For DORA-shaped extraction-quality iteration, keep new footer and page-number
+cases in `tests/fixtures/public_pdf/dora_regression_cases.json` first. Full
+knowledge-vault replay should be used as milestone or integration validation,
+not as the repeated inner loop for small normalization changes. See
+`docs/public-pdf-dora-regression-fixtures.md`.
+
 ## Synthetic Cases
 
 Safe repeated footer blocks look like a stable report footer plus changing page
