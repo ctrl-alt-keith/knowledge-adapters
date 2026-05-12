@@ -18,8 +18,9 @@ PDF_EXTRACTION_NOTES = (
     "pypdf. PDF layout, tables, figures, footnotes, headers, reading order, and scanned "
     "image-only pages may be incomplete or missing; review against the source PDF before "
     "retaining any knowledge. Clearly mechanical extraction artifacts may be normalized: "
-    "broken HTTP(S) URL scheme spacing is repaired, and short repeated trailing footer "
-    "lines may be suppressed when they recur by page position."
+    "broken HTTP(S) URL scheme spacing is repaired, clearly split URL path line wraps "
+    "may be joined, and short repeated trailing footer lines may be suppressed when they "
+    "recur by page position."
 )
 
 
