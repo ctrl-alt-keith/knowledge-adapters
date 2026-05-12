@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from pypdf import PdfReader
 
+from knowledge_adapters.public_pdf.normalize import normalize_extracted_pages
 from knowledge_adapters.public_sources import fetch_public_url
 
 MAX_PDF_BYTES = 50_000_000
@@ -14,7 +15,9 @@ PDF_EXTRACTION_NOTES = (
     "Unreviewed candidate material. Fetched a public PDF/report and extracted text with "
     "pypdf. PDF layout, tables, figures, footnotes, headers, reading order, and scanned "
     "image-only pages may be incomplete or missing; review against the source PDF before "
-    "retaining any knowledge."
+    "retaining any knowledge. Clearly mechanical extraction artifacts may be normalized: "
+    "broken HTTP(S) URL scheme spacing is repaired, and short repeated trailing footer "
+    "lines may be suppressed when they recur by page position."
 )
 
 
@@ -54,13 +57,18 @@ def fetch_pdf(url: str) -> PublicPdfDocument:
     if not title:
         title = fetched.final_url.rsplit("/", maxsplit=1)[-1] or fetched.final_url
 
-    pages: list[str] = []
+    raw_pages: list[str] = []
     for index, page in enumerate(reader.pages, start=1):
         try:
             text = page.extract_text() or ""
         except Exception as exc:
             raise ValueError(f"Could not extract text from PDF page {index}.") from exc
-        pages.append(f"## Page {index}\n\n{text.strip()}")
+        raw_pages.append(text)
+
+    pages = [
+        f"## Page {index}\n\n{text.strip()}"
+        for index, text in enumerate(normalize_extracted_pages(raw_pages), start=1)
+    ]
 
     return PublicPdfDocument(
         title=title,

@@ -114,7 +114,12 @@ Localhost, `.local`, private, link-local, multicast, unspecified, reserved, and
 credential-bearing targets are rejected before fetch and after redirects. Raw
 fetched PDF bytes are held only in memory. PDF layout, tables, figures,
 footnotes, headers, reading order, and scanned image-only pages may be incomplete
-or missing, so review against the source PDF before retaining any knowledge.
+or missing, so review against the source PDF before retaining any knowledge. The
+PDF adapter applies only mechanical replay-noise normalization: it repairs
+broken `http://` and `https://` scheme spacing from extraction and suppresses
+short repeated trailing footer lines when they recur by page position across a
+majority of pages. It does not infer sections, rewrite prose, retain source
+PDFs, or auto-promote extracted material.
 
 Recommended Confluence first run:
 

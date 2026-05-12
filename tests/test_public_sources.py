@@ -9,7 +9,12 @@ from pytest import CaptureFixture, MonkeyPatch
 
 from knowledge_adapters.cli import main
 from knowledge_adapters.public_pdf.client import PublicPdfDocument
-from knowledge_adapters.public_pdf.normalize import normalize_to_markdown as normalize_pdf
+from knowledge_adapters.public_pdf.normalize import (
+    normalize_extracted_pages as normalize_pdf_pages,
+)
+from knowledge_adapters.public_pdf.normalize import (
+    normalize_to_markdown as normalize_pdf,
+)
 from knowledge_adapters.public_pdf.writer import markdown_path as pdf_markdown_path
 from knowledge_adapters.public_sources import (
     fetch_public_url,
@@ -274,6 +279,56 @@ def test_public_pdf_normalizer_marks_limitations() -> None:
             "PDF/report.\n\n## Page 1\n\nReport text."
         ),
     )
+
+
+def test_public_pdf_page_normalization_repairs_broken_url_spacing() -> None:
+    normalized_pages = normalize_pdf_pages(
+        [
+            (
+                "Read the report at https:/ /dora.dev/research/2023/dora-report/ "
+                "or mirror https: //example.com/report.pdf."
+            )
+        ]
+    )
+
+    assert normalized_pages == [
+        (
+            "Read the report at https://dora.dev/research/2023/dora-report/ "
+            "or mirror https://example.com/report.pdf."
+        )
+    ]
+
+
+def test_public_pdf_page_normalization_suppresses_repeated_footer_lines() -> None:
+    normalized_pages = normalize_pdf_pages(
+        [
+            "Executive summary\n2023 Accelerate State of DevOps Report | 1",
+            "Key findings\n2023 Accelerate State of DevOps Report | 2",
+            "Closing notes\n2023 Accelerate State of DevOps Report | 3",
+        ]
+    )
+
+    assert normalized_pages == [
+        "Executive summary",
+        "Key findings",
+        "Closing notes",
+    ]
+
+
+def test_public_pdf_page_normalization_keeps_non_repeated_trailing_text() -> None:
+    normalized_pages = normalize_pdf_pages(
+        [
+            "Executive summary\nImportant benchmark: 12",
+            "Key findings\nDifferent closing detail: 13",
+            "Closing notes\n2023 Accelerate State of DevOps Report | 3",
+        ]
+    )
+
+    assert normalized_pages == [
+        "Executive summary\nImportant benchmark: 12",
+        "Key findings\nDifferent closing detail: 13",
+        "Closing notes\n2023 Accelerate State of DevOps Report | 3",
+    ]
 
 
 def test_public_webpage_cli_writes_candidate_markdown(
