@@ -17,6 +17,9 @@ from knowledge_adapters.public_pdf.normalize import (
     normalize_extracted_pages as normalize_pdf_pages,
 )
 from knowledge_adapters.public_pdf.normalize import (
+    normalize_extracted_pages_with_replay_metadata as normalize_pdf_pages_with_metadata,
+)
+from knowledge_adapters.public_pdf.normalize import (
     normalize_to_markdown as normalize_pdf,
 )
 from knowledge_adapters.public_pdf.writer import markdown_path as pdf_markdown_path
@@ -319,6 +322,65 @@ def test_public_pdf_page_normalization_suppresses_repeated_footer_lines() -> Non
     ]
 
 
+def test_public_pdf_page_normalization_reports_replay_quality_metadata() -> None:
+    raw_pages = [
+        "Metric   Value\nRead https:/ /example.com/report\nDORA Report | 1",
+        "Findings\nDORA Report | 2",
+    ]
+
+    first_pages, first_metadata = normalize_pdf_pages_with_metadata(raw_pages)
+    second_pages, second_metadata = normalize_pdf_pages_with_metadata(raw_pages)
+
+    assert first_pages == [
+        "Metric   Value\nRead https://example.com/report",
+        "Findings",
+    ]
+    assert first_pages == second_pages
+    assert first_metadata == second_metadata
+    assert first_metadata["url_spacing_normalization"] == {
+        "activity": "normalized",
+        "replacement_count": 1,
+        "affected_page_count": 1,
+    }
+    assert first_metadata["repeated_footer_suppression"] == {
+        "activity": "suppressed",
+        "suppressed_line_count": 2,
+        "affected_page_count": 2,
+        "detected_footer_pattern_count": 1,
+    }
+    assert first_metadata["page_count_context"] == {
+        "page_count": 2,
+        "pages_with_extracted_text_count": 2,
+        "empty_page_count": 0,
+    }
+    assert first_metadata["possible_layout_artifact_density"] == {
+        "basis": "normalized_extracted_text_lines",
+        "line_count": 3,
+        "possible_artifact_line_count": 1,
+        "possible_artifact_line_ratio": "0.333",
+    }
+
+    markdown = normalize_pdf(
+        {
+            "title": "Report",
+            "canonical_id": DORA_2023_PDF_URL,
+            "source_url": DORA_2023_PDF_URL,
+            "page_count": 2,
+            "content": "## Page 1\n\nMetric   Value",
+            "replay_quality_metadata": first_metadata,
+        }
+    )
+
+    assert "- candidate_status: unreviewed" in markdown
+    assert (
+        "- replay_quality_metadata_note: informational only; does not authorize retention "
+        "or promotion"
+    ) in markdown
+    assert "- replay_quality_url_spacing_normalization_count: 1" in markdown
+    assert "- replay_quality_repeated_footer_suppressed_line_count: 2" in markdown
+    assert "- replay_quality_possible_layout_artifact_lines: 1/3 (0.333)" in markdown
+
+
 def test_public_pdf_page_normalization_keeps_non_repeated_trailing_text() -> None:
     normalized_pages = normalize_pdf_pages(
         [
@@ -341,6 +403,7 @@ def test_public_pdf_cli_keeps_candidate_content_stable_across_fetch_times(
     monkeypatch: MonkeyPatch,
 ) -> None:
     output_dir = tmp_path / "out"
+    replay_quality_metadata = _sample_replay_quality_metadata()
     documents = iter(
         (
             PublicPdfDocument(
@@ -348,16 +411,18 @@ def test_public_pdf_cli_keeps_candidate_content_stable_across_fetch_times(
                 canonical_id=DORA_2023_PDF_URL,
                 source_url=DORA_2023_PDF_URL,
                 fetched_at="2026-05-11T12:00:00Z",
-                content="## Page 1\n\nStable report candidate text.",
-                page_count=1,
+                content="## Page 1\n\nStable report candidate text.\n\n## Page 2\n\nMore text.",
+                page_count=2,
+                replay_quality_metadata=replay_quality_metadata,
             ),
             PublicPdfDocument(
                 title="DORA 2023 Accelerate State of DevOps Report",
                 canonical_id=DORA_2023_PDF_URL,
                 source_url=DORA_2023_PDF_URL,
                 fetched_at="2026-05-11T12:30:00Z",
-                content="## Page 1\n\nStable report candidate text.",
-                page_count=1,
+                content="## Page 1\n\nStable report candidate text.\n\n## Page 2\n\nMore text.",
+                page_count=2,
+                replay_quality_metadata=replay_quality_metadata,
             ),
         )
     )
@@ -403,11 +468,19 @@ def test_public_pdf_cli_keeps_candidate_content_stable_across_fetch_times(
 
     assert first_markdown == second_markdown
     assert STABLE_FETCHED_AT_NOTE in first_markdown
+    assert "replay_quality_metadata_note: informational only" in first_markdown
+    assert "replay_quality_url_spacing_normalization_count: 1" in first_markdown
+    assert "replay_quality_repeated_footer_suppressed_line_count: 2" in first_markdown
     assert "2026-05-11T12:00:00Z" not in first_markdown
     assert "2026-05-11T12:30:00Z" not in second_markdown
     assert first_manifest["files"][0]["content_hash"] == second_manifest["files"][0]["content_hash"]
     assert first_manifest["files"][0]["fetched_at"] == "2026-05-11T12:00:00Z"
     assert second_manifest["files"][0]["fetched_at"] == "2026-05-11T12:30:00Z"
+    assert (
+        first_manifest["files"][0]["replay_quality_metadata"]
+        == second_manifest["files"][0]["replay_quality_metadata"]
+        == replay_quality_metadata
+    )
 
 
 def test_public_pdf_cli_changes_candidate_hash_when_extracted_content_changes(
@@ -600,3 +673,36 @@ def _manifest_payload(manifest_path: Path) -> dict[str, Any]:
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert isinstance(payload, dict)
     return payload
+
+
+def _sample_replay_quality_metadata() -> dict[str, object]:
+    return {
+        "metadata_scope": "public_pdf_replay_quality",
+        "metadata_note": "informational only; does not authorize retention or promotion",
+        "page_count_context": {
+            "page_count": 2,
+            "pages_with_extracted_text_count": 2,
+            "empty_page_count": 0,
+        },
+        "url_spacing_normalization": {
+            "activity": "normalized",
+            "replacement_count": 1,
+            "affected_page_count": 1,
+        },
+        "repeated_footer_suppression": {
+            "activity": "suppressed",
+            "suppressed_line_count": 2,
+            "affected_page_count": 2,
+            "detected_footer_pattern_count": 1,
+        },
+        "possible_layout_artifact_density": {
+            "basis": "normalized_extracted_text_lines",
+            "line_count": 3,
+            "possible_artifact_line_count": 1,
+            "possible_artifact_line_ratio": "0.333",
+        },
+        "extraction_warnings": [
+            "pdf_layout_tables_figures_footnotes_headers_reading_order_may_be_incomplete",
+            "scanned_image_only_pages_may_be_missing",
+        ],
+    }

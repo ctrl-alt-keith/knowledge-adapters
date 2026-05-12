@@ -8,7 +8,7 @@ import math
 import re
 import shlex
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
@@ -1217,6 +1217,43 @@ def print_stale_artifacts(
     remaining_count = len(stale_artifacts) - stale_preview_limit
     if remaining_count > 0:
         print(f"    ... and {remaining_count} more")
+
+
+def _print_public_pdf_replay_quality_metadata(metadata: Mapping[str, object]) -> None:
+    page_context = _metadata_mapping(metadata, "page_count_context")
+    url_spacing = _metadata_mapping(metadata, "url_spacing_normalization")
+    footer = _metadata_mapping(metadata, "repeated_footer_suppression")
+    layout_density = _metadata_mapping(metadata, "possible_layout_artifact_density")
+    warnings = metadata.get("extraction_warnings", ())
+    if isinstance(warnings, Sequence) and not isinstance(warnings, str):
+        warning_text = ", ".join(str(warning) for warning in warnings)
+    else:
+        warning_text = str(warnings)
+
+    print("  replay_quality_metadata:")
+    print("    metadata_note: informational only; does not authorize retention or promotion")
+    print(f"    page_count: {page_context.get('page_count', '')}")
+    print(f"    empty_page_count: {page_context.get('empty_page_count', '')}")
+    print(
+        "    url_spacing_normalization_count: "
+        f"{url_spacing.get('replacement_count', '')}"
+    )
+    print(
+        "    repeated_footer_suppressed_line_count: "
+        f"{footer.get('suppressed_line_count', '')}"
+    )
+    print(
+        "    possible_layout_artifact_lines: "
+        f"{layout_density.get('possible_artifact_line_count', '')}/"
+        f"{layout_density.get('line_count', '')} "
+        f"({layout_density.get('possible_artifact_line_ratio', '')})"
+    )
+    print(f"    extraction_warnings: {warning_text}")
+
+
+def _metadata_mapping(metadata: Mapping[str, object], key: str) -> Mapping[str, object]:
+    value = metadata.get(key, {})
+    return value if isinstance(value, Mapping) else {}
 
 
 def print_dry_run_complete() -> None:
@@ -3388,6 +3425,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 content = webpage_document.content
                 extraction_notes = webpage_document.extraction_notes
                 page_count: int | None = None
+                replay_quality_metadata: Mapping[str, object] | None = None
                 source = webpage_document.source
                 adapter = webpage_document.adapter
                 adapter_title = "Public webpage"
@@ -3416,6 +3454,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 content = pdf_document.content
                 extraction_notes = pdf_document.extraction_notes
                 page_count = pdf_document.page_count
+                replay_quality_metadata = pdf_document.replay_quality_metadata
                 source = pdf_document.source
                 adapter = pdf_document.adapter
                 adapter_title = "Public PDF/report"
@@ -3435,6 +3474,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         }
         if page_count is not None:
             candidate["page_count"] = page_count
+        if replay_quality_metadata:
+            candidate["replay_quality_metadata"] = dict(replay_quality_metadata)
         markdown = normalize_to_markdown(candidate)
 
         print(f"{adapter_title} adapter invoked")
@@ -3459,6 +3500,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         if command == "public_pdf":
             manifest_entry["fetched_at"] = fetched_at
+            if replay_quality_metadata:
+                manifest_entry["replay_quality_metadata"] = dict(replay_quality_metadata)
         stale_artifacts = [
             (artifact.canonical_id, artifact.output_path)
             for artifact in find_stale_artifacts(
@@ -3478,6 +3521,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"  Manifest path: {render_user_path(manifest_output_path)}")
         print("  candidate_status: unreviewed")
         print(f"  extraction_notes: {extraction_notes}")
+        if replay_quality_metadata:
+            _print_public_pdf_replay_quality_metadata(replay_quality_metadata)
         if content:
             print("  content_status: extracted text with content")
         else:
