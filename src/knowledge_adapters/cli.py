@@ -3457,6 +3457,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             title=title,
             content_hash=hashlib.sha256(markdown.encode("utf-8")).hexdigest(),
         )
+        if command == "public_pdf":
+            manifest_entry["fetched_at"] = fetched_at
         stale_artifacts = [
             (artifact.canonical_id, artifact.output_path)
             for artifact in find_stale_artifacts(

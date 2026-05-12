@@ -119,7 +119,11 @@ PDF adapter applies only mechanical replay-noise normalization: it repairs
 broken `http://` and `https://` scheme spacing from extraction and suppresses
 short repeated trailing footer lines when they recur by page position across a
 majority of pages. It does not infer sections, rewrite prose, retain source
-PDFs, or auto-promote extracted material.
+PDFs, or auto-promote extracted material. Public PDF candidate markdown omits
+the volatile per-run fetch timestamp and stores it in `manifest.json` instead,
+so rerunning unchanged extracted content keeps the reviewable candidate file and
+its `content_hash` stable; the manifest still includes run metadata such as
+`generated_at`.
 
 Recommended Confluence first run:
 
