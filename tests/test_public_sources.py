@@ -379,9 +379,9 @@ def test_public_pdf_page_normalization_keeps_url_path_split_across_pages() -> No
 def test_public_pdf_page_normalization_suppresses_repeated_footer_lines() -> None:
     normalized_pages = normalize_pdf_pages(
         [
-            "Executive summary\n2023 Accelerate State of DevOps Report | 1",
-            "Key findings\n2023 Accelerate State of DevOps Report | 2",
-            "Closing notes\n2023 Accelerate State of DevOps Report | 3",
+            "Executive summary\n2023 Accelerate State of DevOps Report\n1",
+            "Key findings\n2023 Accelerate State of DevOps Report\n2",
+            "Closing notes\n2023 Accelerate State of DevOps Report\n3",
         ]
     )
 
@@ -399,9 +399,10 @@ def test_public_pdf_page_normalization_reports_replay_quality_metadata() -> None
             "Read https:/ /example.com/report\n"
             "Source: https://cloud.google.com/resources/content/dora-roi-of-ai-\n"
             "assisted-software-development\n"
-            "DORA Report | 1"
+            "DORA Report\n"
+            "1"
         ),
-        "Findings\nDORA Report | 2",
+        "Findings\nDORA Report\n2",
     ]
 
     first_pages, first_metadata = normalize_pdf_pages_with_metadata(raw_pages)
@@ -430,9 +431,25 @@ def test_public_pdf_page_normalization_reports_replay_quality_metadata() -> None
     }
     assert first_metadata["repeated_footer_suppression"] == {
         "activity": "suppressed",
-        "suppressed_line_count": 2,
+        "basis": "anchored_trailing_footer_blocks",
+        "suppressed_line_count": 4,
         "affected_page_count": 2,
         "detected_footer_pattern_count": 1,
+        "detected_anchored_footer_block_count": 1,
+        "suppressed_anchored_footer_block_count": 1,
+        "skipped_anchored_footer_block_count": 0,
+        "suppressed_numeric_page_line_count": 2,
+        "skipped_numeric_risk_count": 0,
+        "detected_anchored_footer_blocks": [
+            {
+                "anchor_signature": "dora report",
+                "anchor_depth": 2,
+                "numeric_depth": 1,
+                "page_count": 2,
+                "numeric_values": [1, 2],
+            }
+        ],
+        "skipped_numeric_risk_cases": [],
     }
     assert first_metadata["page_count_context"] == {
         "page_count": 2,
@@ -464,7 +481,16 @@ def test_public_pdf_page_normalization_reports_replay_quality_metadata() -> None
     ) in markdown
     assert "- replay_quality_url_spacing_normalization_count: 1" in markdown
     assert "- replay_quality_url_path_line_wrap_repair_count: 1" in markdown
-    assert "- replay_quality_repeated_footer_suppressed_line_count: 2" in markdown
+    assert "- replay_quality_repeated_footer_suppressed_line_count: 4" in markdown
+    assert (
+        "- replay_quality_repeated_footer_detected_anchored_block_count: 1"
+        in markdown
+    )
+    assert (
+        "- replay_quality_repeated_footer_suppressed_numeric_page_line_count: 2"
+        in markdown
+    )
+    assert "- replay_quality_repeated_footer_skipped_numeric_risk_count: 0" in markdown
     assert "- replay_quality_possible_layout_artifact_lines: 1/4 (0.250)" in markdown
 
 
@@ -504,6 +530,43 @@ def test_public_pdf_footer_page_number_diagnostics_measure_safe_repeated_blocks(
             "or report values; diagnostics do not authorize suppression"
         ),
     }
+    repeated_footer = _metadata_mapping(metadata, "repeated_footer_suppression")
+    assert repeated_footer["detected_anchored_footer_block_count"] == 1
+    assert repeated_footer["suppressed_numeric_page_line_count"] == 3
+    assert repeated_footer["skipped_numeric_risk_count"] == 0
+
+
+def test_public_pdf_page_normalization_keeps_bare_numeric_calculator_rows() -> None:
+    raw_pages = [
+        "Calculator\nInput value 10\n15\nOutput value 25",
+        "Calculator\nInput value 12\n18\nOutput value 30",
+    ]
+
+    normalized_pages, metadata = normalize_pdf_pages_with_metadata(raw_pages)
+
+    assert normalized_pages == raw_pages
+    repeated_footer = _metadata_mapping(metadata, "repeated_footer_suppression")
+    assert repeated_footer["suppressed_numeric_page_line_count"] == 0
+    assert repeated_footer["skipped_numeric_risk_count"] == 0
+
+
+def test_public_pdf_page_normalization_keeps_bare_numeric_signatures_without_anchor() -> None:
+    raw_pages = [
+        "Executive summary\nImportant row\n1",
+        "Key findings\nDifferent row\n2",
+        "Closing notes\nAnother row\n3",
+    ]
+
+    normalized_pages, metadata = normalize_pdf_pages_with_metadata(raw_pages)
+
+    assert normalized_pages == raw_pages
+    footer_page_noise = _metadata_mapping(
+        metadata, "footer_page_number_noise_diagnostics"
+    )
+    repeated_footer = _metadata_mapping(metadata, "repeated_footer_suppression")
+    assert footer_page_noise["repeated_bare_numeric_trailing_signature_count"] == 1
+    assert repeated_footer["suppressed_numeric_page_line_count"] == 0
+    assert repeated_footer["detected_anchored_footer_block_count"] == 0
 
 
 def test_public_pdf_footer_page_number_diagnostics_measure_numeric_content_risk() -> None:
@@ -557,6 +620,35 @@ def test_public_pdf_footer_page_number_diagnostics_measure_page_numbers_near_val
     assert footer_page_noise["bare_numeric_trailing_line_count"] == 0
     assert footer_page_noise["bare_numeric_adjacent_to_numeric_content_count"] == 2
     assert footer_page_noise["mid_page_footer_like_line_count"] == 0
+
+
+def test_public_pdf_page_normalization_skips_anchored_numeric_lines_near_values() -> None:
+    raw_pages = [
+        "Findings\nMetric value 12\nDORA Report\n1",
+        "Findings\nMetric value 20\nDORA Report\n2",
+        "Findings\nMetric value 30\nDORA Report\n3",
+    ]
+
+    normalized_pages, metadata = normalize_pdf_pages_with_metadata(raw_pages)
+
+    assert normalized_pages == raw_pages
+    repeated_footer = _metadata_mapping(metadata, "repeated_footer_suppression")
+    assert repeated_footer["activity"] == "none"
+    assert repeated_footer["detected_anchored_footer_block_count"] == 1
+    assert repeated_footer["suppressed_anchored_footer_block_count"] == 0
+    assert repeated_footer["skipped_anchored_footer_block_count"] == 1
+    assert repeated_footer["suppressed_numeric_page_line_count"] == 0
+    assert repeated_footer["skipped_numeric_risk_count"] == 3
+    assert repeated_footer["skipped_numeric_risk_cases"] == [
+        {
+            "anchor_signature": "dora report",
+            "anchor_depth": 2,
+            "numeric_depth": 1,
+            "page_count": 3,
+            "risk_page_count": 3,
+            "reason": "meaningful_numeric_context_near_footer_candidate",
+        }
+    ]
 
 
 def test_public_pdf_page_normalization_keeps_non_repeated_trailing_text() -> None:
@@ -882,9 +974,25 @@ def _sample_replay_quality_metadata() -> dict[str, object]:
         },
         "repeated_footer_suppression": {
             "activity": "suppressed",
+            "basis": "anchored_trailing_footer_blocks",
             "suppressed_line_count": 2,
             "affected_page_count": 2,
             "detected_footer_pattern_count": 1,
+            "detected_anchored_footer_block_count": 1,
+            "suppressed_anchored_footer_block_count": 1,
+            "skipped_anchored_footer_block_count": 0,
+            "suppressed_numeric_page_line_count": 1,
+            "skipped_numeric_risk_count": 0,
+            "detected_anchored_footer_blocks": [
+                {
+                    "anchor_signature": "sample report",
+                    "anchor_depth": 2,
+                    "numeric_depth": 1,
+                    "page_count": 1,
+                    "numeric_values": [1],
+                }
+            ],
+            "skipped_numeric_risk_cases": [],
         },
         "possible_layout_artifact_density": {
             "basis": "normalized_extracted_text_lines",

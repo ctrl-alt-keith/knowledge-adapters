@@ -31,7 +31,8 @@ _PAGE_NUMBERED_FOOTER_LIKE_RE = re.compile(
 )
 _MEANINGFUL_NUMERIC_CONTEXT_RE = re.compile(
     r"(\b(total|metric|value|score|cost|savings|roi|result|input|output|"
-    r"calculator|table|baseline|target|year|month|rate|percent)\b|[$%+=*/])",
+    r"calculator|table|figure|formula|baseline|target|year|month|rate|percent|"
+    r"percentage)\b|[$%+=*/])",
     re.IGNORECASE,
 )
 _MAX_FOOTER_CANDIDATE_LINES = 3
@@ -204,33 +205,123 @@ def _suppress_repeated_footer_lines_with_metadata(
     if len(page_texts) < 2:
         return [page_text.strip() for page_text in page_texts], {
             "activity": "none",
+            "basis": "anchored_trailing_footer_blocks",
             "suppressed_line_count": 0,
             "affected_page_count": 0,
             "detected_footer_pattern_count": 0,
+            "detected_anchored_footer_block_count": 0,
+            "suppressed_anchored_footer_block_count": 0,
+            "skipped_anchored_footer_block_count": 0,
+            "suppressed_numeric_page_line_count": 0,
+            "skipped_numeric_risk_count": 0,
+            "detected_anchored_footer_blocks": [],
+            "skipped_numeric_risk_cases": [],
         }
 
     page_lines = [page_text.splitlines() for page_text in page_texts]
-    candidates: dict[tuple[int, str], set[int]] = {}
-    candidate_indexes: dict[tuple[int, str], list[tuple[int, int]]] = {}
+    trailing_entries_by_page = [
+        _trailing_footer_candidate_entries(lines) for lines in page_lines
+    ]
+    anchor_candidates: dict[tuple[int, str], dict[int, int]] = {}
 
-    for page_index, lines in enumerate(page_lines):
-        nonempty_indexes = [index for index, line in enumerate(lines) if line.strip()]
-        trailing_indexes = nonempty_indexes[-_MAX_FOOTER_CANDIDATE_LINES:]
-        for depth, line_index in enumerate(reversed(trailing_indexes), start=1):
-            signature = _footer_signature(lines[line_index])
-            if signature is None:
+    for page_index, trailing_entries in enumerate(trailing_entries_by_page):
+        for depth, line_index, line in trailing_entries:
+            anchor_signature = _footer_anchor_signature(line)
+            if anchor_signature is None:
                 continue
-            key = (depth, signature)
-            candidates.setdefault(key, set()).add(page_index)
-            candidate_indexes.setdefault(key, []).append((page_index, line_index))
+            anchor_candidates.setdefault((depth, anchor_signature), {})[
+                page_index
+            ] = line_index
 
     min_repeated_pages = _min_repeated_footer_pages(len(page_texts))
     indexes_to_remove: set[tuple[int, int]] = set()
-    detected_footer_pattern_count = 0
-    for key, page_indexes in candidates.items():
-        if len(page_indexes) >= min_repeated_pages:
-            detected_footer_pattern_count += 1
-            indexes_to_remove.update(candidate_indexes[key])
+    detected_blocks: list[dict[str, object]] = []
+    skipped_numeric_risk_cases: list[dict[str, object]] = []
+    suppressed_numeric_page_line_count = 0
+    skipped_numeric_risk_count = 0
+
+    for (anchor_depth, anchor_signature), page_to_anchor_index in sorted(
+        anchor_candidates.items(), key=lambda item: (item[0][0], item[0][1])
+    ):
+        if len(page_to_anchor_index) < min_repeated_pages:
+            continue
+
+        for numeric_depth in _adjacent_footer_depths(anchor_depth):
+            numeric_occurrences: list[tuple[int, int, int]] = []
+            risk_page_indexes: list[int] = []
+            missing_numeric_line = False
+            for page_index, anchor_line_index in sorted(page_to_anchor_index.items()):
+                numeric_line_index = _line_index_at_trailing_depth(
+                    trailing_entries_by_page[page_index], numeric_depth
+                )
+                if numeric_line_index is None:
+                    missing_numeric_line = True
+                    break
+
+                numeric_line = page_lines[page_index][numeric_line_index].strip()
+                if not _is_bare_numeric_line(numeric_line):
+                    missing_numeric_line = True
+                    break
+
+                numeric_occurrences.append(
+                    (page_index, numeric_line_index, int(numeric_line))
+                )
+                if _has_nearby_meaningful_numeric_context(
+                    page_lines[page_index],
+                    anchor_line_index,
+                    numeric_line_index,
+                ):
+                    risk_page_indexes.append(page_index)
+
+            if missing_numeric_line or len(numeric_occurrences) < min_repeated_pages:
+                continue
+
+            if not _numeric_values_are_in_page_order(numeric_occurrences):
+                skipped_numeric_risk_count += len(numeric_occurrences)
+                skipped_numeric_risk_cases.append(
+                    {
+                        "anchor_signature": anchor_signature,
+                        "anchor_depth": anchor_depth,
+                        "numeric_depth": numeric_depth,
+                        "page_count": len(numeric_occurrences),
+                        "risk_page_count": len(numeric_occurrences),
+                        "reason": "numeric_values_not_in_page_order",
+                    }
+                )
+                continue
+
+            if risk_page_indexes:
+                skipped_numeric_risk_count += len(numeric_occurrences)
+                skipped_numeric_risk_cases.append(
+                    {
+                        "anchor_signature": anchor_signature,
+                        "anchor_depth": anchor_depth,
+                        "numeric_depth": numeric_depth,
+                        "page_count": len(numeric_occurrences),
+                        "risk_page_count": len(risk_page_indexes),
+                        "reason": "meaningful_numeric_context_near_footer_candidate",
+                    }
+                )
+                continue
+
+            for page_index, numeric_line_index, _numeric_value in numeric_occurrences:
+                anchor_line_index = page_to_anchor_index[page_index]
+                indexes_to_remove.add((page_index, anchor_line_index))
+                indexes_to_remove.add((page_index, numeric_line_index))
+            suppressed_numeric_page_line_count += len(numeric_occurrences)
+            detected_blocks.append(
+                {
+                    "anchor_signature": anchor_signature,
+                    "anchor_depth": anchor_depth,
+                    "numeric_depth": numeric_depth,
+                    "page_count": len(numeric_occurrences),
+                    "numeric_values": [
+                        numeric_value
+                        for _page_index, _line_index, numeric_value in numeric_occurrences
+                    ],
+                }
+            )
+            break
 
     normalized_pages: list[str] = []
     for page_index, lines in enumerate(page_lines):
@@ -242,10 +333,80 @@ def _suppress_repeated_footer_lines_with_metadata(
         normalized_pages.append("\n".join(kept_lines).strip())
     return normalized_pages, {
         "activity": "suppressed" if indexes_to_remove else "none",
+        "basis": "anchored_trailing_footer_blocks",
         "suppressed_line_count": len(indexes_to_remove),
         "affected_page_count": len({page_index for page_index, _line_index in indexes_to_remove}),
-        "detected_footer_pattern_count": detected_footer_pattern_count,
+        "detected_footer_pattern_count": len(detected_blocks),
+        "detected_anchored_footer_block_count": (
+            len(detected_blocks) + len(skipped_numeric_risk_cases)
+        ),
+        "suppressed_anchored_footer_block_count": len(detected_blocks),
+        "skipped_anchored_footer_block_count": len(skipped_numeric_risk_cases),
+        "suppressed_numeric_page_line_count": suppressed_numeric_page_line_count,
+        "skipped_numeric_risk_count": skipped_numeric_risk_count,
+        "detected_anchored_footer_blocks": detected_blocks,
+        "skipped_numeric_risk_cases": skipped_numeric_risk_cases,
     }
+
+
+def _trailing_footer_candidate_entries(lines: Sequence[str]) -> list[tuple[int, int, str]]:
+    nonempty_indexes = [index for index, line in enumerate(lines) if line.strip()]
+    trailing_indexes = nonempty_indexes[-_MAX_FOOTER_CANDIDATE_LINES:]
+    return [
+        (depth, line_index, lines[line_index].strip())
+        for depth, line_index in enumerate(reversed(trailing_indexes), start=1)
+    ]
+
+
+def _footer_anchor_signature(line: str) -> str | None:
+    if _is_bare_numeric_line(line) or _is_page_numbered_footer_like_line(line):
+        return None
+    if not any(character.isalpha() for character in line):
+        return None
+    return _footer_signature(line)
+
+
+def _adjacent_footer_depths(anchor_depth: int) -> tuple[int, ...]:
+    candidate_depths = (anchor_depth - 1, anchor_depth + 1)
+    return tuple(
+        depth for depth in candidate_depths if 1 <= depth <= _MAX_FOOTER_CANDIDATE_LINES
+    )
+
+
+def _line_index_at_trailing_depth(
+    trailing_entries: Sequence[tuple[int, int, str]], depth: int
+) -> int | None:
+    for candidate_depth, line_index, _line in trailing_entries:
+        if candidate_depth == depth:
+            return line_index
+    return None
+
+
+def _numeric_values_are_in_page_order(
+    numeric_occurrences: Sequence[tuple[int, int, int]],
+) -> bool:
+    numeric_values = [
+        numeric_value for _page_index, _line_index, numeric_value in numeric_occurrences
+    ]
+    return all(
+        previous_value < next_value
+        for previous_value, next_value in zip(
+            numeric_values, numeric_values[1:], strict=False
+        )
+    )
+
+
+def _has_nearby_meaningful_numeric_context(
+    lines: Sequence[str], anchor_line_index: int, numeric_line_index: int
+) -> bool:
+    first_line_index = max(0, min(anchor_line_index, numeric_line_index) - 1)
+    last_line_index = min(len(lines) - 1, max(anchor_line_index, numeric_line_index) + 1)
+    for line_index in range(first_line_index, last_line_index + 1):
+        if line_index == numeric_line_index:
+            continue
+        if _is_meaningful_numeric_context_line(lines[line_index]):
+            return True
+    return False
 
 
 def _diagnose_footer_page_number_noise(page_texts: Sequence[str]) -> dict[str, object]:
@@ -481,6 +642,26 @@ def _render_replay_quality_metadata(metadata: Mapping[str, object]) -> str:
             (
                 "- replay_quality_repeated_footer_suppressed_line_count: "
                 f"{_metadata_value(footer, 'suppressed_line_count')}"
+            ),
+            (
+                "- replay_quality_repeated_footer_detected_anchored_block_count: "
+                f"{_metadata_value(footer, 'detected_anchored_footer_block_count')}"
+            ),
+            (
+                "- replay_quality_repeated_footer_suppressed_anchored_block_count: "
+                f"{_metadata_value(footer, 'suppressed_anchored_footer_block_count')}"
+            ),
+            (
+                "- replay_quality_repeated_footer_skipped_anchored_block_count: "
+                f"{_metadata_value(footer, 'skipped_anchored_footer_block_count')}"
+            ),
+            (
+                "- replay_quality_repeated_footer_suppressed_numeric_page_line_count: "
+                f"{_metadata_value(footer, 'suppressed_numeric_page_line_count')}"
+            ),
+            (
+                "- replay_quality_repeated_footer_skipped_numeric_risk_count: "
+                f"{_metadata_value(footer, 'skipped_numeric_risk_count')}"
             ),
             (
                 "- replay_quality_possible_layout_artifact_lines: "
