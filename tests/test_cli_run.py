@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from tests.cli_helpers import run_cli
@@ -32,6 +33,17 @@ runs:
 
     assert result.returncode == 0, result.stderr
     assert "Config-driven run invoked" in result.stdout
+    runtime_line = next(
+        line.strip()
+        for line in result.stdout.splitlines()
+        if line.strip().startswith("runtime_identity_json:")
+    )
+    runtime_identity = json.loads(runtime_line.partition(": ")[2])
+    assert runtime_identity["package_name"] == "knowledge-adapters"
+    assert runtime_identity["package_version"]
+    assert runtime_identity["module"] == "knowledge_adapters.cli:main"
+    assert runtime_identity["module_path"].endswith("knowledge_adapters/__init__.py")
+    assert runtime_identity["entry_point"] == "knowledge-adapters"
     assert "Run 1/2 started: team-notes (local_files)" in result.stdout
     assert "Run 1/2 completed: team-notes (local_files)" in result.stdout
     assert "Run 2/2 started: docs-home (confluence)" in result.stdout
@@ -87,6 +99,9 @@ runs:
     assert "- Runs selected: 2" in report
     assert "- Runs completed: 2" in report
     assert "- Runs failed: 0" in report
+    assert "- Runtime identity: `" in report
+    assert '"package_name":"knowledge-adapters"' in report
+    assert '"module":"knowledge_adapters.cli:main"' in report
     assert "| 1/2 | team-notes | local_files | completed | wrote 1, skipped 0 | - |" in report
     assert "| 2/2 | docs-home | confluence | completed | wrote 1, skipped 0 | - |" in report
 

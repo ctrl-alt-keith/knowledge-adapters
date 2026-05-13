@@ -24,6 +24,7 @@ REQUIRED_CASE_IDS = {
     "page_number_footer_pairs",
     "repeated_trailing_footer_blocks",
     "version_footer_after_bare_page_number",
+    "version_footer_missing_one_adjacent_page_number",
     "url_scheme_spacing_artifacts",
     "url_path_line_wrap_artifacts",
     "mid_page_footer_like_text",
@@ -168,6 +169,51 @@ def test_previous_dora_replay_failures_are_fixture_backed(
     _assert_metadata_contains(metadata, _mapping(case, "expected_metadata"))
 
 
+def test_mixed_dora_version_footer_fixture_reports_retained_near_misses() -> None:
+    case = _case_by_id("version_footer_missing_one_adjacent_page_number")
+
+    normalized_pages, metadata = normalize_extracted_pages_with_replay_metadata(
+        _string_sequence(case, "raw_pages")
+    )
+
+    assert normalized_pages[0] == "ROI calculation and\nfinancial modeling"
+    assert "lead to long-term technical debt.\n3\nv. 2026.1" not in normalized_pages[1]
+    assert normalized_pages[2] == (
+        "Capabilities guidance\nMap your AI investment roadmap43\nv. 2026.1"
+    )
+    assert normalized_pages[3] == (
+        'References\n4. "DORA Community."\n'
+        '5. "DORA ROI of AI-assisted software development calculator."\n'
+        "59\nv. 2026.1"
+    )
+    assert normalized_pages[4] == "Track delivery performance\nto manage risk and velocity"
+
+    repeated_footer = _mapping(metadata, "repeated_footer_suppression")
+    assert repeated_footer["accepted_suppressed_page_count"] == 3
+    assert repeated_footer["rejected_skipped_page_count"] == 2
+    assert repeated_footer["missing_adjacent_numeric_line_count"] == 0
+    assert repeated_footer["nonparseable_adjacent_numeric_line_count"] == 1
+    assert repeated_footer["numeric_risk_skipped_count"] == 1
+    assert repeated_footer["rejected_skipped_page_counts_by_reason"] == {
+        "meaningful_numeric_context_near_footer_candidate": 1,
+        "nonparseable_adjacent_numeric_line": 1,
+    }
+    assert repeated_footer["rejected_footer_candidate_examples"] == [
+        {
+            "page_number": 4,
+            "reason": "meaningful_numeric_context_near_footer_candidate",
+            "anchor_excerpt": "v. 2026.1",
+            "adjacent_excerpt": "59",
+        },
+        {
+            "page_number": 3,
+            "reason": "nonparseable_adjacent_numeric_line",
+            "anchor_excerpt": "v. 2026.1",
+            "adjacent_excerpt": "Map your AI investment roadmap43",
+        },
+    ]
+
+
 def _assert_metadata_contains(
     actual: Mapping[str, object],
     expected: Mapping[str, object],
@@ -191,6 +237,13 @@ def _mapping(case: Mapping[str, object], key: str) -> Mapping[str, object]:
     value = case[key]
     assert isinstance(value, Mapping)
     return cast(Mapping[str, object], value)
+
+
+def _case_by_id(case_id: str) -> Mapping[str, object]:
+    for case in DORA_REGRESSION_CASES:
+        if case["id"] == case_id:
+            return case
+    raise AssertionError(f"Unknown DORA regression fixture case: {case_id}")
 
 
 def _string_sequence(case: Mapping[str, object], key: str) -> list[str]:
