@@ -27,6 +27,14 @@
         },
         "content_profile": {
           "article_body_text_retained_for_review": true
+        },
+        "source_intent_assessment": {
+          "target_shape_assessment": "insufficient_substantive_body",
+          "possible_wrapper_page": false,
+          "possible_lead_form_page": false,
+          "possible_download_landing_page": false,
+          "substantive_content_confidence": "low",
+          "likely_target_mismatch": false
         }
       },
       "expected_markdown_metadata_lines": [
@@ -35,7 +43,9 @@
         "- replay_quality_promotion_state: unsafe-to-promote",
         "- replay_quality_review_effort: bounded",
         "- replay_quality_webpage_chrome_suppressed_paragraph_count: 11",
-        "- replay_quality_webpage_article_body_text_retained_for_review: True"
+        "- replay_quality_webpage_article_body_text_retained_for_review: True",
+        "- replay_quality_webpage_target_shape_assessment: insufficient_substantive_body",
+        "- replay_quality_webpage_likely_target_mismatch: False"
       ]
     },
     {
@@ -53,6 +63,14 @@
             "subscription_prompt": 2,
             "footer_legal_text": 1
           }
+        },
+        "source_intent_assessment": {
+          "target_shape_assessment": "no_retained_content",
+          "possible_wrapper_page": false,
+          "possible_lead_form_page": false,
+          "possible_download_landing_page": false,
+          "substantive_content_confidence": "low",
+          "likely_target_mismatch": false
         },
         "replay_classification": {
           "operational_state": "diagnostic-only",
@@ -77,7 +95,161 @@
         "- replay_quality_promotion_state: unsafe-to-promote",
         "- replay_quality_review_effort: not_useful",
         "- replay_quality_bounded_review_economics: False",
-        "- replay_quality_webpage_chrome_suppressed_paragraph_count: 5"
+        "- replay_quality_webpage_chrome_suppressed_paragraph_count: 5",
+        "- replay_quality_webpage_target_shape_assessment: no_retained_content"
+      ]
+    },
+    {
+      "id": "clean_substantive_report_page",
+      "description": "A clean report body has enough long paragraph structure to remain a substantive content page.",
+      "raw_content": "2025 Example Engineering Report\n\nExecutive summary\n\nThis report analyzes delivery performance across many software organizations. It explains the research population, the survey frame, and the operational measures used in the study. The body text is long enough to look like a document section rather than a navigation label.\n\nThe findings describe how deployment frequency, change lead time, reliability, and recovery practices varied across respondent groups. The paragraph includes multiple complete sentences. It provides adjacent body substance around the report title without asking the reader to submit a form.\n\nMethodology notes clarify that the reported observations come from a structured survey and supporting operational evidence. The section discusses inclusion rules, measurement limitations, and interpretation boundaries. It does not contain a lead form or a repeated country selector.",
+      "expected_content": "2025 Example Engineering Report\n\nExecutive summary\n\nThis report analyzes delivery performance across many software organizations. It explains the research population, the survey frame, and the operational measures used in the study. The body text is long enough to look like a document section rather than a navigation label.\n\nThe findings describe how deployment frequency, change lead time, reliability, and recovery practices varied across respondent groups. The paragraph includes multiple complete sentences. It provides adjacent body substance around the report title without asking the reader to submit a form.\n\nMethodology notes clarify that the reported observations come from a structured survey and supporting operational evidence. The section discusses inclusion rules, measurement limitations, and interpretation boundaries. It does not contain a lead form or a repeated country selector.",
+      "expected_metadata": {
+        "source_intent_assessment": {
+          "target_shape_assessment": "substantive_content_page",
+          "possible_wrapper_page": false,
+          "possible_lead_form_page": false,
+          "possible_download_landing_page": false,
+          "substantive_content_confidence": "medium",
+          "likely_target_mismatch": false
+        },
+        "replay_classification": {
+          "operational_state": "review-ready",
+          "reviewability_assessment": {
+            "review_effort": "bounded",
+            "bounded_review_economics": true
+          }
+        }
+      },
+      "expected_markdown_metadata_lines": [
+        "- replay_quality_operational_state: review-ready",
+        "- replay_quality_webpage_target_shape_assessment: substantive_content_page",
+        "- replay_quality_webpage_possible_wrapper_page: False",
+        "- replay_quality_webpage_substantive_content_confidence: medium",
+        "- replay_quality_webpage_likely_target_mismatch: False"
+      ]
+    },
+    {
+      "id": "dora_style_download_landing_page",
+      "description": "A DORA-style report landing page with CTA and form labels is marked as likely the wrong capture target.",
+      "raw_content": "DORA 2025 AI-assisted Software Development Report\n\nBridge engineering speed and business impact.\n\nDownload the report\n\nFirst name\n\nLast name\n\nBusiness email\n\nCompany name\n\nJob title\n\nCountry\n\nBy submitting this form, you agree that your personal data will be processed according to the privacy policy.\n\nResources\n\nReports\n\nWebinars\n\nCase studies",
+      "expected_content": "DORA 2025 AI-assisted Software Development Report\n\nBridge engineering speed and business impact.\n\nDownload the report\n\nFirst name\n\nLast name\n\nBusiness email\n\nCompany name\n\nJob title\n\nCountry\n\nBy submitting this form, you agree that your personal data will be processed according to the privacy policy.\n\nResources\n\nReports\n\nWebinars\n\nCase studies",
+      "expected_metadata": {
+        "source_intent_assessment": {
+          "target_shape_assessment": "likely_wrong_capture_target",
+          "possible_wrapper_page": true,
+          "possible_lead_form_page": true,
+          "possible_download_landing_page": true,
+          "substantive_content_confidence": "low",
+          "likely_target_mismatch": true
+        },
+        "replay_classification": {
+          "operational_state": "likely-wrong-capture-target",
+          "reviewability_assessment": {
+            "review_effort": "source_target_review",
+            "bounded_review_economics": false
+          }
+        }
+      },
+      "expected_markdown_metadata_lines": [
+        "- replay_quality_operational_state: likely-wrong-capture-target",
+        "- replay_quality_review_effort: source_target_review",
+        "- replay_quality_webpage_target_shape_assessment: likely_wrong_capture_target",
+        "- replay_quality_webpage_possible_wrapper_page: True",
+        "- replay_quality_webpage_possible_lead_form_page: True",
+        "- replay_quality_webpage_possible_download_landing_page: True",
+        "- replay_quality_webpage_likely_target_mismatch: True"
+      ]
+    },
+    {
+      "id": "google_cloud_lead_form_resources_page",
+      "description": "A sanitized Google Cloud resources page shape with a DORA report title, lead form, country selector, legal text, and catalog navigation is marked as a likely target mismatch.",
+      "requested_url": "https://cloud.google.com/resources/content/dora-roi-of-ai-assisted-software-development",
+      "resolved_url": "https://cloud.google.com/resources/content/dora-roi-of-ai-assisted-software-development",
+      "raw_content": "DORA: ROI of AI-assisted Software Development report\n\nBridge the gap between engineering speed and financial impact.\n\nDownload the report\n\nFirst name First name First name\n\nLast name Last name Last name\n\nBusiness email Business email Business email\n\nBusiness phone Business phone Business phone\n\nJob title Job title Job title\n\nCompany name Company name Company name\n\nCountry Country Country Country United States\n\nAfghanistan\n\nAlbania\n\nAlgeria\n\nAmerican Samoa\n\nAndorra\n\nAngola\n\nAustralia\n\nAustria\n\nBrazil\n\nCanada\n\nFrance\n\nGermany\n\nIndia\n\nJapan\n\nUnited Kingdom\n\nBy submitting this form, I agree to receive communications and understand that my personal data will be handled according to the privacy policy.\n\nProducts\n\nSolutions\n\nPricing\n\nResources\n\nDocs\n\nContact us\n\nGet started\n\nReports\n\nWebinars\n\nCase studies\n\nTraining\n\nSupport",
+      "expected_content": "DORA: ROI of AI-assisted Software Development report\n\nBridge the gap between engineering speed and financial impact.\n\nDownload the report\n\nFirst name First name First name\n\nLast name Last name Last name\n\nBusiness email Business email Business email\n\nBusiness phone Business phone Business phone\n\nJob title Job title Job title\n\nCompany name Company name Company name\n\nCountry Country Country Country United States\n\nAfghanistan\n\nAlbania\n\nAlgeria\n\nAmerican Samoa\n\nAndorra\n\nAngola\n\nAustralia\n\nAustria\n\nBrazil\n\nCanada\n\nFrance\n\nGermany\n\nIndia\n\nJapan\n\nUnited Kingdom\n\nBy submitting this form, I agree to receive communications and understand that my personal data will be handled according to the privacy policy.\n\nProducts\n\nSolutions\n\nPricing\n\nResources\n\nDocs\n\nContact us\n\nGet started\n\nReports\n\nWebinars\n\nCase studies\n\nTraining\n\nSupport",
+      "expected_metadata": {
+        "source_intent_assessment": {
+          "target_shape_assessment": "likely_wrong_capture_target",
+          "possible_wrapper_page": true,
+          "possible_lead_form_page": true,
+          "possible_download_landing_page": true,
+          "possible_resource_catalog_page": true,
+          "substantive_content_confidence": "low",
+          "likely_target_mismatch": true,
+          "resolved_url_changed": false
+        },
+        "replay_classification": {
+          "operational_state": "likely-wrong-capture-target",
+          "reviewability_assessment": {
+            "review_effort": "source_target_review",
+            "bounded_review_economics": false
+          },
+          "promotion_safety": {
+            "blocker_codes": [
+              "public_source_candidate_requires_human_retention_review",
+              "likely_target_mismatch_requires_source_review"
+            ]
+          }
+        }
+      },
+      "expected_markdown_metadata_lines": [
+        "- replay_quality_operational_state: likely-wrong-capture-target",
+        "- replay_quality_webpage_target_shape_assessment: likely_wrong_capture_target",
+        "- replay_quality_webpage_possible_wrapper_page: True",
+        "- replay_quality_webpage_possible_lead_form_page: True",
+        "- replay_quality_webpage_possible_download_landing_page: True",
+        "- replay_quality_webpage_likely_target_mismatch: True"
+      ]
+    },
+    {
+      "id": "false_positive_report_body_with_download_reference",
+      "description": "A substantive report page can mention a downloadable appendix without becoming a download landing page.",
+      "raw_content": "Example Resilience Report\n\nThe report body describes incident response patterns across several teams. It includes enough context to explain the research questions, the sample boundaries, and the way each measure was collected. Download the appendix is mentioned once as a supporting artifact, not as the main page structure.\n\nThe next section compares reliability outcomes across services and deployment models. It uses complete sentences, describes the interpretation limits, and gives reviewers a real body of text to inspect. Contact information is not presented as a form and there is no country selector.\n\nThe conclusion explains where the evidence is strongest and where additional review is needed. It distinguishes operational observations from recommendations. It keeps the source material in paragraph form so the adapter should not treat it as a resource catalog.",
+      "expected_content": "Example Resilience Report\n\nThe report body describes incident response patterns across several teams. It includes enough context to explain the research questions, the sample boundaries, and the way each measure was collected. Download the appendix is mentioned once as a supporting artifact, not as the main page structure.\n\nThe next section compares reliability outcomes across services and deployment models. It uses complete sentences, describes the interpretation limits, and gives reviewers a real body of text to inspect. Contact information is not presented as a form and there is no country selector.\n\nThe conclusion explains where the evidence is strongest and where additional review is needed. It distinguishes operational observations from recommendations. It keeps the source material in paragraph form so the adapter should not treat it as a resource catalog.",
+      "expected_metadata": {
+        "source_intent_assessment": {
+          "target_shape_assessment": "substantive_content_page",
+          "possible_wrapper_page": false,
+          "possible_lead_form_page": false,
+          "possible_download_landing_page": false,
+          "substantive_content_confidence": "medium",
+          "likely_target_mismatch": false
+        },
+        "replay_classification": {
+          "operational_state": "review-ready"
+        }
+      },
+      "expected_markdown_metadata_lines": [
+        "- replay_quality_operational_state: review-ready",
+        "- replay_quality_webpage_target_shape_assessment: substantive_content_page",
+        "- replay_quality_webpage_possible_download_landing_page: False",
+        "- replay_quality_webpage_likely_target_mismatch: False"
+      ]
+    },
+    {
+      "id": "false_positive_article_body_with_contact_sales_phrase",
+      "description": "A long article paragraph that says contact sales should not be treated as a lead form without form-field structure.",
+      "raw_content": "Example Platform Article\n\nSome teams say contact sales is the phrase they expect to see near pricing details, but the article is analyzing product-led adoption rather than presenting a form. It has complete sentences, tradeoff discussion, and surrounding explanation that a reviewer can inspect. The phrase appears as content, not as a call-to-action block.\n\nThe analysis continues with a comparison of onboarding paths and support practices. It explains how buyer expectations change when technical evaluators join a trial. It avoids repeated navigation labels, catalog menus, and selector lists that would otherwise dominate the extracted text.\n\nThe final section describes limitations in the observed examples. It tells readers that the evidence is anecdotal and should be treated carefully. The paragraph structure remains article-like even though one commercial phrase appears in the body.",
+      "expected_content": "Example Platform Article\n\nSome teams say contact sales is the phrase they expect to see near pricing details, but the article is analyzing product-led adoption rather than presenting a form. It has complete sentences, tradeoff discussion, and surrounding explanation that a reviewer can inspect. The phrase appears as content, not as a call-to-action block.\n\nThe analysis continues with a comparison of onboarding paths and support practices. It explains how buyer expectations change when technical evaluators join a trial. It avoids repeated navigation labels, catalog menus, and selector lists that would otherwise dominate the extracted text.\n\nThe final section describes limitations in the observed examples. It tells readers that the evidence is anecdotal and should be treated carefully. The paragraph structure remains article-like even though one commercial phrase appears in the body.",
+      "expected_metadata": {
+        "source_intent_assessment": {
+          "target_shape_assessment": "substantive_content_page",
+          "possible_wrapper_page": false,
+          "possible_lead_form_page": false,
+          "possible_download_landing_page": false,
+          "substantive_content_confidence": "medium",
+          "likely_target_mismatch": false
+        },
+        "replay_classification": {
+          "operational_state": "review-ready"
+        }
+      },
+      "expected_markdown_metadata_lines": [
+        "- replay_quality_operational_state: review-ready",
+        "- replay_quality_webpage_target_shape_assessment: substantive_content_page",
+        "- replay_quality_webpage_possible_wrapper_page: False",
+        "- replay_quality_webpage_likely_target_mismatch: False"
       ]
     }
   ]

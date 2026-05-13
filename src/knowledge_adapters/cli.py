@@ -1266,6 +1266,7 @@ def _print_public_pdf_replay_quality_metadata(metadata: Mapping[str, object]) ->
     footer_page_noise = _metadata_mapping(metadata, "footer_page_number_noise_diagnostics")
     footer = _metadata_mapping(metadata, "repeated_footer_suppression")
     layout_density = _metadata_mapping(metadata, "possible_layout_artifact_density")
+    source_intent = _metadata_mapping(metadata, "source_intent_assessment")
     warnings = metadata.get("extraction_warnings", ())
     if isinstance(warnings, Sequence) and not isinstance(warnings, str):
         warning_text = ", ".join(str(warning) for warning in warnings)
@@ -1342,6 +1343,30 @@ def _print_public_pdf_replay_quality_metadata(metadata: Mapping[str, object]) ->
         f"{layout_density.get('line_count', '')} "
         f"({layout_density.get('possible_artifact_line_ratio', '')})"
     )
+    if source_intent:
+        candidate_links = source_intent.get("candidate_target_links", ())
+        candidate_count = len(candidate_links) if isinstance(candidate_links, Sequence) else 0
+        print(
+            "    target_shape_assessment: "
+            f"{source_intent.get('target_shape_assessment', '')}"
+        )
+        print(
+            "    likely_target_mismatch: "
+            f"{source_intent.get('likely_target_mismatch', '')}"
+        )
+        print(
+            "    selected_target_url: "
+            f"{source_intent.get('selected_target_url', '')}"
+        )
+        print(
+            "    target_selection_status: "
+            f"{source_intent.get('target_selection_status', '')}"
+        )
+        print(
+            "    target_selection_reason: "
+            f"{source_intent.get('target_selection_reason', '')}"
+        )
+        print(f"    candidate_target_link_count: {candidate_count}")
     print(f"    extraction_warnings: {warning_text}")
 
 
@@ -1352,6 +1377,7 @@ def _print_public_webpage_replay_quality_metadata(metadata: Mapping[str, object]
     profile = _metadata_mapping(metadata, "content_profile")
     boundary = _metadata_mapping(metadata, "extraction_boundary")
     chrome = _metadata_mapping(metadata, "page_chrome_suppression")
+    source_intent = _metadata_mapping(metadata, "source_intent_assessment")
     reasons = chrome.get("suppressed_reasons_by_code", {})
     if isinstance(reasons, Mapping) and reasons:
         reason_text = ", ".join(f"{key}={value}" for key, value in sorted(reasons.items()))
@@ -1382,6 +1408,33 @@ def _print_public_webpage_replay_quality_metadata(metadata: Mapping[str, object]
         f"{chrome.get('suppressed_paragraph_count', '')}"
     )
     print(f"    chrome_suppressed_reasons: {reason_text}")
+    print(
+        "    target_shape_assessment: "
+        f"{source_intent.get('target_shape_assessment', '')}"
+    )
+    print(f"    possible_wrapper_page: {source_intent.get('possible_wrapper_page', '')}")
+    print(f"    possible_lead_form_page: {source_intent.get('possible_lead_form_page', '')}")
+    print(
+        "    possible_download_landing_page: "
+        f"{source_intent.get('possible_download_landing_page', '')}"
+    )
+    print(
+        "    substantive_content_confidence: "
+        f"{source_intent.get('substantive_content_confidence', '')}"
+    )
+    print(f"    likely_target_mismatch: {source_intent.get('likely_target_mismatch', '')}")
+    print(f"    selected_target_url: {source_intent.get('selected_target_url', '')}")
+    print(
+        "    target_selection_status: "
+        f"{source_intent.get('target_selection_status', '')}"
+    )
+    print(
+        "    target_selection_reason: "
+        f"{source_intent.get('target_selection_reason', '')}"
+    )
+    candidate_links = source_intent.get("candidate_target_links", ())
+    candidate_count = len(candidate_links) if isinstance(candidate_links, Sequence) else 0
+    print(f"    candidate_target_link_count: {candidate_count}")
 
 
 def _metadata_mapping(metadata: Mapping[str, object], key: str) -> Mapping[str, object]:
@@ -3578,14 +3631,29 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         try:
             if command == "public_webpage":
-                from knowledge_adapters.public_webpage.client import fetch_webpage
+                from knowledge_adapters.public_pdf.client import PublicPdfDocument
+                from knowledge_adapters.public_pdf.normalize import (
+                    normalize_to_markdown as normalize_pdf_to_markdown,
+                )
+                from knowledge_adapters.public_pdf.writer import (
+                    markdown_path as public_pdf_markdown_path,
+                )
+                from knowledge_adapters.public_pdf.writer import (
+                    write_markdown as public_pdf_write_markdown,
+                )
+                from knowledge_adapters.public_webpage.client import (
+                    PublicWebpageDocument,
+                    fetch_webpage,
+                )
                 from knowledge_adapters.public_webpage.config import PublicWebpageConfig
-                from knowledge_adapters.public_webpage.normalize import normalize_to_markdown
-                from knowledge_adapters.public_webpage.writer import (
-                    markdown_path as public_markdown_path,
+                from knowledge_adapters.public_webpage.normalize import (
+                    normalize_to_markdown as normalize_webpage_to_markdown,
                 )
                 from knowledge_adapters.public_webpage.writer import (
-                    write_markdown as public_write_markdown,
+                    markdown_path as public_webpage_markdown_path,
+                )
+                from knowledge_adapters.public_webpage.writer import (
+                    write_markdown as public_webpage_write_markdown,
                 )
 
                 public_webpage_config = PublicWebpageConfig(
@@ -3594,18 +3662,32 @@ def main(argv: Sequence[str] | None = None) -> int:
                     dry_run=dry_run,
                 )
                 webpage_document = fetch_webpage(public_webpage_config.url)
+                if isinstance(webpage_document, PublicPdfDocument):
+                    normalize_to_markdown = normalize_pdf_to_markdown
+                    public_markdown_path = public_pdf_markdown_path
+                    public_write_markdown = public_pdf_write_markdown
+                    adapter_title = "Public webpage adapter invoked; selected public PDF target"
+                    plan_title = "Public webpage run with selected public PDF target"
+                elif isinstance(webpage_document, PublicWebpageDocument):
+                    normalize_to_markdown = normalize_webpage_to_markdown
+                    public_markdown_path = public_webpage_markdown_path
+                    public_write_markdown = public_webpage_write_markdown
+                    adapter_title = "Public webpage adapter invoked"
+                    plan_title = "Public webpage run"
                 title = webpage_document.title
                 canonical_id = webpage_document.canonical_id
                 source_url = webpage_document.source_url
                 fetched_at = webpage_document.fetched_at
                 content = webpage_document.content
                 extraction_notes = webpage_document.extraction_notes
-                page_count: int | None = None
+                page_count = (
+                    webpage_document.page_count
+                    if isinstance(webpage_document, PublicPdfDocument)
+                    else None
+                )
                 replay_quality_metadata = webpage_document.replay_quality_metadata
                 source = webpage_document.source
                 adapter = webpage_document.adapter
-                adapter_title = "Public webpage"
-                plan_title = "Public webpage run"
             else:
                 from knowledge_adapters.public_pdf.client import fetch_pdf
                 from knowledge_adapters.public_pdf.config import PublicPdfConfig
@@ -3674,7 +3756,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             title=title,
             content_hash=hashlib.sha256(markdown.encode("utf-8")).hexdigest(),
         )
-        if command == "public_pdf":
+        if adapter == "public_pdf":
             manifest_entry["fetched_at"] = fetched_at
             if replay_quality_metadata:
                 manifest_entry["replay_quality_metadata"] = dict(replay_quality_metadata)
@@ -3697,7 +3779,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"  Manifest path: {render_user_path(manifest_output_path)}")
         print("  candidate_status: unreviewed")
         print(f"  extraction_notes: {extraction_notes}")
-        if command == "public_pdf" and replay_quality_metadata:
+        if adapter == "public_pdf" and replay_quality_metadata:
             _print_public_pdf_replay_quality_metadata(replay_quality_metadata)
         elif replay_quality_metadata:
             _print_public_webpage_replay_quality_metadata(replay_quality_metadata)

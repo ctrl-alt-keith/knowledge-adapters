@@ -38,6 +38,11 @@ def test_public_webpage_article_chrome_fixture_area_is_present() -> None:
     assert case_ids == {
         "article_body_plus_substack_chrome",
         "chrome_only_diagnostic_replay",
+        "clean_substantive_report_page",
+        "dora_style_download_landing_page",
+        "google_cloud_lead_form_resources_page",
+        "false_positive_report_body_with_download_reference",
+        "false_positive_article_body_with_contact_sales_phrase",
     }
 
 
@@ -94,6 +99,32 @@ def test_public_webpage_chrome_only_fixture_is_diagnostic_only() -> None:
 
     for expected_line in _string_sequence(case, "expected_markdown_metadata_lines"):
         assert expected_line in markdown
+
+
+def test_public_webpage_source_intent_fixtures_are_classified() -> None:
+    for case in ARTICLE_CHROME_CASES:
+        content, metadata = normalize_extracted_text_with_replay_metadata(
+            str(case["raw_content"]),
+            requested_url=str(case.get("requested_url", "")) or None,
+            resolved_url=str(case.get("resolved_url", "")) or None,
+        )
+
+        assert content == case["expected_content"]
+        _assert_metadata_contains(metadata, _mapping(case, "expected_metadata"))
+
+        markdown = normalize_to_markdown(
+            {
+                "title": str(case["id"]),
+                "canonical_id": "fixture://source-intent",
+                "source_url": "fixture://source-intent",
+                "fetched_at": "2026-05-13T12:00:00Z",
+                "content": content,
+                "replay_quality_metadata": metadata,
+            }
+        )
+
+        for expected_line in _string_sequence(case, "expected_markdown_metadata_lines"):
+            assert expected_line in markdown
 
 
 def _assert_metadata_contains(

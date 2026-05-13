@@ -25,6 +25,8 @@ Each source has a stable source key in
 Each known source asserts:
 
 - replay classification, including `review-ready` vs `diagnostic-only`
+- public webpage source-intent state, including wrapper/target-mismatch
+  signals when present
 - promotion state and promotion blockers
 - reviewability assessment, including bounded review economics
 - deterministic cleanup counts or ranges
@@ -59,6 +61,12 @@ known source violates the local contract.
 
 This command fetches live public sources and is not part of `make check`.
 Canonical local validation remains deterministic and fixture-backed.
+
+For public webpages, the acceptance check continues to assert the known
+MeaningfulTech substantive article shape. Wrapper-page and target-discovery
+coverage lives in the deterministic public webpage fixtures so the known-source
+acceptance contract does not depend on a gated marketing page or on a specific
+download asset remaining live.
 
 ## Non-Goals
 

@@ -1215,6 +1215,7 @@ def _render_replay_quality_metadata(metadata: Mapping[str, object]) -> str:
     text_footer = _mapping_value(metadata, "repeated_text_footer_suppression")
     footer = _mapping_value(metadata, "repeated_footer_suppression")
     layout_density = _mapping_value(metadata, "possible_layout_artifact_density")
+    source_intent = _mapping_value(metadata, "source_intent_assessment")
     warnings = metadata.get("extraction_warnings", ())
     warning_text = (
         "; ".join(str(warning) for warning in warnings)
@@ -1347,6 +1348,32 @@ def _render_replay_quality_metadata(metadata: Mapping[str, object]) -> str:
                 f"({_metadata_value(layout_density, 'possible_artifact_line_ratio')})"
             ),
             f"- replay_quality_extraction_warnings: {warning_text}",
+            *(
+                (
+                    (
+                        "- replay_quality_webpage_target_shape_assessment: "
+                        f"{_metadata_value(source_intent, 'target_shape_assessment')}"
+                    ),
+                    (
+                        "- replay_quality_webpage_likely_target_mismatch: "
+                        f"{_metadata_value(source_intent, 'likely_target_mismatch')}"
+                    ),
+                    (
+                        "- replay_quality_webpage_selected_target_url: "
+                        f"{_metadata_value(source_intent, 'selected_target_url')}"
+                    ),
+                    (
+                        "- replay_quality_webpage_target_selection_status: "
+                        f"{_metadata_value(source_intent, 'target_selection_status')}"
+                    ),
+                    (
+                        "- replay_quality_webpage_target_selection_reason: "
+                        f"{_metadata_value(source_intent, 'target_selection_reason')}"
+                    ),
+                )
+                if source_intent
+                else ()
+            ),
             (
                 "- replay_quality_deterministic_cleanup_scope: "
                 f"{_metadata_value(cleanup, 'scope')}"

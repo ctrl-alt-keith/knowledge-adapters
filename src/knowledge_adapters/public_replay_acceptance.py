@@ -273,6 +273,7 @@ KNOWN_PUBLIC_SOURCE_REPLAY_ACCEPTANCE_SPECS = (
         required_known_limitation_codes=(
             "public_webpage_visible_text_extraction_requires_source_review",
             "links_images_tables_comments_and_publication_metadata_may_be_incomplete",
+            "public_webpage_source_intent_shape_requires_operator_review",
             "article_body_text_is_retained_not_summarized",
         ),
         required_intentional_retention_markers=(
