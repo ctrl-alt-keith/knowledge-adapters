@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -40,6 +42,7 @@ def render_run_report_markdown(
     selected_run_count: int,
     skipped_disabled_runs: tuple[SkippedRunRecord, ...],
     records: tuple[RunReportRecord, ...],
+    runtime_identity: Mapping[str, object] | None = None,
 ) -> str:
     """Render a concise, human-readable Markdown report."""
     completed_runs = sum(1 for record in records if record.status == "completed")
@@ -75,6 +78,13 @@ def render_run_report_markdown(
             [
                 f"- Would write: {would_write}",
                 f"- Would skip: {would_skip}",
+            ]
+        )
+    if runtime_identity is not None:
+        runtime_identity_json = _runtime_identity_json(runtime_identity)
+        lines.extend(
+            [
+                f"- Runtime identity: `{_markdown_inline(runtime_identity_json)}`",
             ]
         )
 
@@ -165,3 +175,7 @@ def _markdown_cell(value: str) -> str:
 
 def _markdown_inline(value: str) -> str:
     return value.replace("`", "\\`")
+
+
+def _runtime_identity_json(runtime_identity: Mapping[str, object]) -> str:
+    return json.dumps(dict(runtime_identity), sort_keys=True, separators=(",", ":"))

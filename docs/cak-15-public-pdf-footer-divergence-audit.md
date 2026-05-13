@@ -24,6 +24,11 @@ That made diagnostics report repeated trailing footer signatures while anchored
 suppression reported zero detected blocks and the candidate body stayed
 unchanged.
 
+The post-review observability update records those retained near misses as
+informational replay-quality metadata: page 43 is reported as a non-parseable
+adjacent numeric candidate, and page 59 is reported as meaningful numeric
+context near the footer candidate.
+
 ## Execution Path Evidence
 
 Stage ordering for `public_pdf` is:
@@ -39,6 +44,10 @@ Stage ordering for `public_pdf` is:
    stores replay-quality metadata in the manifest entry.
 8. `run` invokes the configured adapter by calling the same in-process
    `main(argv)` entry point and captures its summary for the run report.
+9. Config-driven `run` output and optional run reports include
+   `runtime_identity_json` with package version, module/source path, git SHA
+   when available, executable path, and entry point. This is runtime
+   diagnostics only; it is not written into retained candidate content.
 
 The fixture suite directly exercises the page normalizer, so it covers the
 same normalization and suppression function as real replay. It does not cover
@@ -63,6 +72,11 @@ Version `0.8.0` alone is not sufficient proof of the code path because several
 CAK-15 changes shared that version. The replay note's commit and entry-point
 path were enough to rule out a stale installed package for this audit.
 
+PR #286 now also emits machine-readable runtime identity in config-driven
+`run` output and reports so future replay notes do not have to rely on prose
+alone. The field is intentionally diagnostic and may contain machine-local
+paths only in ignored staging/run-report surfaces.
+
 ## Live Source Evidence
 
 Before the fix, a live DORA ROI inspection on current main produced:
@@ -80,8 +94,8 @@ Shape inspection found:
 
 - `(numeric_depth=2, anchor_depth=1)` on 56 pages
 - `(numeric_depth=20, anchor_depth=19)` on page 6
-- one missing adjacent numeric line in the trailing anchor group on page 43:
-  `Map your AI investment roadmap43` followed by `v. 2026.1`
+- one non-parseable adjacent numeric candidate in the trailing anchor group on
+  page 43: `Map your AI investment roadmap43` followed by `v. 2026.1`
 - one numeric-risk page in the trailing anchor group on page 59, where the
   candidate page number follows reference-list numeric content
 
@@ -95,9 +109,24 @@ reported:
 - suppressed anchored footer block count: 1
 - suppressed numeric page-line count: 55
 - skipped numeric risk count: 1
+- accepted/suppressed page count: 55
+- rejected/skipped page count: 2
+- missing adjacent numeric line count: 0
+- non-parseable adjacent numeric line count: 1
+- rejected/skipped page counts by reason:
+  `meaningful_numeric_context_near_footer_candidate=1`,
+  `nonparseable_adjacent_numeric_line=1`
 - `v. 2026.1` lines in content: 3
 - numeric lines immediately before `v. 2026.1`: 2
 - `roadmap43` followed by `v. 2026.1` retained
+
+The rejected candidate examples are deterministic, short excerpts only:
+
+- page 59: anchor `v. 2026.1`, adjacent `59`, reason
+  `meaningful_numeric_context_near_footer_candidate`
+- page 43: anchor `v. 2026.1`, adjacent
+  `Map your AI investment roadmap43`, reason
+  `nonparseable_adjacent_numeric_line`
 
 ## Fix Summary
 
@@ -113,10 +142,28 @@ individually:
 - numeric page values must still increase in extracted page order
 - footer lines are removed only from the safe pages included in the accepted
   majority
+- rejected near misses are counted by reason, with up to five short diagnostic
+  examples
 
 This keeps the existing trailing-window, anchor, majority, page-order, and
 numeric-risk safety boundaries. It does not change retention semantics,
 auto-promote output, or broaden ingestion.
+
+## Observability Fields
+
+`repeated_footer_suppression` includes these informational fields:
+
+- `accepted_suppressed_page_count`
+- `rejected_skipped_page_count`
+- `missing_adjacent_numeric_line_count`
+- `nonparseable_adjacent_numeric_line_count`
+- `numeric_risk_skipped_count`
+- `rejected_skipped_page_counts_by_reason`
+- `rejected_footer_candidate_examples`
+
+The candidate metadata continues to include
+`replay_quality_metadata_note: informational only; does not authorize retention
+or promotion`.
 
 ## Commands Run
 
@@ -129,6 +176,7 @@ auto-promote output, or broaden ingestion.
   paths
 - live DORA PDF inspection scripts against the public source URL
 - `make test PYTEST='.venv/bin/pytest tests/test_public_pdf_dora_regression_fixtures.py'`
+- `make test PYTEST='.venv/bin/pytest tests/test_public_pdf_dora_regression_fixtures.py tests/test_public_sources.py tests/test_cli_run.py'`
 
 ## Recommended Next Action
 
@@ -136,4 +184,3 @@ Run the knowledge-vault milestone replay again from the updated branch after
 merge, using the same one-source DORA ROI run config. Expected result:
 candidate body output should change by removing 110 footer lines while
 retaining the fused page-43 artifact and page-59 numeric-risk footer pair.
-

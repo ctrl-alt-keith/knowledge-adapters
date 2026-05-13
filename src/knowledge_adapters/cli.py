@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import json
 import math
 import re
 import shlex
@@ -33,6 +34,7 @@ from knowledge_adapters.run_report import (
     SkippedRunRecord,
     render_run_report_markdown,
 )
+from knowledge_adapters.runtime_identity import adapter_runtime_identity
 
 TOP_LEVEL_HELP_EXAMPLES = """First steps:
   knowledge-adapters --help
@@ -1265,6 +1267,26 @@ def _print_public_pdf_replay_quality_metadata(metadata: Mapping[str, object]) ->
         f"{footer.get('suppressed_line_count', '')}"
     )
     print(
+        "    repeated_footer_accepted_suppressed_page_count: "
+        f"{footer.get('accepted_suppressed_page_count', '')}"
+    )
+    print(
+        "    repeated_footer_rejected_skipped_page_count: "
+        f"{footer.get('rejected_skipped_page_count', '')}"
+    )
+    print(
+        "    repeated_footer_missing_adjacent_numeric_line_count: "
+        f"{footer.get('missing_adjacent_numeric_line_count', '')}"
+    )
+    print(
+        "    repeated_footer_nonparseable_adjacent_numeric_line_count: "
+        f"{footer.get('nonparseable_adjacent_numeric_line_count', '')}"
+    )
+    print(
+        "    repeated_footer_numeric_risk_skipped_count: "
+        f"{footer.get('numeric_risk_skipped_count', '')}"
+    )
+    print(
         "    possible_layout_artifact_lines: "
         f"{layout_density.get('possible_artifact_line_count', '')}/"
         f"{layout_density.get('line_count', '')} "
@@ -1399,6 +1421,7 @@ def _write_run_report(
     *,
     report_output_path: Path,
     config_path: Path,
+    runtime_identity: Mapping[str, object],
     selected_run_count: int,
     skipped_disabled_runs: tuple[SkippedRunRecord, ...],
     records: tuple[RunReportRecord, ...],
@@ -1409,6 +1432,7 @@ def _write_run_report(
         report_output_path.write_text(
             render_run_report_markdown(
                 config_path=config_path,
+                runtime_identity=runtime_identity,
                 selected_run_count=selected_run_count,
                 skipped_disabled_runs=skipped_disabled_runs,
                 records=records,
@@ -1458,10 +1482,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             if args.report_output is not None
             else None
         )
+        runtime_identity = adapter_runtime_identity()
         run_report_records: list[RunReportRecord] = []
 
         print("Config-driven run invoked")
         print(f"  config_path: {render_user_path(run_config.config_path)}")
+        print(
+            "  runtime_identity_json: "
+            f"{json.dumps(runtime_identity, sort_keys=True, separators=(',', ':'))}"
+        )
         print(f"  runs_in_config: {len(run_config.runs)}")
         if args.only is not None:
             print(f"  only: {', '.join(args.only)}")
@@ -1555,6 +1584,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         _write_run_report(
                             report_output_path=report_output_path,
                             config_path=run_config.config_path,
+                            runtime_identity=runtime_identity,
                             selected_run_count=len(selected_runs),
                             skipped_disabled_runs=skipped_disabled_report_runs,
                             records=tuple(run_report_records),
@@ -1597,6 +1627,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         _write_run_report(
                             report_output_path=report_output_path,
                             config_path=run_config.config_path,
+                            runtime_identity=runtime_identity,
                             selected_run_count=len(selected_runs),
                             skipped_disabled_runs=skipped_disabled_report_runs,
                             records=tuple(run_report_records),
@@ -1662,6 +1693,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             _write_run_report(
                 report_output_path=report_output_path,
                 config_path=run_config.config_path,
+                runtime_identity=runtime_identity,
                 selected_run_count=len(selected_runs),
                 skipped_disabled_runs=skipped_disabled_report_runs,
                 records=tuple(run_report_records),

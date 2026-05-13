@@ -201,7 +201,16 @@
           "detected_anchored_footer_block_count": 1,
           "suppressed_anchored_footer_block_count": 1,
           "suppressed_numeric_page_line_count": 3,
-          "skipped_numeric_risk_count": 1
+          "skipped_numeric_risk_count": 1,
+          "accepted_suppressed_page_count": 3,
+          "rejected_skipped_page_count": 2,
+          "missing_adjacent_numeric_line_count": 0,
+          "nonparseable_adjacent_numeric_line_count": 1,
+          "numeric_risk_skipped_count": 1,
+          "rejected_skipped_page_counts_by_reason": {
+            "meaningful_numeric_context_near_footer_candidate": 1,
+            "nonparseable_adjacent_numeric_line": 1
+          }
         },
         "footer_page_number_noise_diagnostics": {
           "repeated_trailing_footer_block_count": 2,
@@ -213,6 +222,9 @@
       "expected_markdown_metadata_lines": [
         "- replay_quality_repeated_footer_suppressed_line_count: 6",
         "- replay_quality_repeated_footer_suppressed_numeric_page_line_count: 3",
+        "- replay_quality_repeated_footer_accepted_suppressed_page_count: 3",
+        "- replay_quality_repeated_footer_rejected_skipped_page_count: 2",
+        "- replay_quality_repeated_footer_nonparseable_adjacent_numeric_line_count: 1",
         "- replay_quality_repeated_footer_skipped_numeric_risk_count: 1"
       ]
     },

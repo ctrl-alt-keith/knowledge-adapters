@@ -218,8 +218,15 @@ def _suppress_repeated_footer_lines_with_metadata(
             "skipped_anchored_footer_block_count": 0,
             "suppressed_numeric_page_line_count": 0,
             "skipped_numeric_risk_count": 0,
+            "accepted_suppressed_page_count": 0,
+            "rejected_skipped_page_count": 0,
+            "missing_adjacent_numeric_line_count": 0,
+            "nonparseable_adjacent_numeric_line_count": 0,
+            "numeric_risk_skipped_count": 0,
+            "rejected_skipped_page_counts_by_reason": {},
             "detected_anchored_footer_blocks": [],
             "skipped_numeric_risk_cases": [],
+            "rejected_footer_candidate_examples": [],
         }
 
     page_lines = [page_text.splitlines() for page_text in page_texts]
@@ -241,8 +248,11 @@ def _suppress_repeated_footer_lines_with_metadata(
     indexes_to_remove: set[tuple[int, int]] = set()
     detected_blocks: list[dict[str, object]] = []
     skipped_numeric_risk_cases: list[dict[str, object]] = []
+    rejected_footer_candidate_examples: list[dict[str, object]] = []
+    rejected_skipped_page_counts_by_reason: dict[str, int] = {}
     suppressed_numeric_page_line_count = 0
     skipped_numeric_risk_count = 0
+    accepted_suppressed_page_count = 0
 
     for (anchor_depth, anchor_signature), page_to_anchor_index in sorted(
         anchor_candidates.items(), key=lambda item: (item[0][0], item[0][1])
@@ -253,17 +263,23 @@ def _suppress_repeated_footer_lines_with_metadata(
         for numeric_depth in _adjacent_footer_depths(anchor_depth):
             numeric_occurrences: list[tuple[int, int, int]] = []
             risk_occurrences: list[tuple[int, int, int]] = []
+            missing_numeric_page_indexes: list[int] = []
+            nonparseable_numeric_occurrences: list[tuple[int, int, str]] = []
             risk_page_indexes: list[int] = []
             for page_index, anchor_line_index in sorted(page_to_anchor_index.items()):
                 numeric_line_index = _line_index_at_trailing_depth(
                     trailing_entries_by_page[page_index], numeric_depth
                 )
                 if numeric_line_index is None:
+                    missing_numeric_page_indexes.append(page_index)
                     continue
 
                 numeric_line = page_lines[page_index][numeric_line_index].strip()
                 numeric_value = _page_number_line_value(numeric_line)
                 if numeric_value is None:
+                    nonparseable_numeric_occurrences.append(
+                        (page_index, numeric_line_index, numeric_line)
+                    )
                     continue
 
                 if _has_nearby_meaningful_numeric_context(
@@ -284,6 +300,18 @@ def _suppress_repeated_footer_lines_with_metadata(
             if len(numeric_occurrences) < min_repeated_pages:
                 if risk_page_indexes:
                     skipped_numeric_risk_count += len(risk_occurrences)
+                    _increment_reason_count(
+                        rejected_skipped_page_counts_by_reason,
+                        "meaningful_numeric_context_near_footer_candidate",
+                        len(risk_occurrences),
+                    )
+                    _extend_rejected_footer_candidate_examples(
+                        rejected_footer_candidate_examples,
+                        page_lines=page_lines,
+                        page_to_anchor_index=page_to_anchor_index,
+                        occurrences=risk_occurrences,
+                        reason="meaningful_numeric_context_near_footer_candidate",
+                    )
                     skipped_numeric_risk_cases.append(
                         {
                             "anchor_signature": anchor_signature,
@@ -298,6 +326,11 @@ def _suppress_repeated_footer_lines_with_metadata(
 
             if not _numeric_values_are_in_page_order(numeric_occurrences):
                 skipped_numeric_risk_count += len(numeric_occurrences)
+                _increment_reason_count(
+                    rejected_skipped_page_counts_by_reason,
+                    "numeric_values_not_in_page_order",
+                    len(numeric_occurrences),
+                )
                 skipped_numeric_risk_cases.append(
                     {
                         "anchor_signature": anchor_signature,
@@ -309,9 +342,6 @@ def _suppress_repeated_footer_lines_with_metadata(
                     }
                 )
                 continue
-
-            if risk_page_indexes:
-                skipped_numeric_risk_count += len(risk_occurrences)
 
             footer_depths = _repeated_footer_block_depths(
                 trailing_entries_by_page,
@@ -325,6 +355,21 @@ def _suppress_repeated_footer_lines_with_metadata(
             if not footer_depths:
                 continue
 
+            if risk_page_indexes:
+                skipped_numeric_risk_count += len(risk_occurrences)
+                _increment_reason_count(
+                    rejected_skipped_page_counts_by_reason,
+                    "meaningful_numeric_context_near_footer_candidate",
+                    len(risk_occurrences),
+                )
+                _extend_rejected_footer_candidate_examples(
+                    rejected_footer_candidate_examples,
+                    page_lines=page_lines,
+                    page_to_anchor_index=page_to_anchor_index,
+                    occurrences=risk_occurrences,
+                    reason="meaningful_numeric_context_near_footer_candidate",
+                )
+
             for page_index, numeric_line_index, _numeric_value in numeric_occurrences:
                 for footer_depth in footer_depths:
                     footer_line_index = _line_index_at_trailing_depth(
@@ -334,6 +379,31 @@ def _suppress_repeated_footer_lines_with_metadata(
                         indexes_to_remove.add((page_index, footer_line_index))
                 indexes_to_remove.add((page_index, numeric_line_index))
             suppressed_numeric_page_line_count += len(numeric_occurrences)
+            accepted_suppressed_page_count += len(numeric_occurrences)
+            _increment_reason_count(
+                rejected_skipped_page_counts_by_reason,
+                "missing_adjacent_numeric_line",
+                len(missing_numeric_page_indexes),
+            )
+            _increment_reason_count(
+                rejected_skipped_page_counts_by_reason,
+                "nonparseable_adjacent_numeric_line",
+                len(nonparseable_numeric_occurrences),
+            )
+            _extend_missing_numeric_footer_candidate_examples(
+                rejected_footer_candidate_examples,
+                page_lines=page_lines,
+                page_to_anchor_index=page_to_anchor_index,
+                page_indexes=missing_numeric_page_indexes,
+                reason="missing_adjacent_numeric_line",
+            )
+            _extend_nonparseable_numeric_footer_candidate_examples(
+                rejected_footer_candidate_examples,
+                page_lines=page_lines,
+                page_to_anchor_index=page_to_anchor_index,
+                occurrences=nonparseable_numeric_occurrences,
+                reason="nonparseable_adjacent_numeric_line",
+            )
             detected_blocks.append(
                 {
                     "anchor_signature": anchor_signature,
@@ -370,9 +440,115 @@ def _suppress_repeated_footer_lines_with_metadata(
         "skipped_anchored_footer_block_count": len(skipped_numeric_risk_cases),
         "suppressed_numeric_page_line_count": suppressed_numeric_page_line_count,
         "skipped_numeric_risk_count": skipped_numeric_risk_count,
+        "accepted_suppressed_page_count": accepted_suppressed_page_count,
+        "rejected_skipped_page_count": sum(rejected_skipped_page_counts_by_reason.values()),
+        "missing_adjacent_numeric_line_count": rejected_skipped_page_counts_by_reason.get(
+            "missing_adjacent_numeric_line", 0
+        ),
+        "nonparseable_adjacent_numeric_line_count": (
+            rejected_skipped_page_counts_by_reason.get(
+                "nonparseable_adjacent_numeric_line", 0
+            )
+        ),
+        "numeric_risk_skipped_count": rejected_skipped_page_counts_by_reason.get(
+            "meaningful_numeric_context_near_footer_candidate", 0
+        ),
+        "rejected_skipped_page_counts_by_reason": rejected_skipped_page_counts_by_reason,
         "detected_anchored_footer_blocks": detected_blocks,
         "skipped_numeric_risk_cases": skipped_numeric_risk_cases,
+        "rejected_footer_candidate_examples": rejected_footer_candidate_examples,
     }
+
+
+def _increment_reason_count(
+    counts_by_reason: dict[str, int], reason: str, count: int
+) -> None:
+    if count:
+        counts_by_reason[reason] = counts_by_reason.get(reason, 0) + count
+
+
+def _extend_rejected_footer_candidate_examples(
+    examples: list[dict[str, object]],
+    *,
+    page_lines: Sequence[Sequence[str]],
+    page_to_anchor_index: Mapping[int, int],
+    occurrences: Sequence[tuple[int, int, int]],
+    reason: str,
+) -> None:
+    for page_index, numeric_line_index, _numeric_value in occurrences:
+        anchor_line_index = page_to_anchor_index[page_index]
+        _append_rejected_footer_candidate_example(
+            examples,
+            page_number=page_index + 1,
+            reason=reason,
+            anchor_line=page_lines[page_index][anchor_line_index],
+            adjacent_line=page_lines[page_index][numeric_line_index],
+        )
+
+
+def _extend_missing_numeric_footer_candidate_examples(
+    examples: list[dict[str, object]],
+    *,
+    page_lines: Sequence[Sequence[str]],
+    page_to_anchor_index: Mapping[int, int],
+    page_indexes: Sequence[int],
+    reason: str,
+) -> None:
+    for page_index in page_indexes:
+        anchor_line_index = page_to_anchor_index[page_index]
+        _append_rejected_footer_candidate_example(
+            examples,
+            page_number=page_index + 1,
+            reason=reason,
+            anchor_line=page_lines[page_index][anchor_line_index],
+            adjacent_line="",
+        )
+
+
+def _extend_nonparseable_numeric_footer_candidate_examples(
+    examples: list[dict[str, object]],
+    *,
+    page_lines: Sequence[Sequence[str]],
+    page_to_anchor_index: Mapping[int, int],
+    occurrences: Sequence[tuple[int, int, str]],
+    reason: str,
+) -> None:
+    for page_index, numeric_line_index, _numeric_line in occurrences:
+        anchor_line_index = page_to_anchor_index[page_index]
+        _append_rejected_footer_candidate_example(
+            examples,
+            page_number=page_index + 1,
+            reason=reason,
+            anchor_line=page_lines[page_index][anchor_line_index],
+            adjacent_line=page_lines[page_index][numeric_line_index],
+        )
+
+
+def _append_rejected_footer_candidate_example(
+    examples: list[dict[str, object]],
+    *,
+    page_number: int,
+    reason: str,
+    anchor_line: str,
+    adjacent_line: str,
+) -> None:
+    if len(examples) >= 5:
+        return
+    example: dict[str, object] = {
+        "page_number": page_number,
+        "reason": reason,
+        "anchor_excerpt": _short_diagnostic_excerpt(anchor_line),
+    }
+    if adjacent_line:
+        example["adjacent_excerpt"] = _short_diagnostic_excerpt(adjacent_line)
+    examples.append(example)
+
+
+def _short_diagnostic_excerpt(line: str) -> str:
+    excerpt = " ".join(line.strip().split())
+    if len(excerpt) <= 80:
+        return excerpt
+    return f"{excerpt[:77].rstrip()}..."
 
 
 def _trailing_footer_candidate_entries(lines: Sequence[str]) -> list[tuple[int, int, str]]:
@@ -727,6 +903,22 @@ def _render_replay_quality_metadata(metadata: Mapping[str, object]) -> str:
             (
                 "- replay_quality_repeated_footer_suppressed_numeric_page_line_count: "
                 f"{_metadata_value(footer, 'suppressed_numeric_page_line_count')}"
+            ),
+            (
+                "- replay_quality_repeated_footer_accepted_suppressed_page_count: "
+                f"{_metadata_value(footer, 'accepted_suppressed_page_count')}"
+            ),
+            (
+                "- replay_quality_repeated_footer_rejected_skipped_page_count: "
+                f"{_metadata_value(footer, 'rejected_skipped_page_count')}"
+            ),
+            (
+                "- replay_quality_repeated_footer_missing_adjacent_numeric_line_count: "
+                f"{_metadata_value(footer, 'missing_adjacent_numeric_line_count')}"
+            ),
+            (
+                "- replay_quality_repeated_footer_nonparseable_adjacent_numeric_line_count: "
+                f"{_metadata_value(footer, 'nonparseable_adjacent_numeric_line_count')}"
             ),
             (
                 "- replay_quality_repeated_footer_skipped_numeric_risk_count: "

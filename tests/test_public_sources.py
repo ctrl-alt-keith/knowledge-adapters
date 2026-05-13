@@ -440,6 +440,12 @@ def test_public_pdf_page_normalization_reports_replay_quality_metadata() -> None
         "skipped_anchored_footer_block_count": 0,
         "suppressed_numeric_page_line_count": 2,
         "skipped_numeric_risk_count": 0,
+        "accepted_suppressed_page_count": 2,
+        "rejected_skipped_page_count": 0,
+        "missing_adjacent_numeric_line_count": 0,
+        "nonparseable_adjacent_numeric_line_count": 0,
+        "numeric_risk_skipped_count": 0,
+        "rejected_skipped_page_counts_by_reason": {},
         "detected_anchored_footer_blocks": [
             {
                 "anchor_signature": "dora report",
@@ -451,6 +457,7 @@ def test_public_pdf_page_normalization_reports_replay_quality_metadata() -> None
             }
         ],
         "skipped_numeric_risk_cases": [],
+        "rejected_footer_candidate_examples": [],
     }
     assert first_metadata["page_count_context"] == {
         "page_count": 2,
@@ -640,6 +647,12 @@ def test_public_pdf_page_normalization_skips_anchored_numeric_lines_near_values(
     assert repeated_footer["skipped_anchored_footer_block_count"] == 1
     assert repeated_footer["suppressed_numeric_page_line_count"] == 0
     assert repeated_footer["skipped_numeric_risk_count"] == 3
+    assert repeated_footer["accepted_suppressed_page_count"] == 0
+    assert repeated_footer["rejected_skipped_page_count"] == 3
+    assert repeated_footer["rejected_skipped_page_counts_by_reason"] == {
+        "meaningful_numeric_context_near_footer_candidate": 3
+    }
+    assert repeated_footer["numeric_risk_skipped_count"] == 3
     assert repeated_footer["skipped_numeric_risk_cases"] == [
         {
             "anchor_signature": "dora report",
