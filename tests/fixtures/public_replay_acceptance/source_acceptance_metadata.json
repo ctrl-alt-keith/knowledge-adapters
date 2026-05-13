@@ -73,6 +73,7 @@
           "known_limitation_codes": [
             "public_webpage_visible_text_extraction_requires_source_review",
             "links_images_tables_comments_and_publication_metadata_may_be_incomplete",
+            "public_webpage_source_intent_shape_requires_operator_review",
             "article_body_text_is_retained_not_summarized"
           ],
           "reviewability_assessment": {
@@ -93,6 +94,7 @@
           "remaining_artifacts": {
             "total_count": 0,
             "counts_by_category": {
+              "possible_source_intent_mismatch": 0,
               "reported_remaining_webpage_chrome_artifacts": 0
             }
           },

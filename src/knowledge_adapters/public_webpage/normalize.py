@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from knowledge_adapters.replay_quality import build_public_source_replay_classification
 
@@ -38,6 +38,9 @@ _LEGAL_FOOTER_RE = re.compile(r"(©|copyright).*privacy.*terms", re.IGNORECASE)
 
 def normalize_extracted_text_with_replay_metadata(
     content: str,
+    *,
+    requested_url: str | None = None,
+    resolved_url: str | None = None,
 ) -> tuple[str, dict[str, object]]:
     """Remove clearly mechanical webpage chrome and describe review boundaries."""
     paragraphs = [paragraph.strip() for paragraph in content.split("\n\n")]
@@ -64,6 +67,14 @@ def normalize_extracted_text_with_replay_metadata(
             )
 
     retained_content = "\n\n".join(retained_paragraphs)
+    source_intent_assessment = _assess_source_intent(
+        extracted_paragraphs=paragraphs,
+        retained_paragraphs=retained_paragraphs,
+        retained_content=retained_content,
+        suppressed_character_count=suppressed_character_count,
+        requested_url=requested_url,
+        resolved_url=resolved_url,
+    )
     metadata: dict[str, object] = {
         "metadata_scope": "public_webpage_replay_quality",
         "metadata_note": REPLAY_QUALITY_METADATA_NOTE,
@@ -88,6 +99,7 @@ def normalize_extracted_text_with_replay_metadata(
             "suppressed_reasons_by_code": suppressed_reasons,
             "suppressed_examples": suppressed_examples,
         },
+        "source_intent_assessment": source_intent_assessment,
     }
     metadata["replay_classification"] = _build_public_webpage_replay_classification(
         metadata
@@ -157,6 +169,302 @@ def _short_diagnostic_excerpt(paragraph: str) -> str:
     return f"{excerpt[:77].rstrip()}..."
 
 
+_FORM_FIELD_LABELS = {
+    "business email",
+    "business phone",
+    "calling code",
+    "company",
+    "company name",
+    "country",
+    "email",
+    "first name",
+    "job title",
+    "last name",
+    "phone",
+    "phone number",
+    "state",
+    "work email",
+}
+_CTA_PHRASES = {
+    "access the report",
+    "book a meeting",
+    "contact sales",
+    "download now",
+    "download report",
+    "download the report",
+    "get the report",
+    "request a demo",
+    "request demo",
+    "submit",
+}
+_DOWNLOAD_CTA_PHRASES = {
+    "access the report",
+    "download now",
+    "download report",
+    "download the report",
+    "get the report",
+}
+_LEGAL_OR_CONSENT_PHRASES = {
+    "by submitting this form",
+    "i agree to receive",
+    "privacy policy",
+    "terms of service",
+    "unsubscribe",
+    "your personal data",
+}
+_CATALOG_NAVIGATION_TERMS = {
+    "blog",
+    "case studies",
+    "contact us",
+    "docs",
+    "documentation",
+    "events",
+    "partners",
+    "pricing",
+    "products",
+    "reports",
+    "resources",
+    "solutions",
+    "support",
+    "training",
+    "webinars",
+    "whitepapers",
+}
+_REPORT_TITLE_TERMS = {"report", "research", "state of devops", "dora"}
+
+
+def _assess_source_intent(
+    *,
+    extracted_paragraphs: Sequence[str],
+    retained_paragraphs: Sequence[str],
+    retained_content: str,
+    suppressed_character_count: int,
+    requested_url: str | None,
+    resolved_url: str | None,
+) -> dict[str, object]:
+    retained_character_count = len(retained_content)
+    total_character_count = retained_character_count + suppressed_character_count
+    retained_content_ratio = _rounded_ratio(
+        retained_character_count,
+        total_character_count,
+    )
+    substantive_paragraph_count = sum(
+        1 for paragraph in retained_paragraphs if _is_substantive_body_paragraph(paragraph)
+    )
+    form_field_count = sum(1 for paragraph in extracted_paragraphs if _is_form_field(paragraph))
+    cta_count = sum(
+        1 for paragraph in extracted_paragraphs if _contains_phrase(paragraph, _CTA_PHRASES)
+    )
+    download_cta_count = sum(
+        1
+        for paragraph in extracted_paragraphs
+        if _contains_phrase(paragraph, _DOWNLOAD_CTA_PHRASES)
+    )
+    legal_or_consent_count = sum(
+        1
+        for paragraph in extracted_paragraphs
+        if _contains_phrase(paragraph, _LEGAL_OR_CONSENT_PHRASES)
+    )
+    catalog_navigation_count = sum(
+        1 for paragraph in extracted_paragraphs if _is_catalog_navigation(paragraph)
+    )
+    report_title_mention_count = sum(
+        1
+        for paragraph in retained_paragraphs[:12]
+        if _contains_phrase(paragraph, _REPORT_TITLE_TERMS)
+    )
+    short_selector_like_paragraph_count = sum(
+        1 for paragraph in extracted_paragraphs if _is_selector_like_paragraph(paragraph)
+    )
+
+    possible_lead_form_page = form_field_count >= 3 and (
+        download_cta_count >= 1 or legal_or_consent_count >= 1
+    )
+    possible_download_landing_page = download_cta_count >= 1 and (
+        possible_lead_form_page
+        or (substantive_paragraph_count < 3 and retained_character_count < 3000)
+        or cta_count >= 3
+    )
+    possible_resource_catalog_page = (
+        catalog_navigation_count >= 8
+        and substantive_paragraph_count < 4
+        and short_selector_like_paragraph_count >= 12
+    )
+    high_chrome_to_substance_ratio = (
+        total_character_count > 0
+        and retained_character_count > 0
+        and retained_content_ratio < 0.45
+        and substantive_paragraph_count < 3
+        and (
+            download_cta_count > 0
+            or catalog_navigation_count >= 4
+            or form_field_count >= 2
+        )
+    )
+    report_title_with_little_body = (
+        report_title_mention_count > 0
+        and download_cta_count >= 1
+        and substantive_paragraph_count < 2
+        and retained_character_count < 2500
+    )
+    possible_wrapper_page = (
+        possible_lead_form_page
+        or possible_download_landing_page
+        or possible_resource_catalog_page
+        or high_chrome_to_substance_ratio
+        or report_title_with_little_body
+    )
+    insufficient_substantive_body = (
+        retained_character_count < 700 or substantive_paragraph_count < 2
+    )
+    likely_target_mismatch = possible_wrapper_page or (
+        insufficient_substantive_body
+        and retained_character_count > 0
+        and (download_cta_count > 0 or catalog_navigation_count >= 4)
+    )
+    substantive_content_confidence = _substantive_content_confidence(
+        likely_target_mismatch=likely_target_mismatch,
+        retained_character_count=retained_character_count,
+        substantive_paragraph_count=substantive_paragraph_count,
+    )
+    reason_codes = _source_intent_reason_codes(
+        possible_wrapper_page=possible_wrapper_page,
+        possible_lead_form_page=possible_lead_form_page,
+        possible_download_landing_page=possible_download_landing_page,
+        possible_resource_catalog_page=possible_resource_catalog_page,
+        insufficient_substantive_body=insufficient_substantive_body,
+        high_chrome_to_substance_ratio=high_chrome_to_substance_ratio,
+        report_title_with_little_body=report_title_with_little_body,
+    )
+
+    if likely_target_mismatch:
+        target_shape_assessment = "likely_wrong_capture_target"
+    elif retained_character_count == 0:
+        target_shape_assessment = "no_retained_content"
+    elif substantive_content_confidence in {"high", "medium"}:
+        target_shape_assessment = "substantive_content_page"
+    else:
+        target_shape_assessment = "insufficient_substantive_body"
+
+    return {
+        "schema_version": 1,
+        "target_shape_assessment": target_shape_assessment,
+        "possible_wrapper_page": possible_wrapper_page,
+        "possible_lead_form_page": possible_lead_form_page,
+        "possible_download_landing_page": possible_download_landing_page,
+        "possible_resource_catalog_page": possible_resource_catalog_page,
+        "substantive_content_confidence": substantive_content_confidence,
+        "likely_target_mismatch": likely_target_mismatch,
+        "reason_codes": reason_codes,
+        "retained_content_ratio": retained_content_ratio,
+        "input_url": requested_url or "",
+        "resolved_url": resolved_url or "",
+        "resolved_url_changed": bool(
+            requested_url and resolved_url and requested_url != resolved_url
+        ),
+        "signal_counts": {
+            "catalog_navigation_paragraphs": catalog_navigation_count,
+            "cta_paragraphs": cta_count,
+            "download_cta_paragraphs": download_cta_count,
+            "form_field_paragraphs": form_field_count,
+            "legal_or_consent_paragraphs": legal_or_consent_count,
+            "report_title_mentions_near_top": report_title_mention_count,
+            "short_selector_like_paragraphs": short_selector_like_paragraph_count,
+            "substantive_body_paragraphs": substantive_paragraph_count,
+        },
+    }
+
+
+def _is_substantive_body_paragraph(paragraph: str) -> bool:
+    text = " ".join(paragraph.split())
+    if len(text) < 140:
+        return False
+    if len(text.split()) < 24:
+        return False
+    sentence_mark_count = sum(text.count(mark) for mark in (".", "?", "!"))
+    return sentence_mark_count >= 2
+
+
+def _is_form_field(paragraph: str) -> bool:
+    normalized = _normalized_prompt_text(paragraph).replace("*", "").strip(": ")
+    if normalized in _FORM_FIELD_LABELS:
+        return True
+    words = normalized.split()
+    if len(words) <= 6:
+        return any(label in normalized for label in _FORM_FIELD_LABELS)
+    return False
+
+
+def _contains_phrase(paragraph: str, phrases: set[str]) -> bool:
+    normalized = _normalized_prompt_text(paragraph)
+    return any(phrase in normalized for phrase in phrases)
+
+
+def _is_catalog_navigation(paragraph: str) -> bool:
+    normalized = _normalized_prompt_text(paragraph)
+    if len(normalized) > 100:
+        return False
+    if normalized in _CATALOG_NAVIGATION_TERMS:
+        return True
+    return sum(1 for term in _CATALOG_NAVIGATION_TERMS if term in normalized) >= 3
+
+
+def _is_selector_like_paragraph(paragraph: str) -> bool:
+    text = " ".join(paragraph.split())
+    if not text or len(text) > 80:
+        return False
+    if text.endswith((".", "?", "!")):
+        return False
+    return True
+
+
+def _rounded_ratio(numerator: int, denominator: int) -> float:
+    if denominator <= 0:
+        return 0.0
+    return round(numerator / denominator, 3)
+
+
+def _substantive_content_confidence(
+    *,
+    likely_target_mismatch: bool,
+    retained_character_count: int,
+    substantive_paragraph_count: int,
+) -> str:
+    if likely_target_mismatch or retained_character_count < 700 or substantive_paragraph_count < 2:
+        return "low"
+    if retained_character_count >= 8000 and substantive_paragraph_count >= 5:
+        return "high"
+    return "medium"
+
+
+def _source_intent_reason_codes(
+    *,
+    possible_wrapper_page: bool,
+    possible_lead_form_page: bool,
+    possible_download_landing_page: bool,
+    possible_resource_catalog_page: bool,
+    insufficient_substantive_body: bool,
+    high_chrome_to_substance_ratio: bool,
+    report_title_with_little_body: bool,
+) -> list[str]:
+    reason_codes: list[str] = []
+    if possible_wrapper_page:
+        reason_codes.append("possible_wrapper_page")
+    if possible_lead_form_page:
+        reason_codes.append("possible_lead_form_page")
+    if possible_download_landing_page:
+        reason_codes.append("possible_download_landing_page")
+    if possible_resource_catalog_page:
+        reason_codes.append("possible_resource_catalog_page")
+    if insufficient_substantive_body:
+        reason_codes.append("insufficient_substantive_body")
+    if high_chrome_to_substance_ratio:
+        reason_codes.append("high_chrome_to_substantive_content_ratio")
+    if report_title_with_little_body:
+        reason_codes.append("report_title_mention_with_little_adjacent_substance")
+    return reason_codes
+
+
 def _render_replay_quality_metadata(metadata: Mapping[str, object]) -> str:
     classification = _mapping_value(metadata, "replay_classification")
     reviewability = _mapping_value(classification, "reviewability_assessment")
@@ -165,6 +473,7 @@ def _render_replay_quality_metadata(metadata: Mapping[str, object]) -> str:
     profile = _mapping_value(metadata, "content_profile")
     boundary = _mapping_value(metadata, "extraction_boundary")
     chrome = _mapping_value(metadata, "page_chrome_suppression")
+    source_intent = _mapping_value(metadata, "source_intent_assessment")
     reasons = chrome.get("suppressed_reasons_by_code", {})
     reason_text = (
         "; ".join(f"{key}={value}" for key, value in sorted(reasons.items()))
@@ -212,6 +521,42 @@ def _render_replay_quality_metadata(metadata: Mapping[str, object]) -> str:
             ),
             f"- replay_quality_webpage_chrome_suppressed_reasons: {reason_text}",
             (
+                "- replay_quality_webpage_target_shape_assessment: "
+                f"{_metadata_value(source_intent, 'target_shape_assessment')}"
+            ),
+            (
+                "- replay_quality_webpage_possible_wrapper_page: "
+                f"{_metadata_value(source_intent, 'possible_wrapper_page')}"
+            ),
+            (
+                "- replay_quality_webpage_possible_lead_form_page: "
+                f"{_metadata_value(source_intent, 'possible_lead_form_page')}"
+            ),
+            (
+                "- replay_quality_webpage_possible_download_landing_page: "
+                f"{_metadata_value(source_intent, 'possible_download_landing_page')}"
+            ),
+            (
+                "- replay_quality_webpage_substantive_content_confidence: "
+                f"{_metadata_value(source_intent, 'substantive_content_confidence')}"
+            ),
+            (
+                "- replay_quality_webpage_likely_target_mismatch: "
+                f"{_metadata_value(source_intent, 'likely_target_mismatch')}"
+            ),
+            (
+                "- replay_quality_webpage_selected_target_url: "
+                f"{_metadata_value(source_intent, 'selected_target_url')}"
+            ),
+            (
+                "- replay_quality_webpage_target_selection_status: "
+                f"{_metadata_value(source_intent, 'target_selection_status')}"
+            ),
+            (
+                "- replay_quality_webpage_target_selection_reason: "
+                f"{_metadata_value(source_intent, 'target_selection_reason')}"
+            ),
+            (
                 "- replay_quality_deterministic_cleanup_scope: "
                 f"{_metadata_value(cleanup, 'scope')}"
             ),
@@ -237,10 +582,13 @@ def _build_public_webpage_replay_classification(
 ) -> dict[str, object]:
     profile = _mapping_value(metadata, "content_profile")
     chrome = _mapping_value(metadata, "page_chrome_suppression")
+    source_intent = _mapping_value(metadata, "source_intent_assessment")
     retained_character_count = _int_metadata_value(profile, "retained_character_count")
+    likely_target_mismatch = _bool_metadata_value(source_intent, "likely_target_mismatch")
     known_limitation_codes = [
         "public_webpage_visible_text_extraction_requires_source_review",
         "links_images_tables_comments_and_publication_metadata_may_be_incomplete",
+        "public_webpage_source_intent_shape_requires_operator_review",
     ]
     intentionally_retained_markers: list[str] = []
     if retained_character_count:
@@ -250,8 +598,15 @@ def _build_public_webpage_replay_classification(
         )
     else:
         known_limitation_codes.append("no_article_body_text_retained_after_cleanup")
+    if likely_target_mismatch:
+        known_limitation_codes.extend(
+            (
+                "possible_wrapper_or_gated_source_page_detected",
+                "likely_target_mismatch_review_required",
+            )
+        )
 
-    return build_public_source_replay_classification(
+    classification = build_public_source_replay_classification(
         source_type="public_webpage",
         retained_content_units=retained_character_count,
         retained_content_unit="retained_visible_text_character",
@@ -261,13 +616,59 @@ def _build_public_webpage_replay_classification(
             ),
         },
         remaining_artifact_counts_by_category={
+            "possible_source_intent_mismatch": 1 if likely_target_mismatch else 0,
             "reported_remaining_webpage_chrome_artifacts": 0,
         },
         known_limitation_codes=known_limitation_codes,
         intentionally_retained_markers=intentionally_retained_markers,
     )
+    if likely_target_mismatch and retained_character_count:
+        _mark_classification_as_likely_wrong_target(classification, source_intent)
+    return classification
+
+
+def _mark_classification_as_likely_wrong_target(
+    classification: dict[str, object],
+    source_intent: Mapping[str, object],
+) -> None:
+    classification["operational_state"] = "likely-wrong-capture-target"
+    classification["classification_labels"] = [
+        "likely-wrong-capture-target",
+        classification.get("promotion_state", ""),
+    ]
+    reason_codes = _string_list_value(source_intent, "reason_codes")
+    classification["state_reason_codes"] = [
+        "likely_target_mismatch",
+        *reason_codes,
+    ]
+    reviewability = classification.get("reviewability_assessment", {})
+    if isinstance(reviewability, dict):
+        reviewability["review_effort"] = "source_target_review"
+        reviewability["bounded_review_economics"] = False
+    promotion_safety = classification.get("promotion_safety", {})
+    if isinstance(promotion_safety, dict):
+        blockers = _string_sequence_value(promotion_safety.get("blocker_codes"))
+        blockers.append("likely_target_mismatch_requires_source_review")
+        promotion_safety["blocker_codes"] = list(dict.fromkeys(blockers))
 
 
 def _int_metadata_value(metadata: Mapping[str, object], key: str) -> int:
     value = metadata.get(key, 0)
     return value if isinstance(value, int) else 0
+
+
+def _bool_metadata_value(metadata: Mapping[str, object], key: str) -> bool:
+    value = metadata.get(key, False)
+    return value if isinstance(value, bool) else False
+
+
+def _string_list_value(metadata: Mapping[str, object], key: str) -> list[str]:
+    return _string_sequence_value(metadata.get(key, ()))
+
+
+def _string_sequence_value(value: object) -> list[str]:
+    if isinstance(value, Sequence) and not isinstance(value, str):
+        return [str(item) for item in value]
+    if value:
+        return [str(value)]
+    return []
