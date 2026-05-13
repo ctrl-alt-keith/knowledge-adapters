@@ -252,33 +252,48 @@ def _suppress_repeated_footer_lines_with_metadata(
 
         for numeric_depth in _adjacent_footer_depths(anchor_depth):
             numeric_occurrences: list[tuple[int, int, int]] = []
+            risk_occurrences: list[tuple[int, int, int]] = []
             risk_page_indexes: list[int] = []
-            missing_numeric_line = False
             for page_index, anchor_line_index in sorted(page_to_anchor_index.items()):
                 numeric_line_index = _line_index_at_trailing_depth(
                     trailing_entries_by_page[page_index], numeric_depth
                 )
                 if numeric_line_index is None:
-                    missing_numeric_line = True
-                    break
+                    continue
 
                 numeric_line = page_lines[page_index][numeric_line_index].strip()
                 numeric_value = _page_number_line_value(numeric_line)
                 if numeric_value is None:
-                    missing_numeric_line = True
-                    break
+                    continue
 
-                numeric_occurrences.append(
-                    (page_index, numeric_line_index, numeric_value)
-                )
                 if _has_nearby_meaningful_numeric_context(
                     page_lines[page_index],
                     anchor_line_index,
                     numeric_line_index,
                 ):
+                    risk_occurrences.append(
+                        (page_index, numeric_line_index, numeric_value)
+                    )
                     risk_page_indexes.append(page_index)
+                    continue
 
-            if missing_numeric_line or len(numeric_occurrences) < min_repeated_pages:
+                numeric_occurrences.append(
+                    (page_index, numeric_line_index, numeric_value)
+                )
+
+            if len(numeric_occurrences) < min_repeated_pages:
+                if risk_page_indexes:
+                    skipped_numeric_risk_count += len(risk_occurrences)
+                    skipped_numeric_risk_cases.append(
+                        {
+                            "anchor_signature": anchor_signature,
+                            "anchor_depth": anchor_depth,
+                            "numeric_depth": numeric_depth,
+                            "page_count": len(numeric_occurrences) + len(risk_occurrences),
+                            "risk_page_count": len(risk_page_indexes),
+                            "reason": "meaningful_numeric_context_near_footer_candidate",
+                        }
+                    )
                 continue
 
             if not _numeric_values_are_in_page_order(numeric_occurrences):
@@ -296,22 +311,14 @@ def _suppress_repeated_footer_lines_with_metadata(
                 continue
 
             if risk_page_indexes:
-                skipped_numeric_risk_count += len(numeric_occurrences)
-                skipped_numeric_risk_cases.append(
-                    {
-                        "anchor_signature": anchor_signature,
-                        "anchor_depth": anchor_depth,
-                        "numeric_depth": numeric_depth,
-                        "page_count": len(numeric_occurrences),
-                        "risk_page_count": len(risk_page_indexes),
-                        "reason": "meaningful_numeric_context_near_footer_candidate",
-                    }
-                )
-                continue
+                skipped_numeric_risk_count += len(risk_occurrences)
 
             footer_depths = _repeated_footer_block_depths(
                 trailing_entries_by_page,
-                tuple(page_to_anchor_index),
+                tuple(
+                    page_index
+                    for page_index, _line_index, _numeric_value in numeric_occurrences
+                ),
                 anchor_depth,
                 numeric_depth,
             )

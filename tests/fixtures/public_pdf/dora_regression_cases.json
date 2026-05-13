@@ -175,6 +175,48 @@
       ]
     },
     {
+      "id": "version_footer_missing_one_adjacent_page_number",
+      "description": "Real DORA ROI replay shape where one repeated version footer follows a fused page-number artifact; the majority of safely anchored numeric pairs is still suppressed while the fused line is retained.",
+      "expectation": "normalized",
+      "tags": ["required_case", "previous_dora_replay_failure", "footer"],
+      "raw_pages": [
+        "ROI calculation and\nfinancial modeling\n2\nv. 2026.1",
+        "Generating more code\nwithout proper oversight can\nincrease verification overhead and\nlead to long-term technical debt.\n3\nv. 2026.1",
+        "Capabilities guidance\nMap your AI investment roadmap43\nv. 2026.1",
+        "References\n4. \"DORA Community.\"\n5. \"DORA ROI of AI-assisted software development calculator.\"\n59\nv. 2026.1",
+        "Track delivery performance\nto manage risk and velocity\n60\nv. 2026.1"
+      ],
+      "expected_pages": [
+        "ROI calculation and\nfinancial modeling",
+        "Generating more code\nwithout proper oversight can\nincrease verification overhead and\nlead to long-term technical debt.",
+        "Capabilities guidance\nMap your AI investment roadmap43\nv. 2026.1",
+        "References\n4. \"DORA Community.\"\n5. \"DORA ROI of AI-assisted software development calculator.\"\n59\nv. 2026.1",
+        "Track delivery performance\nto manage risk and velocity"
+      ],
+      "expected_metadata": {
+        "repeated_footer_suppression": {
+          "activity": "suppressed",
+          "suppressed_line_count": 6,
+          "affected_page_count": 3,
+          "detected_anchored_footer_block_count": 1,
+          "suppressed_anchored_footer_block_count": 1,
+          "suppressed_numeric_page_line_count": 3,
+          "skipped_numeric_risk_count": 1
+        },
+        "footer_page_number_noise_diagnostics": {
+          "repeated_trailing_footer_block_count": 2,
+          "repeated_bare_numeric_trailing_signature_count": 1,
+          "bare_numeric_trailing_line_count": 4,
+          "mid_page_footer_like_line_count": 0
+        }
+      },
+      "expected_markdown_metadata_lines": [
+        "- replay_quality_repeated_footer_suppressed_line_count: 6",
+        "- replay_quality_repeated_footer_suppressed_numeric_page_line_count: 3",
+        "- replay_quality_repeated_footer_skipped_numeric_risk_count: 1"
+      ]
+    },
+    {
       "id": "url_scheme_spacing_artifacts",
       "description": "Broken URL scheme spacing from extraction is repaired without changing surrounding prose.",
       "expectation": "normalized",

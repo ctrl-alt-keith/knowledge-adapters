@@ -24,6 +24,7 @@ REQUIRED_CASE_IDS = {
     "page_number_footer_pairs",
     "repeated_trailing_footer_blocks",
     "version_footer_after_bare_page_number",
+    "version_footer_missing_one_adjacent_page_number",
     "url_scheme_spacing_artifacts",
     "url_path_line_wrap_artifacts",
     "mid_page_footer_like_text",
