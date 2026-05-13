@@ -31,8 +31,53 @@
       },
       "expected_markdown_metadata_lines": [
         "- replay_quality_metadata_note: informational only; does not authorize retention or promotion",
+        "- replay_quality_operational_state: review-ready",
+        "- replay_quality_promotion_state: unsafe-to-promote",
+        "- replay_quality_review_effort: bounded",
         "- replay_quality_webpage_chrome_suppressed_paragraph_count: 11",
         "- replay_quality_webpage_article_body_text_retained_for_review: True"
+      ]
+    },
+    {
+      "id": "chrome_only_diagnostic_replay",
+      "description": "A sanitized page shape with only known chrome is classified as diagnostic-only because no reviewable source text remains.",
+      "raw_content": "Subscribe Sign in\n\nShare\n\nReady for more?\n\nSubscribe\n\n© 2026 Example Author · Privacy ∙ Terms ∙ Collection notice",
+      "expected_content": "",
+      "expected_metadata": {
+        "page_chrome_suppression": {
+          "activity": "suppressed",
+          "suppressed_paragraph_count": 5,
+          "suppressed_reasons_by_code": {
+            "subscription_sign_in_prompt": 1,
+            "share_prompt": 1,
+            "subscription_prompt": 2,
+            "footer_legal_text": 1
+          }
+        },
+        "replay_classification": {
+          "operational_state": "diagnostic-only",
+          "promotion_state": "unsafe-to-promote",
+          "state_reason_codes": ["no_retained_content"],
+          "reviewability_assessment": {
+            "review_worth_doing": false,
+            "review_effort": "not_useful",
+            "bounded_review_economics": false
+          },
+          "promotion_safety": {
+            "promotion_capable": false,
+            "blocker_codes": [
+              "public_source_candidate_requires_human_retention_review",
+              "no_retained_content"
+            ]
+          }
+        }
+      },
+      "expected_markdown_metadata_lines": [
+        "- replay_quality_operational_state: diagnostic-only",
+        "- replay_quality_promotion_state: unsafe-to-promote",
+        "- replay_quality_review_effort: not_useful",
+        "- replay_quality_bounded_review_economics: False",
+        "- replay_quality_webpage_chrome_suppressed_paragraph_count: 5"
       ]
     }
   ]

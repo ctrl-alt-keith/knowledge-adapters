@@ -6,6 +6,8 @@ import json
 import re
 from collections.abc import Mapping
 
+from knowledge_adapters.replay_quality import build_public_source_replay_classification
+
 REPLAY_QUALITY_METADATA_NOTE = (
     "informational only; does not authorize retention or promotion"
 )
@@ -87,6 +89,9 @@ def normalize_extracted_text_with_replay_metadata(
             "suppressed_examples": suppressed_examples,
         },
     }
+    metadata["replay_classification"] = _build_public_webpage_replay_classification(
+        metadata
+    )
     return retained_content, metadata
 
 
@@ -153,6 +158,10 @@ def _short_diagnostic_excerpt(paragraph: str) -> str:
 
 
 def _render_replay_quality_metadata(metadata: Mapping[str, object]) -> str:
+    classification = _mapping_value(metadata, "replay_classification")
+    reviewability = _mapping_value(classification, "reviewability_assessment")
+    cleanup = _mapping_value(classification, "deterministic_cleanup")
+    remaining = _mapping_value(classification, "remaining_artifacts")
     profile = _mapping_value(metadata, "content_profile")
     boundary = _mapping_value(metadata, "extraction_boundary")
     chrome = _mapping_value(metadata, "page_chrome_suppression")
@@ -166,6 +175,30 @@ def _render_replay_quality_metadata(metadata: Mapping[str, object]) -> str:
         (
             f"- replay_quality_metadata_note: {REPLAY_QUALITY_METADATA_NOTE}",
             (
+                "- replay_quality_operational_state: "
+                f"{_metadata_value(classification, 'operational_state')}"
+            ),
+            (
+                "- replay_quality_promotion_state: "
+                f"{_metadata_value(classification, 'promotion_state')}"
+            ),
+            (
+                "- replay_quality_review_effort: "
+                f"{_metadata_value(reviewability, 'review_effort')}"
+            ),
+            (
+                "- replay_quality_bounded_review_economics: "
+                f"{_metadata_value(reviewability, 'bounded_review_economics')}"
+            ),
+            (
+                "- replay_quality_deterministic_cleanup_count: "
+                f"{_metadata_value(reviewability, 'deterministic_cleanup_count')}"
+            ),
+            (
+                "- replay_quality_remaining_artifact_count: "
+                f"{_metadata_value(remaining, 'total_count')}"
+            ),
+            (
                 "- replay_quality_webpage_extraction_boundary: "
                 f"{_metadata_value(boundary, 'basis')}"
             ),
@@ -178,6 +211,10 @@ def _render_replay_quality_metadata(metadata: Mapping[str, object]) -> str:
                 f"{_metadata_value(chrome, 'suppressed_paragraph_count')}"
             ),
             f"- replay_quality_webpage_chrome_suppressed_reasons: {reason_text}",
+            (
+                "- replay_quality_deterministic_cleanup_scope: "
+                f"{_metadata_value(cleanup, 'scope')}"
+            ),
             (
                 "- replay_quality_metadata_json: "
                 f"{json.dumps(dict(metadata), sort_keys=True, separators=(',', ':'))}"
@@ -193,3 +230,44 @@ def _mapping_value(metadata: Mapping[str, object], key: str) -> Mapping[str, obj
 
 def _metadata_value(metadata: Mapping[str, object], key: str) -> object:
     return metadata.get(key, "")
+
+
+def _build_public_webpage_replay_classification(
+    metadata: Mapping[str, object],
+) -> dict[str, object]:
+    profile = _mapping_value(metadata, "content_profile")
+    chrome = _mapping_value(metadata, "page_chrome_suppression")
+    retained_character_count = _int_metadata_value(profile, "retained_character_count")
+    known_limitation_codes = [
+        "public_webpage_visible_text_extraction_requires_source_review",
+        "links_images_tables_comments_and_publication_metadata_may_be_incomplete",
+    ]
+    intentionally_retained_markers: list[str] = []
+    if retained_character_count:
+        known_limitation_codes.append("article_body_text_is_retained_not_summarized")
+        intentionally_retained_markers.append(
+            "article_body_text_retained_intentionally_for_review"
+        )
+    else:
+        known_limitation_codes.append("no_article_body_text_retained_after_cleanup")
+
+    return build_public_source_replay_classification(
+        source_type="public_webpage",
+        retained_content_units=retained_character_count,
+        retained_content_unit="retained_visible_text_character",
+        deterministic_cleanup_counts_by_category={
+            "page_chrome_paragraphs_suppressed": _int_metadata_value(
+                chrome, "suppressed_paragraph_count"
+            ),
+        },
+        remaining_artifact_counts_by_category={
+            "reported_remaining_webpage_chrome_artifacts": 0,
+        },
+        known_limitation_codes=known_limitation_codes,
+        intentionally_retained_markers=intentionally_retained_markers,
+    )
+
+
+def _int_metadata_value(metadata: Mapping[str, object], key: str) -> int:
+    value = metadata.get(key, 0)
+    return value if isinstance(value, int) else 0

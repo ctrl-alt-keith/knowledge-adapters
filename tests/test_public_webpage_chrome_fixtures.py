@@ -35,12 +35,14 @@ ARTICLE_CHROME_CASES = _load_fixture_cases()
 def test_public_webpage_article_chrome_fixture_area_is_present() -> None:
     case_ids = {str(case["id"]) for case in ARTICLE_CHROME_CASES}
 
-    assert case_ids == {"article_body_plus_substack_chrome"}
+    assert case_ids == {
+        "article_body_plus_substack_chrome",
+        "chrome_only_diagnostic_replay",
+    }
 
 
 def test_public_webpage_chrome_suppression_keeps_article_body_with_metadata() -> None:
-    case = ARTICLE_CHROME_CASES[0]
-
+    case = _case_by_id("article_body_plus_substack_chrome")
     content, metadata = normalize_extracted_text_with_replay_metadata(
         str(case["raw_content"])
     )
@@ -69,6 +71,31 @@ def test_public_webpage_chrome_suppression_keeps_article_body_with_metadata() ->
     assert "Privacy" not in markdown_content
 
 
+def test_public_webpage_chrome_only_fixture_is_diagnostic_only() -> None:
+    case = _case_by_id("chrome_only_diagnostic_replay")
+
+    content, metadata = normalize_extracted_text_with_replay_metadata(
+        str(case["raw_content"])
+    )
+
+    assert content == ""
+    _assert_metadata_contains(metadata, _mapping(case, "expected_metadata"))
+
+    markdown = normalize_to_markdown(
+        {
+            "title": "Chrome Only",
+            "canonical_id": "fixture://chrome-only",
+            "source_url": "fixture://chrome-only",
+            "fetched_at": "2026-05-13T12:00:00Z",
+            "content": content,
+            "replay_quality_metadata": metadata,
+        }
+    )
+
+    for expected_line in _string_sequence(case, "expected_markdown_metadata_lines"):
+        assert expected_line in markdown
+
+
 def _assert_metadata_contains(
     actual: Mapping[str, object],
     expected: Mapping[str, object],
@@ -92,6 +119,13 @@ def _mapping(case: Mapping[str, object], key: str) -> Mapping[str, object]:
     value = case[key]
     assert isinstance(value, Mapping)
     return cast(Mapping[str, object], value)
+
+
+def _case_by_id(case_id: str) -> Mapping[str, object]:
+    for case in ARTICLE_CHROME_CASES:
+        if case["id"] == case_id:
+            return case
+    raise AssertionError(f"Unknown public webpage fixture case: {case_id}")
 
 
 def _string_sequence(case: Mapping[str, object], key: str) -> list[str]:

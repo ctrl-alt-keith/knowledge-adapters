@@ -494,6 +494,57 @@
       "expected_markdown_metadata_lines": [
         "- replay_quality_one_letter_line_wrap_repair_count: 0"
       ]
+    },
+    {
+      "id": "empty_extraction_diagnostic_only",
+      "description": "A sanitized public PDF replay shape with no extracted text is classified as diagnostic-only and unsafe to promote.",
+      "expectation": "unchanged",
+      "tags": ["required_case", "review_classification", "empty_extraction"],
+      "raw_pages": [
+        "",
+        ""
+      ],
+      "expected_pages": [
+        "",
+        ""
+      ],
+      "expected_metadata": {
+        "page_count_context": {
+          "page_count": 2,
+          "pages_with_extracted_text_count": 0,
+          "empty_page_count": 2
+        },
+        "replay_classification": {
+          "operational_state": "diagnostic-only",
+          "promotion_state": "unsafe-to-promote",
+          "state_reason_codes": ["no_retained_content"],
+          "reviewability_assessment": {
+            "review_worth_doing": false,
+            "review_effort": "not_useful",
+            "bounded_review_economics": false
+          },
+          "promotion_safety": {
+            "promotion_capable": false,
+            "blocker_codes": [
+              "public_source_candidate_requires_human_retention_review",
+              "empty_pages_without_extracted_text",
+              "no_retained_content"
+            ]
+          }
+        },
+        "extraction_warnings": [
+          "pdf_layout_tables_figures_footnotes_headers_reading_order_may_be_incomplete",
+          "scanned_image_only_pages_may_be_missing",
+          "empty_pages_without_extracted_text"
+        ]
+      },
+      "expected_markdown_metadata_lines": [
+        "- replay_quality_operational_state: diagnostic-only",
+        "- replay_quality_promotion_state: unsafe-to-promote",
+        "- replay_quality_review_effort: not_useful",
+        "- replay_quality_bounded_review_economics: False",
+        "- replay_quality_empty_page_count: 2"
+      ]
     }
   ]
 }
