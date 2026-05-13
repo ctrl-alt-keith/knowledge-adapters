@@ -336,12 +336,13 @@ def test_public_webpage_commercial_book_landing_does_not_select_target(
             """
             <html><head><title>Team Topologies book</title></head>
             <body>
-              <h1>Team Topologies book</h1>
-              <p>Buy now</p>
-              <p>Paperback</p>
-              <p>ebook</p>
-              <p>Training</p>
-              <p>Workshops</p>
+              <h1>Team Topologies book by Matthew Skelton and Manuel Pais</h1>
+              <p>Enterprise Success</p>
+              <p>Assessments</p>
+              <p>Training Partners</p>
+              <p>Resources</p>
+              <p>Books</p>
+              <p>Shop</p>
               <a href="https://teamtopologies.com/resources/team-topologies-report.pdf">
                 Download sample
               </a>
@@ -354,7 +355,7 @@ def test_public_webpage_commercial_book_landing_does_not_select_target(
         lambda url: (_ for _ in ()).throw(AssertionError("unexpected PDF fetch")),
     )
 
-    document = fetch_webpage("https://teamtopologies.com/product/team-topologies-book/")
+    document = fetch_webpage("https://teamtopologies.com/book")
 
     assert isinstance(document, PublicWebpageDocument)
     source_intent = document.replay_quality_metadata["source_intent_assessment"]

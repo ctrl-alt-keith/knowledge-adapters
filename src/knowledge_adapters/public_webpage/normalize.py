@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping, Sequence
+from urllib.parse import urlparse
 
 from knowledge_adapters.replay_quality import build_public_source_replay_classification
 
@@ -369,6 +370,20 @@ def _assess_source_intent(
         and substantive_paragraph_count < 4
         and retained_character_count < 5000
     )
+    url_suggests_commercial_landing = _url_suggests_commercial_landing(
+        requested_url=requested_url,
+        resolved_url=resolved_url,
+    )
+    if (
+        url_suggests_commercial_landing
+        and commercial_book_signal_count >= 1
+        and (
+            catalog_navigation_count >= 4
+            or short_selector_like_paragraph_count >= 20
+            or form_field_count >= 2
+        )
+    ):
+        commercial_landing_page_detected = True
     mutable_index_page_detected = (
         research_index_signal_count >= 2
         and short_selector_like_paragraph_count >= 6
@@ -383,6 +398,16 @@ def _assess_source_intent(
         and short_selector_like_paragraph_count >= 8
         and substantive_paragraph_count < 4
     )
+    url_suggests_mutable_research_index = _url_suggests_mutable_research_index(
+        requested_url=requested_url,
+        resolved_url=resolved_url,
+    )
+    if (
+        url_suggests_mutable_research_index
+        and short_selector_like_paragraph_count >= 40
+        and (research_index_signal_count >= 1 or catalog_navigation_count >= 4)
+    ):
+        mutable_index_page_detected = True
     historical_report_redirect_detected = _historical_report_redirect_detected(
         requested_url=requested_url,
         resolved_url=resolved_url,
@@ -475,8 +500,10 @@ def _assess_source_intent(
         "possible_download_landing_page": possible_download_landing_page,
         "possible_resource_catalog_page": possible_resource_catalog_page,
         "commercial_landing_page_detected": commercial_landing_page_detected,
+        "url_suggests_commercial_landing": url_suggests_commercial_landing,
         "mutable_index_page_detected": mutable_index_page_detected,
         "chapter_navigation_source_detected": chapter_navigation_source_detected,
+        "url_suggests_mutable_research_index": url_suggests_mutable_research_index,
         "historical_report_redirect_detected": historical_report_redirect_detected,
         "stable_research_asset_detected": stable_research_asset_detected,
         "canonical_target_resolution_status": (
@@ -658,6 +685,36 @@ def _stable_research_asset_detected(
         term in first_text for term in ("abstract", "doi", "published", "proceedings")
     ):
         return True
+    return False
+
+
+def _url_suggests_mutable_research_index(
+    *,
+    requested_url: str | None,
+    resolved_url: str | None,
+) -> bool:
+    urls = [url for url in (requested_url, resolved_url) if url]
+    for url in urls:
+        parsed = urlparse(url)
+        path = (parsed.path or "/").casefold()
+        if "research" in path:
+            return True
+        if path in {"", "/"}:
+            return True
+    return False
+
+
+def _url_suggests_commercial_landing(
+    *,
+    requested_url: str | None,
+    resolved_url: str | None,
+) -> bool:
+    urls = [url for url in (requested_url, resolved_url) if url]
+    for url in urls:
+        parsed = urlparse(url)
+        path = (parsed.path or "/").casefold()
+        if any(part in path for part in ("/book", "/books", "/product", "/shop")):
+            return True
     return False
 
 

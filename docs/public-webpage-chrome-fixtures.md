@@ -65,13 +65,12 @@ Live observation on May 13, 2026: the Google Cloud 2025 DORA page at
 target, and routed replay through the public PDF adapter:
 `https://services.google.com/fh/files/misc/2025_state_of_ai_assisted_software_development.pdf`.
 
-Operational-research observations on May 13, 2026: IT Revolution Accelerate and
-ACM Queue SPACE returned HTTP 403 challenge pages to direct replay requests;
-the Puppet 2021 State of DevOps URL redirected to the current State of DevOps
-hub; Microsoft Research developer tools returned HTTP 403; Team Topologies
-served a commercial/book landing shape; METR research and GitHub Octoverse
-served mutable research/index pages; and the Google SRE workbook table of
-contents served a stable chapter-navigation page.
+Operational-research observations on May 13, 2026 are recorded in
+`docs/public-operational-research-live-proof.md`. The short version: no
+previously failed or diagnostic source became a proven selected-target live
+success in PR #291; the PR improves classification clarity while preserving
+conservative no-selection behavior for ambiguous, mutable, commercial, and
+chapter-navigation sources.
 
 The shared replay classification reports `review-ready` for retained or routed
 substantive target content, `likely-wrong-capture-target` for retained wrapper
