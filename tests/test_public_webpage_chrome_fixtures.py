@@ -41,6 +41,8 @@ def test_public_webpage_article_chrome_fixture_area_is_present() -> None:
         "clean_substantive_report_page",
         "dora_style_download_landing_page",
         "google_cloud_lead_form_resources_page",
+        "mutable_research_portal_index",
+        "sre_workbook_table_of_contents",
         "false_positive_report_body_with_download_reference",
         "false_positive_article_body_with_contact_sales_phrase",
     }

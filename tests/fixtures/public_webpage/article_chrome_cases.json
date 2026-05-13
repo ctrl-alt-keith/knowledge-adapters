@@ -203,6 +203,60 @@
       ]
     },
     {
+      "id": "mutable_research_portal_index",
+      "description": "A research portal or mutable index with topic links but little body is labeled as a mutable index, not a stable canonical asset.",
+      "requested_url": "https://research.example.com/research-area/developer-tools/",
+      "resolved_url": "https://research.example.com/research-area/developer-tools/",
+      "raw_content": "Developer Tools Research\n\nResearch areas\n\nLatest research\n\nPublications\n\nResearch projects\n\nTopics\n\nDeveloper productivity\n\nProgram analysis\n\nSoftware engineering\n\nAll research\n\nNews\n\nPeople\n\nLabs\n\nReports\n\nBlog\n\nExplore projects across developer tools and software engineering.",
+      "expected_content": "Developer Tools Research\n\nResearch areas\n\nLatest research\n\nPublications\n\nResearch projects\n\nTopics\n\nDeveloper productivity\n\nProgram analysis\n\nSoftware engineering\n\nAll research\n\nNews\n\nPeople\n\nLabs\n\nReports\n\nBlog\n\nExplore projects across developer tools and software engineering.",
+      "expected_metadata": {
+        "source_intent_assessment": {
+          "target_shape_assessment": "mutable_index_page",
+          "possible_wrapper_page": true,
+          "mutable_index_page_detected": true,
+          "stable_research_asset_detected": false,
+          "canonical_source_confidence": "none",
+          "likely_target_mismatch": true
+        },
+        "replay_classification": {
+          "operational_state": "likely-wrong-capture-target"
+        }
+      },
+      "expected_markdown_metadata_lines": [
+        "- replay_quality_operational_state: likely-wrong-capture-target",
+        "- replay_quality_webpage_target_shape_assessment: mutable_index_page",
+        "- replay_quality_webpage_mutable_index_page_detected: True",
+        "- replay_quality_webpage_stable_research_asset_detected: False",
+        "- replay_quality_webpage_canonical_source_confidence: none"
+      ]
+    },
+    {
+      "id": "sre_workbook_table_of_contents",
+      "description": "A book table of contents with many chapter entries is labeled as chapter navigation rather than a substantive article.",
+      "requested_url": "https://sre.example.com/workbook/table-of-contents/",
+      "resolved_url": "https://sre.example.com/workbook/table-of-contents/",
+      "raw_content": "Site Reliability Engineering Workbook\n\nTable of contents\n\nPart I\n\nChapter 1\n\nHow SRE relates to DevOps\n\nChapter 2\n\nImplementing SLOs\n\nChapter 3\n\nError budgets\n\nPart II\n\nChapter 4\n\nOn-call\n\nChapter 5\n\nIncident response\n\nChapter 6\n\nMonitoring\n\nAppendix\n\nGlossary",
+      "expected_content": "Site Reliability Engineering Workbook\n\nTable of contents\n\nPart I\n\nChapter 1\n\nHow SRE relates to DevOps\n\nChapter 2\n\nImplementing SLOs\n\nChapter 3\n\nError budgets\n\nPart II\n\nChapter 4\n\nOn-call\n\nChapter 5\n\nIncident response\n\nChapter 6\n\nMonitoring\n\nAppendix\n\nGlossary",
+      "expected_metadata": {
+        "source_intent_assessment": {
+          "target_shape_assessment": "chapter_navigation_source",
+          "chapter_navigation_source_detected": true,
+          "mutable_index_page_detected": false,
+          "canonical_source_confidence": "low",
+          "likely_target_mismatch": true
+        },
+        "replay_classification": {
+          "operational_state": "likely-wrong-capture-target"
+        }
+      },
+      "expected_markdown_metadata_lines": [
+        "- replay_quality_operational_state: likely-wrong-capture-target",
+        "- replay_quality_webpage_target_shape_assessment: chapter_navigation_source",
+        "- replay_quality_webpage_chapter_navigation_source_detected: True",
+        "- replay_quality_webpage_canonical_source_confidence: low"
+      ]
+    },
+    {
       "id": "false_positive_report_body_with_download_reference",
       "description": "A substantive report page can mention a downloadable appendix without becoming a download landing page.",
       "raw_content": "Example Resilience Report\n\nThe report body describes incident response patterns across several teams. It includes enough context to explain the research questions, the sample boundaries, and the way each measure was collected. Download the appendix is mentioned once as a supporting artifact, not as the main page structure.\n\nThe next section compares reliability outcomes across services and deployment models. It uses complete sentences, describes the interpretation limits, and gives reviewers a real body of text to inspect. Contact information is not presented as a form and there is no country selector.\n\nThe conclusion explains where the evidence is strongest and where additional review is needed. It distinguishes operational observations from recommendations. It keeps the source material in paragraph form so the adapter should not treat it as a resource catalog.",

@@ -190,19 +190,31 @@ _CTA_PHRASES = {
     "book a meeting",
     "contact sales",
     "download now",
+    "download paper",
+    "download the paper",
     "download report",
     "download the report",
     "get the report",
+    "read paper",
+    "read the paper",
     "request a demo",
     "request demo",
     "submit",
+    "view paper",
+    "view the paper",
 }
 _DOWNLOAD_CTA_PHRASES = {
     "access the report",
     "download now",
+    "download paper",
+    "download the paper",
     "download report",
     "download the report",
     "get the report",
+    "read paper",
+    "read the paper",
+    "view paper",
+    "view the paper",
 }
 _LEGAL_OR_CONSENT_PHRASES = {
     "by submitting this form",
@@ -231,6 +243,53 @@ _CATALOG_NAVIGATION_TERMS = {
     "whitepapers",
 }
 _REPORT_TITLE_TERMS = {"report", "research", "state of devops", "dora"}
+_COMMERCIAL_BOOK_TERMS = {
+    "add to cart",
+    "audiobook",
+    "book",
+    "buy now",
+    "consulting",
+    "ebook",
+    "kindle",
+    "paperback",
+    "product",
+    "purchase",
+    "shop",
+    "training",
+    "workshop",
+}
+_RESEARCH_INDEX_TERMS = {
+    "all research",
+    "developer tools",
+    "latest research",
+    "octoverse",
+    "publications",
+    "research areas",
+    "research index",
+    "research portal",
+    "research projects",
+    "topics",
+}
+_CHAPTER_NAVIGATION_TERMS = {
+    "chapter",
+    "chapters",
+    "contents",
+    "part i",
+    "part ii",
+    "table of contents",
+    "toc",
+    "workbook",
+}
+_STABLE_RESEARCH_ASSET_URL_PATTERNS = (
+    ".pdf",
+    "/article/",
+    "/chapter/",
+    "/detail.cfm",
+    "/paper/",
+    "/publication/",
+    "/report/",
+    "/whitepaper/",
+)
 
 
 def _assess_source_intent(
@@ -276,6 +335,21 @@ def _assess_source_intent(
     short_selector_like_paragraph_count = sum(
         1 for paragraph in extracted_paragraphs if _is_selector_like_paragraph(paragraph)
     )
+    commercial_book_signal_count = sum(
+        1
+        for paragraph in extracted_paragraphs[:30]
+        if _contains_phrase(paragraph, _COMMERCIAL_BOOK_TERMS)
+    )
+    research_index_signal_count = sum(
+        1
+        for paragraph in extracted_paragraphs[:40]
+        if _contains_phrase(paragraph, _RESEARCH_INDEX_TERMS)
+    )
+    chapter_navigation_signal_count = sum(
+        1
+        for paragraph in extracted_paragraphs[:50]
+        if _contains_phrase(paragraph, _CHAPTER_NAVIGATION_TERMS)
+    )
 
     possible_lead_form_page = form_field_count >= 3 and (
         download_cta_count >= 1 or legal_or_consent_count >= 1
@@ -289,6 +363,35 @@ def _assess_source_intent(
         catalog_navigation_count >= 8
         and substantive_paragraph_count < 4
         and short_selector_like_paragraph_count >= 12
+    )
+    commercial_landing_page_detected = (
+        commercial_book_signal_count >= 3
+        and substantive_paragraph_count < 4
+        and retained_character_count < 5000
+    )
+    mutable_index_page_detected = (
+        research_index_signal_count >= 2
+        and short_selector_like_paragraph_count >= 6
+        and substantive_paragraph_count < 4
+    ) or (
+        possible_resource_catalog_page
+        and research_index_signal_count >= 1
+        and substantive_paragraph_count < 4
+    )
+    chapter_navigation_source_detected = (
+        chapter_navigation_signal_count >= 3
+        and short_selector_like_paragraph_count >= 8
+        and substantive_paragraph_count < 4
+    )
+    historical_report_redirect_detected = _historical_report_redirect_detected(
+        requested_url=requested_url,
+        resolved_url=resolved_url,
+    )
+    stable_research_asset_detected = _stable_research_asset_detected(
+        requested_url=requested_url,
+        resolved_url=resolved_url,
+        retained_paragraphs=retained_paragraphs,
+        substantive_paragraph_count=substantive_paragraph_count,
     )
     high_chrome_to_substance_ratio = (
         total_character_count > 0
@@ -311,13 +414,16 @@ def _assess_source_intent(
         possible_lead_form_page
         or possible_download_landing_page
         or possible_resource_catalog_page
+        or commercial_landing_page_detected
+        or mutable_index_page_detected
         or high_chrome_to_substance_ratio
+        or historical_report_redirect_detected
         or report_title_with_little_body
     )
     insufficient_substantive_body = (
         retained_character_count < 700 or substantive_paragraph_count < 2
     )
-    likely_target_mismatch = possible_wrapper_page or (
+    likely_target_mismatch = possible_wrapper_page or chapter_navigation_source_detected or (
         insufficient_substantive_body
         and retained_character_count > 0
         and (download_cta_count > 0 or catalog_navigation_count >= 4)
@@ -332,12 +438,27 @@ def _assess_source_intent(
         possible_lead_form_page=possible_lead_form_page,
         possible_download_landing_page=possible_download_landing_page,
         possible_resource_catalog_page=possible_resource_catalog_page,
+        commercial_landing_page_detected=commercial_landing_page_detected,
+        mutable_index_page_detected=mutable_index_page_detected,
+        chapter_navigation_source_detected=chapter_navigation_source_detected,
+        historical_report_redirect_detected=historical_report_redirect_detected,
+        stable_research_asset_detected=stable_research_asset_detected,
         insufficient_substantive_body=insufficient_substantive_body,
         high_chrome_to_substance_ratio=high_chrome_to_substance_ratio,
         report_title_with_little_body=report_title_with_little_body,
     )
 
-    if likely_target_mismatch:
+    if commercial_landing_page_detected:
+        target_shape_assessment = "commercial_landing_page"
+    elif mutable_index_page_detected:
+        target_shape_assessment = "mutable_index_page"
+    elif chapter_navigation_source_detected:
+        target_shape_assessment = "chapter_navigation_source"
+    elif historical_report_redirect_detected and likely_target_mismatch:
+        target_shape_assessment = "historical_report_redirect"
+    elif stable_research_asset_detected and not likely_target_mismatch:
+        target_shape_assessment = "stable_canonical_asset"
+    elif likely_target_mismatch:
         target_shape_assessment = "likely_wrong_capture_target"
     elif retained_character_count == 0:
         target_shape_assessment = "no_retained_content"
@@ -353,6 +474,26 @@ def _assess_source_intent(
         "possible_lead_form_page": possible_lead_form_page,
         "possible_download_landing_page": possible_download_landing_page,
         "possible_resource_catalog_page": possible_resource_catalog_page,
+        "commercial_landing_page_detected": commercial_landing_page_detected,
+        "mutable_index_page_detected": mutable_index_page_detected,
+        "chapter_navigation_source_detected": chapter_navigation_source_detected,
+        "historical_report_redirect_detected": historical_report_redirect_detected,
+        "stable_research_asset_detected": stable_research_asset_detected,
+        "canonical_target_resolution_status": (
+            "not_resolved_yet" if likely_target_mismatch else "not_applicable"
+        ),
+        "canonical_source_confidence": _canonical_source_confidence(
+            stable_research_asset_detected=stable_research_asset_detected,
+            mutable_index_page_detected=mutable_index_page_detected,
+            commercial_landing_page_detected=commercial_landing_page_detected,
+            chapter_navigation_source_detected=chapter_navigation_source_detected,
+            historical_report_redirect_detected=historical_report_redirect_detected,
+            likely_target_mismatch=likely_target_mismatch,
+        ),
+        "redirect_chain_summary": _redirect_chain_summary(
+            requested_url=requested_url,
+            resolved_url=resolved_url,
+        ),
         "substantive_content_confidence": substantive_content_confidence,
         "likely_target_mismatch": likely_target_mismatch,
         "reason_codes": reason_codes,
@@ -367,7 +508,10 @@ def _assess_source_intent(
             "cta_paragraphs": cta_count,
             "download_cta_paragraphs": download_cta_count,
             "form_field_paragraphs": form_field_count,
+            "commercial_book_signal_paragraphs": commercial_book_signal_count,
             "legal_or_consent_paragraphs": legal_or_consent_count,
+            "research_index_signal_paragraphs": research_index_signal_count,
+            "chapter_navigation_signal_paragraphs": chapter_navigation_signal_count,
             "report_title_mentions_near_top": report_title_mention_count,
             "short_selector_like_paragraphs": short_selector_like_paragraph_count,
             "substantive_body_paragraphs": substantive_paragraph_count,
@@ -443,6 +587,11 @@ def _source_intent_reason_codes(
     possible_lead_form_page: bool,
     possible_download_landing_page: bool,
     possible_resource_catalog_page: bool,
+    commercial_landing_page_detected: bool,
+    mutable_index_page_detected: bool,
+    chapter_navigation_source_detected: bool,
+    historical_report_redirect_detected: bool,
+    stable_research_asset_detected: bool,
     insufficient_substantive_body: bool,
     high_chrome_to_substance_ratio: bool,
     report_title_with_little_body: bool,
@@ -456,6 +605,16 @@ def _source_intent_reason_codes(
         reason_codes.append("possible_download_landing_page")
     if possible_resource_catalog_page:
         reason_codes.append("possible_resource_catalog_page")
+    if commercial_landing_page_detected:
+        reason_codes.append("commercial_landing_page_detected")
+    if mutable_index_page_detected:
+        reason_codes.append("mutable_index_page_detected")
+    if chapter_navigation_source_detected:
+        reason_codes.append("chapter_navigation_source_detected")
+    if historical_report_redirect_detected:
+        reason_codes.append("historical_report_redirect_detected")
+    if stable_research_asset_detected:
+        reason_codes.append("stable_research_asset_detected")
     if insufficient_substantive_body:
         reason_codes.append("insufficient_substantive_body")
     if high_chrome_to_substance_ratio:
@@ -463,6 +622,79 @@ def _source_intent_reason_codes(
     if report_title_with_little_body:
         reason_codes.append("report_title_mention_with_little_adjacent_substance")
     return reason_codes
+
+
+def _historical_report_redirect_detected(
+    *,
+    requested_url: str | None,
+    resolved_url: str | None,
+) -> bool:
+    if not requested_url or not resolved_url or requested_url == resolved_url:
+        return False
+    requested = requested_url.casefold()
+    resolved = resolved_url.casefold()
+    requested_years = set(re.findall(r"\b20\d{2}\b", requested))
+    if not requested_years:
+        return False
+    if not any(term in requested for term in ("report", "state-of-devops", "research")):
+        return False
+    return not requested_years <= set(re.findall(r"\b20\d{2}\b", resolved))
+
+
+def _stable_research_asset_detected(
+    *,
+    requested_url: str | None,
+    resolved_url: str | None,
+    retained_paragraphs: Sequence[str],
+    substantive_paragraph_count: int,
+) -> bool:
+    url_text = " ".join(url for url in (requested_url, resolved_url) if url).casefold()
+    if any(pattern in url_text for pattern in _STABLE_RESEARCH_ASSET_URL_PATTERNS):
+        return True
+    if "doi.org/" in url_text:
+        return True
+    first_text = _normalized_prompt_text(" ".join(retained_paragraphs[:8]))
+    if substantive_paragraph_count >= 2 and any(
+        term in first_text for term in ("abstract", "doi", "published", "proceedings")
+    ):
+        return True
+    return False
+
+
+def _canonical_source_confidence(
+    *,
+    stable_research_asset_detected: bool,
+    mutable_index_page_detected: bool,
+    commercial_landing_page_detected: bool,
+    chapter_navigation_source_detected: bool,
+    historical_report_redirect_detected: bool,
+    likely_target_mismatch: bool,
+) -> str:
+    if stable_research_asset_detected and not likely_target_mismatch:
+        return "high"
+    if historical_report_redirect_detected:
+        return "low"
+    if mutable_index_page_detected or commercial_landing_page_detected:
+        return "none"
+    if chapter_navigation_source_detected:
+        return "low"
+    return "none"
+
+
+def _redirect_chain_summary(
+    *,
+    requested_url: str | None,
+    resolved_url: str | None,
+) -> list[dict[str, object]]:
+    if not requested_url and not resolved_url:
+        return []
+    if requested_url and resolved_url and requested_url != resolved_url:
+        return [
+            {"position": 0, "role": "requested", "url": requested_url},
+            {"position": 1, "role": "final", "url": resolved_url},
+        ]
+    url = resolved_url or requested_url or ""
+    return [{"position": 0, "role": "requested_and_final", "url": url}]
 
 
 def _render_replay_quality_metadata(metadata: Mapping[str, object]) -> str:
@@ -537,12 +769,40 @@ def _render_replay_quality_metadata(metadata: Mapping[str, object]) -> str:
                 f"{_metadata_value(source_intent, 'possible_download_landing_page')}"
             ),
             (
+                "- replay_quality_webpage_commercial_landing_page_detected: "
+                f"{_metadata_value(source_intent, 'commercial_landing_page_detected')}"
+            ),
+            (
+                "- replay_quality_webpage_mutable_index_page_detected: "
+                f"{_metadata_value(source_intent, 'mutable_index_page_detected')}"
+            ),
+            (
+                "- replay_quality_webpage_chapter_navigation_source_detected: "
+                f"{_metadata_value(source_intent, 'chapter_navigation_source_detected')}"
+            ),
+            (
+                "- replay_quality_webpage_historical_report_redirect_detected: "
+                f"{_metadata_value(source_intent, 'historical_report_redirect_detected')}"
+            ),
+            (
+                "- replay_quality_webpage_stable_research_asset_detected: "
+                f"{_metadata_value(source_intent, 'stable_research_asset_detected')}"
+            ),
+            (
                 "- replay_quality_webpage_substantive_content_confidence: "
                 f"{_metadata_value(source_intent, 'substantive_content_confidence')}"
             ),
             (
                 "- replay_quality_webpage_likely_target_mismatch: "
                 f"{_metadata_value(source_intent, 'likely_target_mismatch')}"
+            ),
+            (
+                "- replay_quality_webpage_canonical_target_resolution_status: "
+                f"{_metadata_value(source_intent, 'canonical_target_resolution_status')}"
+            ),
+            (
+                "- replay_quality_webpage_canonical_source_confidence: "
+                f"{_metadata_value(source_intent, 'canonical_source_confidence')}"
             ),
             (
                 "- replay_quality_webpage_selected_target_url: "
