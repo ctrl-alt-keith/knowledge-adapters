@@ -34,6 +34,7 @@ REQUIRED_CASE_IDS = {
     "dora_2023_large_repeated_title_version_footer",
     "one_letter_split_word_lines",
     "standalone_one_letter_lines",
+    "empty_extraction_diagnostic_only",
 }
 
 
@@ -131,10 +132,23 @@ def test_dora_regression_replay_quality_metadata_contract(
         ),
         "empty_page_count": len([page for page in normalized_pages if not page.strip()]),
     }
-    assert metadata["extraction_warnings"] == [
+    expected_warnings = [
         "pdf_layout_tables_figures_footnotes_headers_reading_order_may_be_incomplete",
         "scanned_image_only_pages_may_be_missing",
     ]
+    if not any(page.strip() for page in normalized_pages):
+        expected_warnings.append("empty_pages_without_extracted_text")
+    assert metadata["extraction_warnings"] == expected_warnings
+    classification = _mapping(metadata, "replay_classification")
+    reviewability = _mapping(classification, "reviewability_assessment")
+    promotion_safety = _mapping(classification, "promotion_safety")
+    assert classification["source_type"] == "public_pdf"
+    assert classification["operational_state"] in {"review-ready", "diagnostic-only"}
+    assert classification["promotion_state"] == "unsafe-to-promote"
+    assert reviewability["review_worth_doing"] == any(
+        page.strip() for page in normalized_pages
+    )
+    assert promotion_safety["promotion_capable"] is False
 
     markdown = normalize_pdf(
         {
@@ -147,6 +161,7 @@ def test_dora_regression_replay_quality_metadata_contract(
         }
     )
     assert "- candidate_status: unreviewed" in markdown
+    assert "- replay_quality_promotion_state: unsafe-to-promote" in markdown
     for expected_line in _optional_string_sequence(
         case, "expected_markdown_metadata_lines"
     ):

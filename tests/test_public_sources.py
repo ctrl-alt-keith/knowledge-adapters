@@ -470,6 +470,21 @@ def test_public_pdf_page_normalization_reports_replay_quality_metadata() -> None
         "possible_artifact_line_count": 1,
         "possible_artifact_line_ratio": "0.250",
     }
+    classification = _metadata_mapping(first_metadata, "replay_classification")
+    reviewability = _metadata_mapping(classification, "reviewability_assessment")
+    promotion_safety = _metadata_mapping(classification, "promotion_safety")
+    assert classification["operational_state"] == "review-ready"
+    assert classification["promotion_state"] == "unsafe-to-promote"
+    assert classification["classification_labels"] == [
+        "review-ready",
+        "unsafe-to-promote",
+    ]
+    assert reviewability["review_worth_doing"] is True
+    assert reviewability["deterministic_cleanup_count"] == 6
+    assert reviewability["remaining_artifact_count"] == 1
+    assert promotion_safety["blocker_codes"] == [
+        "public_source_candidate_requires_human_retention_review"
+    ]
 
     markdown = normalize_pdf(
         {
@@ -488,6 +503,10 @@ def test_public_pdf_page_normalization_reports_replay_quality_metadata() -> None
         "or promotion"
     ) in markdown
     assert "- replay_quality_url_spacing_normalization_count: 1" in markdown
+    assert "- replay_quality_operational_state: review-ready" in markdown
+    assert "- replay_quality_promotion_state: unsafe-to-promote" in markdown
+    assert "- replay_quality_review_effort: focused" in markdown
+    assert "- replay_quality_remaining_artifact_count: 1" in markdown
     assert "- replay_quality_url_path_line_wrap_repair_count: 1" in markdown
     assert "- replay_quality_repeated_footer_suppressed_line_count: 4" in markdown
     assert (

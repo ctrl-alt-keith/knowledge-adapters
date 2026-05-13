@@ -97,7 +97,11 @@ does not write files in dry-run mode. Localhost, `.local`, private, link-local,
 multicast, unspecified, reserved, and credential-bearing targets are rejected
 before fetch and after redirects. Raw fetched HTML is held only in memory. The
 output is explicitly unreviewed candidate material; links, images, tables,
-comments, and publication metadata may be incomplete.
+comments, and publication metadata may be incomplete. Public webpage outputs
+include replay-quality metadata and the same normalized replay classification
+shape as public PDFs, so reviewers can distinguish `review-ready` candidates
+from `diagnostic-only` extractions while seeing that unreviewed public-source
+material remains `unsafe-to-promote`.
 
 Public PDF/report first run:
 
@@ -132,6 +136,10 @@ manifest entry. These fields report
 mechanical extraction conditions such as footer suppression counts, URL spacing
 normalization counts, URL path line-wrap repair counts, page-count context,
 possible layout-artifact line density, and adapter-known extraction warnings.
+They also include a normalized replay classification that separates the
+candidate's operational state from promotion safety: for example,
+`review-ready` can still be paired with `unsafe-to-promote` when public-source
+retention review is required, while empty extraction is `diagnostic-only`.
 They are informational review aids only: they do not approve the candidate,
 authorize retention, promote content, rank documents, or assert semantic
 correctness. Footer and page-number noise measurement is documented in

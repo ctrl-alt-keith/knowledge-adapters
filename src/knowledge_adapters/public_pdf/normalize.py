@@ -7,6 +7,8 @@ import re
 from collections.abc import Mapping, Sequence
 from math import ceil
 
+from knowledge_adapters.replay_quality import build_public_source_replay_classification
+
 _BROKEN_URL_SCHEME_RE = re.compile(
     r"\b(?P<scheme>https?)"
     r"(?:\s+:\s*/\s*/\s*|\s*:\s+/\s*/\s*|\s*:\s*/\s+/\s*|\s*:\s*/\s*/\s+)"
@@ -134,6 +136,7 @@ def normalize_extracted_pages_with_replay_metadata(
         ),
         "extraction_warnings": _extraction_warning_codes(empty_page_count),
     }
+    metadata["replay_classification"] = _build_public_pdf_replay_classification(metadata)
     return normalized_pages, metadata
 
 
@@ -1119,7 +1122,91 @@ def _extraction_warning_codes(empty_page_count: int) -> list[str]:
     return warnings
 
 
+def _build_public_pdf_replay_classification(
+    metadata: Mapping[str, object],
+) -> dict[str, object]:
+    page_context = _mapping_value(metadata, "page_count_context")
+    url_spacing = _mapping_value(metadata, "url_spacing_normalization")
+    url_path_wrap = _mapping_value(metadata, "url_path_line_wrap_normalization")
+    one_letter_wrap = _mapping_value(metadata, "one_letter_line_wrap_normalization")
+    footer_page_noise = _mapping_value(metadata, "footer_page_number_noise_diagnostics")
+    text_footer = _mapping_value(metadata, "repeated_text_footer_suppression")
+    footer = _mapping_value(metadata, "repeated_footer_suppression")
+    layout_density = _mapping_value(metadata, "possible_layout_artifact_density")
+    warnings = _string_sequence(metadata.get("extraction_warnings", ()))
+    empty_page_count = _int_metadata_value(page_context, "empty_page_count")
+    remaining_artifact_counts = {
+        "bare_numeric_lines_adjacent_to_numeric_content": _int_metadata_value(
+            footer_page_noise, "bare_numeric_adjacent_to_numeric_content_count"
+        ),
+        "empty_pages_without_extracted_text": empty_page_count,
+        "mid_page_footer_like_lines": _int_metadata_value(
+            footer_page_noise, "mid_page_footer_like_line_count"
+        ),
+        "possible_layout_artifact_lines": _int_metadata_value(
+            layout_density, "possible_artifact_line_count"
+        ),
+        "repeated_footer_missing_adjacent_numeric_lines": _int_metadata_value(
+            footer, "missing_adjacent_numeric_line_count"
+        ),
+        "repeated_footer_nonparseable_adjacent_numeric_lines": _int_metadata_value(
+            footer, "nonparseable_adjacent_numeric_line_count"
+        ),
+        "repeated_footer_numeric_risk_skipped": _int_metadata_value(
+            footer, "numeric_risk_skipped_count"
+        ),
+        "repeated_text_footer_skipped_adjacent_numeric_lines": _int_metadata_value(
+            text_footer, "skipped_adjacent_numeric_line_count"
+        ),
+    }
+    promotion_blockers = ["public_source_candidate_requires_human_retention_review"]
+    if empty_page_count:
+        promotion_blockers.append("empty_pages_without_extracted_text")
+
+    intentionally_retained_markers = [
+        "full_text_extraction_retained_intentionally_for_review",
+    ]
+    if any(remaining_artifact_counts.values()):
+        intentionally_retained_markers.append(
+            "uncertain_extraction_artifacts_retained_for_review"
+        )
+
+    return build_public_source_replay_classification(
+        source_type="public_pdf",
+        retained_content_units=_int_metadata_value(layout_density, "line_count"),
+        retained_content_unit="normalized_nonempty_text_line",
+        deterministic_cleanup_counts_by_category={
+            "one_letter_line_wrap_repairs": _int_metadata_value(
+                one_letter_wrap, "repair_count"
+            ),
+            "repeated_footer_lines_suppressed": _int_metadata_value(
+                footer, "suppressed_line_count"
+            ),
+            "repeated_text_footer_lines_suppressed": _int_metadata_value(
+                text_footer, "suppressed_line_count"
+            ),
+            "url_path_line_wrap_repairs": _int_metadata_value(
+                url_path_wrap, "repair_count"
+            ),
+            "url_spacing_normalizations": _int_metadata_value(
+                url_spacing, "replacement_count"
+            ),
+        },
+        remaining_artifact_counts_by_category=remaining_artifact_counts,
+        known_limitation_codes=[
+            *warnings,
+            "public_pdf_full_text_extraction_requires_source_review",
+        ],
+        intentionally_retained_markers=intentionally_retained_markers,
+        promotion_blocker_codes=promotion_blockers,
+    )
+
+
 def _render_replay_quality_metadata(metadata: Mapping[str, object]) -> str:
+    classification = _mapping_value(metadata, "replay_classification")
+    reviewability = _mapping_value(classification, "reviewability_assessment")
+    cleanup = _mapping_value(classification, "deterministic_cleanup")
+    remaining = _mapping_value(classification, "remaining_artifacts")
     page_context = _mapping_value(metadata, "page_count_context")
     url_spacing = _mapping_value(metadata, "url_spacing_normalization")
     url_path_wrap = _mapping_value(metadata, "url_path_line_wrap_normalization")
@@ -1140,6 +1227,30 @@ def _render_replay_quality_metadata(metadata: Mapping[str, object]) -> str:
     return "\n".join(
         (
             f"- replay_quality_metadata_note: {REPLAY_QUALITY_METADATA_NOTE}",
+            (
+                "- replay_quality_operational_state: "
+                f"{_metadata_value(classification, 'operational_state')}"
+            ),
+            (
+                "- replay_quality_promotion_state: "
+                f"{_metadata_value(classification, 'promotion_state')}"
+            ),
+            (
+                "- replay_quality_review_effort: "
+                f"{_metadata_value(reviewability, 'review_effort')}"
+            ),
+            (
+                "- replay_quality_bounded_review_economics: "
+                f"{_metadata_value(reviewability, 'bounded_review_economics')}"
+            ),
+            (
+                "- replay_quality_deterministic_cleanup_count: "
+                f"{_metadata_value(reviewability, 'deterministic_cleanup_count')}"
+            ),
+            (
+                "- replay_quality_remaining_artifact_count: "
+                f"{_metadata_value(remaining, 'total_count')}"
+            ),
             f"- replay_quality_page_count: {_metadata_value(page_context, 'page_count')}",
             (
                 "- replay_quality_empty_page_count: "
@@ -1237,6 +1348,10 @@ def _render_replay_quality_metadata(metadata: Mapping[str, object]) -> str:
             ),
             f"- replay_quality_extraction_warnings: {warning_text}",
             (
+                "- replay_quality_deterministic_cleanup_scope: "
+                f"{_metadata_value(cleanup, 'scope')}"
+            ),
+            (
                 "- replay_quality_metadata_json: "
                 f"{json.dumps(dict(metadata), sort_keys=True, separators=(',', ':'))}"
             ),
@@ -1251,3 +1366,16 @@ def _mapping_value(metadata: Mapping[str, object], key: str) -> Mapping[str, obj
 
 def _metadata_value(metadata: Mapping[str, object], key: str) -> object:
     return metadata.get(key, "")
+
+
+def _int_metadata_value(metadata: Mapping[str, object], key: str) -> int:
+    value = metadata.get(key, 0)
+    return value if isinstance(value, int) else 0
+
+
+def _string_sequence(value: object) -> list[str]:
+    if isinstance(value, Sequence) and not isinstance(value, str):
+        return [str(item) for item in value]
+    if value:
+        return [str(value)]
+    return []

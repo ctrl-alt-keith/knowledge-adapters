@@ -61,7 +61,11 @@ Replay-quality metadata is part of the fixture contract. It remains
 informational only and does not authorize retention or promotion. Fixture tests
 should assert counts and notes that help reviewers understand what mechanical
 conditions were observed, such as URL repairs, footer suppression, numeric-risk
-diagnostics, page-count context, and extraction warnings.
+diagnostics, page-count context, and extraction warnings. Public PDF fixtures
+also assert the shared replay classification shape so reviewers can see whether
+the replay is `review-ready` or `diagnostic-only`, whether review economics are
+bounded, what remaining artifacts were intentionally retained, and why
+unreviewed public-source candidates remain `unsafe-to-promote`.
 
 ## Limitations And Non-Goals
 

@@ -1222,6 +1222,9 @@ def print_stale_artifacts(
 
 
 def _print_public_pdf_replay_quality_metadata(metadata: Mapping[str, object]) -> None:
+    classification = _metadata_mapping(metadata, "replay_classification")
+    reviewability = _metadata_mapping(classification, "reviewability_assessment")
+    remaining = _metadata_mapping(classification, "remaining_artifacts")
     page_context = _metadata_mapping(metadata, "page_count_context")
     url_spacing = _metadata_mapping(metadata, "url_spacing_normalization")
     url_path_wrap = _metadata_mapping(metadata, "url_path_line_wrap_normalization")
@@ -1236,6 +1239,18 @@ def _print_public_pdf_replay_quality_metadata(metadata: Mapping[str, object]) ->
 
     print("  replay_quality_metadata:")
     print("    metadata_note: informational only; does not authorize retention or promotion")
+    print(f"    operational_state: {classification.get('operational_state', '')}")
+    print(f"    promotion_state: {classification.get('promotion_state', '')}")
+    print(f"    review_effort: {reviewability.get('review_effort', '')}")
+    print(
+        "    bounded_review_economics: "
+        f"{reviewability.get('bounded_review_economics', '')}"
+    )
+    print(
+        "    deterministic_cleanup_count: "
+        f"{reviewability.get('deterministic_cleanup_count', '')}"
+    )
+    print(f"    remaining_artifact_count: {remaining.get('total_count', '')}")
     print(f"    page_count: {page_context.get('page_count', '')}")
     print(f"    empty_page_count: {page_context.get('empty_page_count', '')}")
     print(
@@ -1296,6 +1311,9 @@ def _print_public_pdf_replay_quality_metadata(metadata: Mapping[str, object]) ->
 
 
 def _print_public_webpage_replay_quality_metadata(metadata: Mapping[str, object]) -> None:
+    classification = _metadata_mapping(metadata, "replay_classification")
+    reviewability = _metadata_mapping(classification, "reviewability_assessment")
+    remaining = _metadata_mapping(classification, "remaining_artifacts")
     profile = _metadata_mapping(metadata, "content_profile")
     boundary = _metadata_mapping(metadata, "extraction_boundary")
     chrome = _metadata_mapping(metadata, "page_chrome_suppression")
@@ -1307,6 +1325,18 @@ def _print_public_webpage_replay_quality_metadata(metadata: Mapping[str, object]
 
     print("  replay_quality_metadata:")
     print("    metadata_note: informational only; does not authorize retention or promotion")
+    print(f"    operational_state: {classification.get('operational_state', '')}")
+    print(f"    promotion_state: {classification.get('promotion_state', '')}")
+    print(f"    review_effort: {reviewability.get('review_effort', '')}")
+    print(
+        "    bounded_review_economics: "
+        f"{reviewability.get('bounded_review_economics', '')}"
+    )
+    print(
+        "    deterministic_cleanup_count: "
+        f"{reviewability.get('deterministic_cleanup_count', '')}"
+    )
+    print(f"    remaining_artifact_count: {remaining.get('total_count', '')}")
     print(f"    extraction_boundary: {boundary.get('basis', '')}")
     print(
         "    article_body_text_retained_for_review: "
