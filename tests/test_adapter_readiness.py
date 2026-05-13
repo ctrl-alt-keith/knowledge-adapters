@@ -13,7 +13,7 @@ from knowledge_adapters.adapter_readiness import (
 )
 from knowledge_adapters.cli import build_parser
 
-NON_ADAPTER_CLI_COMMANDS = {"bundle", "run"}
+NON_ADAPTER_CLI_COMMANDS = {"bundle", "public_replay_acceptance", "run"}
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EVIDENCE_PATH_RE = re.compile(
     r"\b(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+\.(?:md|py)\b|\bMakefile\b"
