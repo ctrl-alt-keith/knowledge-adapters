@@ -19,8 +19,9 @@ PDF_EXTRACTION_NOTES = (
     "image-only pages may be incomplete or missing; review against the source PDF before "
     "retaining any knowledge. Clearly mechanical extraction artifacts may be normalized: "
     "broken HTTP(S) URL scheme spacing is repaired, clearly split URL path line wraps "
-    "may be joined, and repeated trailing footer text plus adjacent bare numeric page "
-    "lines may be suppressed when anchored by page position."
+    "may be joined, one-letter split-word line wraps may be repaired, high-coverage "
+    "repeated trailing text footers may be suppressed in large documents, and adjacent "
+    "bare numeric page lines may be suppressed when anchored by page position."
 )
 
 

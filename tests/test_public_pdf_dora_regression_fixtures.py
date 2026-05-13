@@ -31,6 +31,8 @@ REQUIRED_CASE_IDS = {
     "in_reading_order_version_footer_pair",
     "calculator_table_numeric_traps",
     "fused_extraction_artifact_roadmap43",
+    "dora_2023_large_repeated_title_version_footer",
+    "one_letter_split_word_lines",
 }
 
 

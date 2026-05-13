@@ -1295,6 +1295,30 @@ def _print_public_pdf_replay_quality_metadata(metadata: Mapping[str, object]) ->
     print(f"    extraction_warnings: {warning_text}")
 
 
+def _print_public_webpage_replay_quality_metadata(metadata: Mapping[str, object]) -> None:
+    profile = _metadata_mapping(metadata, "content_profile")
+    boundary = _metadata_mapping(metadata, "extraction_boundary")
+    chrome = _metadata_mapping(metadata, "page_chrome_suppression")
+    reasons = chrome.get("suppressed_reasons_by_code", {})
+    if isinstance(reasons, Mapping) and reasons:
+        reason_text = ", ".join(f"{key}={value}" for key, value in sorted(reasons.items()))
+    else:
+        reason_text = "none"
+
+    print("  replay_quality_metadata:")
+    print("    metadata_note: informational only; does not authorize retention or promotion")
+    print(f"    extraction_boundary: {boundary.get('basis', '')}")
+    print(
+        "    article_body_text_retained_for_review: "
+        f"{profile.get('article_body_text_retained_for_review', '')}"
+    )
+    print(
+        "    chrome_suppressed_paragraph_count: "
+        f"{chrome.get('suppressed_paragraph_count', '')}"
+    )
+    print(f"    chrome_suppressed_reasons: {reason_text}")
+
+
 def _metadata_mapping(metadata: Mapping[str, object], key: str) -> Mapping[str, object]:
     value = metadata.get(key, {})
     return value if isinstance(value, Mapping) else {}
@@ -3479,7 +3503,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 content = webpage_document.content
                 extraction_notes = webpage_document.extraction_notes
                 page_count: int | None = None
-                replay_quality_metadata: Mapping[str, object] | None = None
+                replay_quality_metadata = webpage_document.replay_quality_metadata
                 source = webpage_document.source
                 adapter = webpage_document.adapter
                 adapter_title = "Public webpage"
@@ -3575,8 +3599,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"  Manifest path: {render_user_path(manifest_output_path)}")
         print("  candidate_status: unreviewed")
         print(f"  extraction_notes: {extraction_notes}")
-        if replay_quality_metadata:
+        if command == "public_pdf" and replay_quality_metadata:
             _print_public_pdf_replay_quality_metadata(replay_quality_metadata)
+        elif replay_quality_metadata:
+            _print_public_webpage_replay_quality_metadata(replay_quality_metadata)
         if content:
             print("  content_status: extracted text with content")
         else:
