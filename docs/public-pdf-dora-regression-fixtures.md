@@ -15,8 +15,11 @@ The fixture area captures small DORA-derived extraction shapes for:
 - leading-space numeric page lines
 - ordinary page-number/footer pairs
 - repeated multi-line trailing footer blocks
+- large-document high-coverage repeated trailing title/version footer blocks
 - URL scheme-spacing artifacts
 - URL path line-wrap artifacts
+- one-letter split-word line wraps in known PDF extraction context, plus
+  standalone one-letter no-op safety cases
 - mid-page footer-like text
 - calculator and table numeric traps
 - fused extraction artifacts such as `roadmap43`

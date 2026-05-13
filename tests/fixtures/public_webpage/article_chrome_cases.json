@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "source": "sanitized_public_webpage_article_chrome_cases",
+  "cases": [
+    {
+      "id": "article_body_plus_substack_chrome",
+      "description": "Article body is retained while obvious subscription, sharing, discussion, legal, and platform chrome is removed.",
+      "raw_content": "Subscribe Sign in\n\nExample Article Title\n\nSynthetic byline\n\nShare\n\nArticle paragraph one with reviewable source material.\n\nArticle paragraph two remains intentionally retained for review.\n\nDiscussion about this post\n\nComments Restacks\n\nTop Latest\n\nNo posts\n\nReady for more?\n\nSubscribe\n\n© 2026 Example Author · Privacy ∙ Terms ∙ Collection notice\n\nStart your Substack Get the app\n\nSubstack is the home for great culture",
+      "expected_content": "Example Article Title\n\nSynthetic byline\n\nArticle paragraph one with reviewable source material.\n\nArticle paragraph two remains intentionally retained for review.",
+      "expected_metadata": {
+        "page_chrome_suppression": {
+          "activity": "suppressed",
+          "suppressed_paragraph_count": 11,
+          "suppressed_reasons_by_code": {
+            "subscription_sign_in_prompt": 1,
+            "share_prompt": 1,
+            "comments_discussion_placeholder": 4,
+            "subscription_prompt": 2,
+            "footer_legal_text": 1,
+            "platform_promotion": 2
+          }
+        },
+        "extraction_boundary": {
+          "retention_boundary_review_required": true,
+          "does_not_claim_copyright_or_reuse_permission": true,
+          "does_not_summarize_or_shorten_article_body": true
+        },
+        "content_profile": {
+          "article_body_text_retained_for_review": true
+        }
+      },
+      "expected_markdown_metadata_lines": [
+        "- replay_quality_metadata_note: informational only; does not authorize retention or promotion",
+        "- replay_quality_webpage_chrome_suppressed_paragraph_count: 11",
+        "- replay_quality_webpage_article_body_text_retained_for_review: True"
+      ]
+    }
+  ]
+}

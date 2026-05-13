@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping, Sequence
+from math import ceil
 
 _BROKEN_URL_SCHEME_RE = re.compile(
     r"\b(?P<scheme>https?)"
@@ -33,6 +34,10 @@ _PAGE_NUMBER_LINE_RE = re.compile(
     r"^(?:page\s+|p\.\s*)?(?P<page>\d{1,4})(?:\s*(?:of|/)\s*\d{1,4})?$",
     re.IGNORECASE,
 )
+_VERSION_FOOTER_LINE_RE = re.compile(r"^v\.\s*\d{4}(?:[-.]\d{1,4})?$", re.IGNORECASE)
+_ONE_LETTER_LINE_WRAP_PREVIOUS_CONTEXT_RE = re.compile(
+    r"^(?:[\u2022*-]\s+|\d+[.)]?$|authors$)", re.IGNORECASE
+)
 _MEANINGFUL_NUMERIC_CONTEXT_RE = re.compile(
     r"(\b(total|metric|value|score|cost|savings|roi|result|input|output|"
     r"calculator|table|figure|formula|baseline|target|year|month|rate|percent|"
@@ -41,6 +46,8 @@ _MEANINGFUL_NUMERIC_CONTEXT_RE = re.compile(
 )
 _MAX_FOOTER_CANDIDATE_LINES = 4
 _MAX_FOOTER_LINE_LENGTH = 140
+_MIN_HIGH_COVERAGE_TEXT_FOOTER_PAGES = 10
+_HIGH_COVERAGE_TEXT_FOOTER_RATIO = 0.60
 _BASE_EXTRACTION_WARNINGS = (
     "pdf_layout_tables_figures_footnotes_headers_reading_order_may_be_incomplete",
     "scanned_image_only_pages_may_be_missing",
@@ -66,10 +73,15 @@ def normalize_extracted_pages_with_replay_metadata(
     url_scheme_affected_page_count = 0
     url_path_line_wrap_repair_count = 0
     url_path_line_wrap_affected_page_count = 0
+    one_letter_line_wrap_repair_count = 0
+    one_letter_line_wrap_affected_page_count = 0
     for page_text in page_texts:
         normalized_page, replacement_count = _normalize_broken_url_spacing_with_count(page_text)
         normalized_page, path_repair_count = _normalize_url_path_line_wraps_with_count(
             normalized_page
+        )
+        normalized_page, one_letter_repair_count = (
+            _normalize_one_letter_split_word_lines_with_count(normalized_page)
         )
         normalized_pages.append(normalized_page)
         url_scheme_replacement_count += replacement_count
@@ -78,8 +90,14 @@ def normalize_extracted_pages_with_replay_metadata(
         url_path_line_wrap_repair_count += path_repair_count
         if path_repair_count:
             url_path_line_wrap_affected_page_count += 1
+        one_letter_line_wrap_repair_count += one_letter_repair_count
+        if one_letter_repair_count:
+            one_letter_line_wrap_affected_page_count += 1
 
     footer_page_number_diagnostics = _diagnose_footer_page_number_noise(normalized_pages)
+    normalized_pages, repeated_text_footer_metadata = (
+        _suppress_high_coverage_text_footer_lines_with_metadata(normalized_pages)
+    )
     normalized_pages, footer_metadata = _suppress_repeated_footer_lines_with_metadata(
         normalized_pages
     )
@@ -103,7 +121,13 @@ def normalize_extracted_pages_with_replay_metadata(
             "repair_count": url_path_line_wrap_repair_count,
             "affected_page_count": url_path_line_wrap_affected_page_count,
         },
+        "one_letter_line_wrap_normalization": {
+            "activity": "normalized" if one_letter_line_wrap_repair_count else "none",
+            "repair_count": one_letter_line_wrap_repair_count,
+            "affected_page_count": one_letter_line_wrap_affected_page_count,
+        },
         "footer_page_number_noise_diagnostics": footer_page_number_diagnostics,
+        "repeated_text_footer_suppression": repeated_text_footer_metadata,
         "repeated_footer_suppression": footer_metadata,
         "possible_layout_artifact_density": _possible_layout_artifact_density(
             normalized_pages
@@ -199,8 +223,263 @@ def _is_url_path_line_wrap_pair(line: str, next_line: str) -> bool:
     )
 
 
+def _normalize_one_letter_split_word_lines_with_count(text: str) -> tuple[str, int]:
+    lines = text.splitlines()
+    normalized_lines: list[str] = []
+    repair_count = 0
+    index = 0
+    while index < len(lines):
+        line = lines[index].strip()
+        if index + 1 >= len(lines):
+            normalized_lines.append(lines[index].rstrip())
+            index += 1
+            continue
+
+        next_line = lines[index + 1].strip()
+        previous_line = lines[index - 1].strip() if index > 0 else ""
+        if _is_one_letter_split_word_pair(previous_line, line, next_line):
+            normalized_lines.append(f"{line}{next_line}")
+            repair_count += 1
+            index += 2
+            continue
+
+        normalized_lines.append(lines[index].rstrip())
+        index += 1
+
+    return "\n".join(normalized_lines).strip(), repair_count
+
+
+def _is_one_letter_split_word_pair(
+    previous_line: str, line: str, next_line: str
+) -> bool:
+    return bool(
+        _ONE_LETTER_LINE_WRAP_PREVIOUS_CONTEXT_RE.match(previous_line)
+        and len(line) == 1
+        and line.isalpha()
+        and next_line
+        and next_line[0].islower()
+        and any(character.isalpha() for character in next_line[1:])
+    )
+
+
 def _suppress_repeated_footer_lines(page_texts: list[str]) -> list[str]:
     return _suppress_repeated_footer_lines_with_metadata(page_texts)[0]
+
+
+def _suppress_high_coverage_text_footer_lines_with_metadata(
+    page_texts: list[str],
+) -> tuple[list[str], dict[str, object]]:
+    base_metadata: dict[str, object] = {
+        "activity": "none",
+        "basis": "high_coverage_trailing_text_footer_blocks",
+        "min_page_count": _MIN_HIGH_COVERAGE_TEXT_FOOTER_PAGES,
+        "min_coverage_ratio": f"{_HIGH_COVERAGE_TEXT_FOOTER_RATIO:.2f}",
+        "suppressed_line_count": 0,
+        "affected_page_count": 0,
+        "detected_repeated_text_footer_block_count": 0,
+        "suppressed_repeated_text_footer_block_count": 0,
+        "suppressed_adjacent_page_number_line_count": 0,
+        "skipped_adjacent_numeric_line_count": 0,
+        "skipped_adjacent_numeric_reasons_by_code": {},
+        "detected_repeated_text_footer_blocks": [],
+        "skipped_adjacent_numeric_examples": [],
+    }
+    if len(page_texts) < _MIN_HIGH_COVERAGE_TEXT_FOOTER_PAGES:
+        return [page_text.strip() for page_text in page_texts], base_metadata
+
+    page_lines = [page_text.splitlines() for page_text in page_texts]
+    trailing_entries_by_page = [
+        _trailing_footer_candidate_entries(lines) for lines in page_lines
+    ]
+    block_pages: dict[tuple[str, ...], dict[int, tuple[int, ...]]] = {}
+    for page_index, trailing_entries in enumerate(trailing_entries_by_page):
+        block_signatures: list[str] = []
+        block_line_indexes: list[int] = []
+        for depth in range(1, _MAX_FOOTER_CANDIDATE_LINES + 1):
+            entry = _trailing_entry_at_depth(trailing_entries, depth)
+            if entry is None:
+                break
+            _entry_depth, line_index, line = entry
+            signature = _repeated_text_footer_line_signature(line)
+            if signature is None:
+                break
+            block_signatures.append(signature)
+            block_line_indexes.append(line_index)
+            block_pages.setdefault(tuple(block_signatures), {})[page_index] = tuple(
+                block_line_indexes
+            )
+
+    min_repeated_pages = _min_high_coverage_text_footer_pages(len(page_texts))
+    repeated_blocks = [
+        (signature, page_to_line_indexes)
+        for signature, page_to_line_indexes in block_pages.items()
+        if len(page_to_line_indexes) >= min_repeated_pages
+    ]
+    repeated_blocks.sort(key=lambda item: (-len(item[0]), -len(item[1]), item[0]))
+
+    indexes_to_remove: set[tuple[int, int]] = set()
+    detected_blocks: list[dict[str, object]] = []
+    skipped_examples: list[dict[str, object]] = []
+    skipped_reasons: dict[str, int] = {}
+    suppressed_adjacent_numeric_count = 0
+    accepted_repeated_block_signatures: list[tuple[str, ...]] = []
+
+    for block_signature, page_to_line_indexes in repeated_blocks:
+        if len(block_signature) == 1 and not _has_accepted_longer_footer_family_signature(
+            block_signature, accepted_repeated_block_signatures
+        ):
+            continue
+        new_footer_indexes = {
+            (page_index, line_index)
+            for page_index, line_indexes in page_to_line_indexes.items()
+            for line_index in line_indexes
+            if (page_index, line_index) not in indexes_to_remove
+        }
+        if not new_footer_indexes:
+            continue
+
+        indexes_to_remove.update(new_footer_indexes)
+        accepted_repeated_block_signatures.append(block_signature)
+        adjacent_numeric_values: list[int] = []
+        skipped_adjacent_numeric_count = 0
+        block_length = len(block_signature)
+        if block_length > 1:
+            for page_index, line_indexes in page_to_line_indexes.items():
+                top_line_index = min(line_indexes)
+                adjacent_line_index = top_line_index - 1
+                if adjacent_line_index < 0:
+                    continue
+                adjacent_line = page_lines[page_index][adjacent_line_index].strip()
+                numeric_value = _page_number_line_value(adjacent_line)
+                if numeric_value is None:
+                    if re.search(r"\d", adjacent_line):
+                        skipped_adjacent_numeric_count += 1
+                        _increment_reason_count(
+                            skipped_reasons, "non_page_number_adjacent_numeric_line", 1
+                        )
+                        _append_skipped_adjacent_numeric_example(
+                            skipped_examples,
+                            page_number=page_index + 1,
+                            reason="non_page_number_adjacent_numeric_line",
+                            adjacent_line=adjacent_line,
+                        )
+                    continue
+                if numeric_value != page_index + 1:
+                    skipped_adjacent_numeric_count += 1
+                    _increment_reason_count(
+                        skipped_reasons,
+                        "adjacent_numeric_value_not_extracted_page",
+                        1,
+                    )
+                    _append_skipped_adjacent_numeric_example(
+                        skipped_examples,
+                        page_number=page_index + 1,
+                        reason="adjacent_numeric_value_not_extracted_page",
+                        adjacent_line=adjacent_line,
+                    )
+                    continue
+                indexes_to_remove.add((page_index, adjacent_line_index))
+                adjacent_numeric_values.append(numeric_value)
+                suppressed_adjacent_numeric_count += 1
+
+        detected_blocks.append(
+            {
+                "footer_signature": list(reversed(block_signature)),
+                "footer_depths": list(range(block_length, 0, -1)),
+                "page_count": len(page_to_line_indexes),
+                "suppressed_line_count": len(new_footer_indexes),
+                "suppressed_adjacent_page_number_line_count": len(
+                    adjacent_numeric_values
+                ),
+                "skipped_adjacent_numeric_line_count": skipped_adjacent_numeric_count,
+                "adjacent_numeric_values": adjacent_numeric_values[:10],
+            }
+        )
+
+    normalized_pages: list[str] = []
+    for page_index, lines in enumerate(page_lines):
+        kept_lines = [
+            line.rstrip()
+            for line_index, line in enumerate(lines)
+            if (page_index, line_index) not in indexes_to_remove
+        ]
+        normalized_pages.append("\n".join(kept_lines).strip())
+
+    if not indexes_to_remove:
+        base_metadata["detected_repeated_text_footer_block_count"] = len(repeated_blocks)
+        return normalized_pages, base_metadata
+
+    return normalized_pages, {
+        **base_metadata,
+        "activity": "suppressed",
+        "suppressed_line_count": len(indexes_to_remove),
+        "affected_page_count": len(
+            {page_index for page_index, _line_index in indexes_to_remove}
+        ),
+        "detected_repeated_text_footer_block_count": len(repeated_blocks),
+        "suppressed_repeated_text_footer_block_count": len(detected_blocks),
+        "suppressed_adjacent_page_number_line_count": suppressed_adjacent_numeric_count,
+        "skipped_adjacent_numeric_line_count": sum(skipped_reasons.values()),
+        "skipped_adjacent_numeric_reasons_by_code": skipped_reasons,
+        "detected_repeated_text_footer_blocks": detected_blocks,
+        "skipped_adjacent_numeric_examples": skipped_examples,
+    }
+
+
+def _min_high_coverage_text_footer_pages(page_count: int) -> int:
+    return max(
+        _MIN_HIGH_COVERAGE_TEXT_FOOTER_PAGES,
+        _min_repeated_footer_pages(page_count),
+        ceil(page_count * _HIGH_COVERAGE_TEXT_FOOTER_RATIO),
+    )
+
+
+def _has_accepted_longer_footer_family_signature(
+    signature: tuple[str, ...], accepted_signatures: Sequence[tuple[str, ...]]
+) -> bool:
+    return any(
+        len(accepted_signature) > len(signature)
+        and accepted_signature[: len(signature)] == signature
+        for accepted_signature in accepted_signatures
+    )
+
+
+def _trailing_entry_at_depth(
+    trailing_entries: Sequence[tuple[int, int, str]], depth: int
+) -> tuple[int, int, str] | None:
+    for entry in trailing_entries:
+        candidate_depth, _line_index, _line = entry
+        if candidate_depth == depth:
+            return entry
+    return None
+
+
+def _repeated_text_footer_line_signature(line: str) -> str | None:
+    if _is_bare_numeric_line(line):
+        return None
+    if _is_page_numbered_footer_like_line(line) and not _is_version_footer_line(line):
+        return None
+    if not any(character.isalpha() for character in line):
+        return None
+    return _footer_signature(line)
+
+
+def _append_skipped_adjacent_numeric_example(
+    examples: list[dict[str, object]],
+    *,
+    page_number: int,
+    reason: str,
+    adjacent_line: str,
+) -> None:
+    if len(examples) >= 5:
+        return
+    examples.append(
+        {
+            "page_number": page_number,
+            "reason": reason,
+            "adjacent_excerpt": _short_diagnostic_excerpt(adjacent_line),
+        }
+    )
 
 
 def _suppress_repeated_footer_lines_with_metadata(
@@ -776,6 +1055,10 @@ def _is_page_numbered_footer_like_line(line: str) -> bool:
     return bool(_PAGE_NUMBERED_FOOTER_LIKE_RE.search(" ".join(line.strip().split())))
 
 
+def _is_version_footer_line(line: str) -> bool:
+    return bool(_VERSION_FOOTER_LINE_RE.fullmatch(" ".join(line.strip().split())))
+
+
 def _has_adjacent_meaningful_numeric_context(lines: Sequence[str], line_index: int) -> bool:
     adjacent_lines = []
     if line_index > 0:
@@ -840,7 +1123,9 @@ def _render_replay_quality_metadata(metadata: Mapping[str, object]) -> str:
     page_context = _mapping_value(metadata, "page_count_context")
     url_spacing = _mapping_value(metadata, "url_spacing_normalization")
     url_path_wrap = _mapping_value(metadata, "url_path_line_wrap_normalization")
+    one_letter_wrap = _mapping_value(metadata, "one_letter_line_wrap_normalization")
     footer_page_noise = _mapping_value(metadata, "footer_page_number_noise_diagnostics")
+    text_footer = _mapping_value(metadata, "repeated_text_footer_suppression")
     footer = _mapping_value(metadata, "repeated_footer_suppression")
     layout_density = _mapping_value(metadata, "possible_layout_artifact_density")
     warnings = metadata.get("extraction_warnings", ())
@@ -869,6 +1154,10 @@ def _render_replay_quality_metadata(metadata: Mapping[str, object]) -> str:
                 f"{_metadata_value(url_path_wrap, 'repair_count')}"
             ),
             (
+                "- replay_quality_one_letter_line_wrap_repair_count: "
+                f"{_metadata_value(one_letter_wrap, 'repair_count')}"
+            ),
+            (
                 "- replay_quality_footer_page_number_repeated_trailing_block_count: "
                 f"{_metadata_value(footer_page_noise, 'repeated_trailing_footer_block_count')}"
             ),
@@ -883,6 +1172,22 @@ def _render_replay_quality_metadata(metadata: Mapping[str, object]) -> str:
             (
                 "- replay_quality_footer_page_number_mid_page_footer_like_line_count: "
                 f"{_metadata_value(footer_page_noise, 'mid_page_footer_like_line_count')}"
+            ),
+            (
+                "- replay_quality_repeated_text_footer_suppressed_line_count: "
+                f"{_metadata_value(text_footer, 'suppressed_line_count')}"
+            ),
+            (
+                "- replay_quality_repeated_text_footer_suppressed_block_count: "
+                f"{_metadata_value(text_footer, 'suppressed_repeated_text_footer_block_count')}"
+            ),
+            (
+                "- replay_quality_repeated_text_footer_suppressed_adjacent_page_number_count: "
+                f"{_metadata_value(text_footer, 'suppressed_adjacent_page_number_line_count')}"
+            ),
+            (
+                "- replay_quality_repeated_text_footer_skipped_adjacent_numeric_count: "
+                f"{_metadata_value(text_footer, 'skipped_adjacent_numeric_line_count')}"
             ),
             (
                 "- replay_quality_repeated_footer_suppressed_line_count: "

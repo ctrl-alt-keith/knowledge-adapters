@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from html.parser import HTMLParser
 
 from knowledge_adapters.public_sources import decode_text_response, fetch_public_url
+from knowledge_adapters.public_webpage.normalize import (
+    normalize_extracted_text_with_replay_metadata,
+)
 
 MAX_WEBPAGE_BYTES = 5_000_000
 WEBPAGE_EXTRACTION_NOTES = (
     "Unreviewed candidate material. Fetched a public webpage and extracted visible text "
     "with the Python standard-library HTML parser. Scripts and styles are omitted; "
-    "links, images, tables, comments, and publication metadata may be incomplete."
+    "links, images, tables, comments, and publication metadata may be incomplete. "
+    "Clearly mechanical page chrome such as subscription, sign-in, sharing, discussion, "
+    "footer/legal, and platform-promotion prompts may be suppressed; article body text "
+    "remains unreviewed candidate material."
 )
 
 
@@ -24,6 +30,7 @@ class PublicWebpageDocument:
     source_url: str
     fetched_at: str
     content: str
+    replay_quality_metadata: dict[str, object] = field(default_factory=dict)
     extraction_notes: str = WEBPAGE_EXTRACTION_NOTES
     source: str = "public_webpage"
     adapter: str = "public_webpage"
@@ -41,13 +48,16 @@ def fetch_webpage(url: str) -> PublicWebpageDocument:
     extractor.feed(html)
     extractor.close()
     title = extractor.title.strip() or fetched.final_url
-    content = extractor.markdown_text()
+    content, replay_quality_metadata = normalize_extracted_text_with_replay_metadata(
+        extractor.markdown_text()
+    )
     return PublicWebpageDocument(
         title=title,
         canonical_id=fetched.final_url,
         source_url=fetched.final_url,
         fetched_at=fetched.retrieved_at,
         content=content,
+        replay_quality_metadata=replay_quality_metadata,
     )
 
 

@@ -380,6 +380,120 @@
       "expected_markdown_metadata_lines": [
         "- replay_quality_metadata_note: informational only; does not authorize retention or promotion"
       ]
+    },
+    {
+      "id": "dora_2023_large_repeated_title_version_footer",
+      "description": "Large DORA 2023 replay shape with high-coverage repeated trailing title/version footers, conforming page-number pages, and outlier adjacent numeric lines.",
+      "expectation": "normalized",
+      "tags": ["required_case", "previous_dora_replay_failure", "footer", "large_document_shape"],
+      "raw_pages": [
+        "Cover\nAccelerate State of DevOps 2023\nv. 2023-12",
+        "Contents\nAll citations retrieved 27 September 2023\nAccelerate State of DevOps 2023\nv. 2023-12",
+        "Executive summary03\nAccelerate State of DevOps 2023\nv. 2023-12",
+        "Delivery outcomes\n4\nAccelerate State of DevOps 2023\nv. 2023-12",
+        "Metric table\nMetric value 4\n44\nAccelerate State of DevOps 2023\nv. 2023-12",
+        "Roadmap note\nThe roadmap43 marker remains fused.\nAccelerate State of DevOps 2023\nv. 2023-12",
+        "Reliability chapter\n7\nAccelerate State of DevOps 2023\nv. 2023-12",
+        "Operational performance\n8\nAccelerate State of DevOps 2023\nv. 2023-12",
+        "Appendix note\n9\nAccelerate State of DevOps 2023\nv. 2023-12",
+        "Closing section\n10\nAccelerate State of DevOps 2023\nv. 2023-12"
+      ],
+      "expected_pages": [
+        "Cover",
+        "Contents\nAll citations retrieved 27 September 2023",
+        "Executive summary03",
+        "Delivery outcomes",
+        "Metric table\nMetric value 4\n44",
+        "Roadmap note\nThe roadmap43 marker remains fused.",
+        "Reliability chapter",
+        "Operational performance",
+        "Appendix note",
+        "Closing section"
+      ],
+      "expected_metadata": {
+        "repeated_text_footer_suppression": {
+          "activity": "suppressed",
+          "suppressed_line_count": 25,
+          "affected_page_count": 10,
+          "detected_repeated_text_footer_block_count": 2,
+          "suppressed_repeated_text_footer_block_count": 1,
+          "suppressed_adjacent_page_number_line_count": 5,
+          "skipped_adjacent_numeric_line_count": 4,
+          "skipped_adjacent_numeric_reasons_by_code": {
+            "non_page_number_adjacent_numeric_line": 3,
+            "adjacent_numeric_value_not_extracted_page": 1
+          }
+        },
+        "repeated_footer_suppression": {
+          "activity": "none",
+          "suppressed_line_count": 0
+        },
+        "footer_page_number_noise_diagnostics": {
+          "repeated_trailing_footer_block_count": 3,
+          "repeated_bare_numeric_trailing_signature_count": 1
+        }
+      },
+      "expected_markdown_metadata_lines": [
+        "- replay_quality_repeated_text_footer_suppressed_line_count: 25",
+        "- replay_quality_repeated_text_footer_suppressed_block_count: 1",
+        "- replay_quality_repeated_text_footer_suppressed_adjacent_page_number_count: 5",
+        "- replay_quality_repeated_text_footer_skipped_adjacent_numeric_count: 4"
+      ]
+    },
+    {
+      "id": "one_letter_split_word_lines",
+      "description": "One-letter split-word lines are joined to the following lowercase fragment.",
+      "expectation": "normalized",
+      "tags": ["required_case", "previous_dora_replay_failure", "line_wrap"],
+      "raw_pages": [
+        "• Software delivery performance—Teams can\ns\nafely improve delivery.\nDORA Report\n1",
+        "• Operational performance—The service\np\nrovides reliable behavior.\nDORA Report\n2"
+      ],
+      "expected_pages": [
+        "• Software delivery performance—Teams can\nsafely improve delivery.",
+        "• Operational performance—The service\nprovides reliable behavior."
+      ],
+      "expected_metadata": {
+        "one_letter_line_wrap_normalization": {
+          "activity": "normalized",
+          "repair_count": 2,
+          "affected_page_count": 2
+        },
+        "repeated_footer_suppression": {
+          "activity": "suppressed",
+          "suppressed_line_count": 4,
+          "suppressed_numeric_page_line_count": 2
+        }
+      },
+      "expected_markdown_metadata_lines": [
+        "- replay_quality_one_letter_line_wrap_repair_count: 2"
+      ]
+    },
+    {
+      "id": "standalone_one_letter_lines",
+      "description": "Legitimate standalone one-letter lines such as headings, pronouns, and list markers are retained.",
+      "expectation": "unchanged",
+      "tags": ["required_case", "no_op_safety", "line_wrap"],
+      "raw_pages": [
+        "Appendix marker\nA\nabout the cohort\nPronoun marker\nI\nintend to keep this line separate\nList marker\nb\nlowercase list item text"
+      ],
+      "expected_pages": [
+        "Appendix marker\nA\nabout the cohort\nPronoun marker\nI\nintend to keep this line separate\nList marker\nb\nlowercase list item text"
+      ],
+      "expected_metadata": {
+        "one_letter_line_wrap_normalization": {
+          "activity": "none",
+          "repair_count": 0,
+          "affected_page_count": 0
+        },
+        "repeated_footer_suppression": {
+          "activity": "none",
+          "suppressed_line_count": 0
+        }
+      },
+      "expected_markdown_metadata_lines": [
+        "- replay_quality_one_letter_line_wrap_repair_count: 0"
+      ]
     }
   ]
 }
