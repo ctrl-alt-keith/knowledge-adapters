@@ -29,6 +29,13 @@ from knowledge_adapters.bundle import (
 )
 from knowledge_adapters.confluence.auth import SUPPORTED_AUTH_METHODS, resolve_tls_inputs
 from knowledge_adapters.failures import adapter_failure_lines, response_or_config_failure
+from knowledge_adapters.public_replay_acceptance import (
+    evaluate_public_source_replay_acceptance,
+    known_public_source_replay_acceptance_specs,
+    public_source_replay_acceptance_keys,
+    public_source_replay_acceptance_spec,
+    render_public_source_replay_acceptance_report,
+)
 from knowledge_adapters.run_report import (
     RunReportRecord,
     SkippedRunRecord,
@@ -42,6 +49,7 @@ TOP_LEVEL_HELP_EXAMPLES = """First steps:
   knowledge-adapters local_files --help
   knowledge-adapters public_webpage --help
   knowledge-adapters public_pdf --help
+  knowledge-adapters public_replay_acceptance --help
   knowledge-adapters git_repo --help
   knowledge-adapters github_metadata --help
   knowledge-adapters confluence --help
@@ -116,6 +124,13 @@ PUBLIC_PDF_HELP_EXAMPLES = (
     "2023-dora-accelerate-state-of-devops-report.pdf \\\n"
     "    --output-dir ./artifacts/public-pdf/dora-2023\n"
 )
+
+PUBLIC_REPLAY_ACCEPTANCE_HELP_EXAMPLES = """Examples:
+  knowledge-adapters public_replay_acceptance
+  knowledge-adapters public_replay_acceptance --source dora_2023_public_pdf
+  knowledge-adapters public_replay_acceptance --source meaningfultech_webpage
+  knowledge-adapters public_replay_acceptance --source dora_roi_2026_public_pdf
+"""
 
 GIT_REPO_HELP_EXAMPLES = """Examples:
   knowledge-adapters git_repo \\
@@ -810,6 +825,26 @@ def build_parser() -> argparse.ArgumentParser:
             "Fetch and extract the source, then preview artifact path, manifest path, "
             "extraction limitations, and normalized candidate markdown without writing files."
         ),
+    )
+
+    public_replay_acceptance_parser = subparsers.add_parser(
+        "public_replay_acceptance",
+        help="Check known public-source replay acceptance contracts.",
+        description=(
+            "Fetch known public-source replay shapes and compare their replay-quality "
+            "metadata against the local acceptance contract. This command is an "
+            "intentional live-source milestone check; it is not part of make check and "
+            "does not write artifacts or modify retention state."
+        ),
+        epilog=PUBLIC_REPLAY_ACCEPTANCE_HELP_EXAMPLES,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    add_verbose_argument(public_replay_acceptance_parser)
+    public_replay_acceptance_parser.add_argument(
+        "--source",
+        choices=("all", *public_source_replay_acceptance_keys()),
+        default="all",
+        help="Known public source to check, or all configured known sources.",
     )
 
     git_repo_parser = subparsers.add_parser(
@@ -3480,6 +3515,39 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Manifest path: {render_user_path(manifest)}")
         print_write_complete(output_dir)
         return 0
+
+    if args.command == "public_replay_acceptance":
+        source = str(args.source)
+        specs = (
+            known_public_source_replay_acceptance_specs()
+            if source == "all"
+            else (public_source_replay_acceptance_spec(source),)
+        )
+        results = []
+        for spec in specs:
+            try:
+                if spec.source_type == "public_pdf":
+                    from knowledge_adapters.public_pdf.client import fetch_pdf
+
+                    metadata = fetch_pdf(spec.url).replay_quality_metadata
+                elif spec.source_type == "public_webpage":
+                    from knowledge_adapters.public_webpage.client import fetch_webpage
+
+                    metadata = fetch_webpage(spec.url).replay_quality_metadata
+                else:
+                    exit_with_cli_error(
+                        f"Unsupported public replay acceptance source type: {spec.source_type}",
+                        command="public_replay_acceptance",
+                    )
+            except ValueError as exc:
+                exit_with_cli_error(str(exc), command="public_replay_acceptance")
+            results.append(
+                evaluate_public_source_replay_acceptance(spec.source_key, metadata)
+            )
+
+        report = render_public_source_replay_acceptance_report(results)
+        print(report)
+        return 0 if all(result.stable for result in results) else 1
 
     if args.command in {"public_webpage", "public_pdf"}:
         import hashlib

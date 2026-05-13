@@ -1,0 +1,174 @@
+{
+  "schema_version": 1,
+  "source": "known_public_source_replay_acceptance_metadata",
+  "cases": [
+    {
+      "source_key": "dora_2023_public_pdf",
+      "description": "Live-observed DORA 2023 public PDF replay-quality shape after public-source replay classification.",
+      "replay_quality_metadata": {
+        "replay_classification": {
+          "source_type": "public_pdf",
+          "operational_state": "review-ready",
+          "promotion_state": "unsafe-to-promote",
+          "known_limitation_codes": [
+            "pdf_layout_tables_figures_footnotes_headers_reading_order_may_be_incomplete",
+            "scanned_image_only_pages_may_be_missing",
+            "public_pdf_full_text_extraction_requires_source_review"
+          ],
+          "reviewability_assessment": {
+            "review_worth_doing": true,
+            "review_effort": "focused",
+            "bounded_review_economics": true,
+            "retained_content_units": 4363,
+            "retained_content_unit": "normalized_nonempty_text_line",
+            "deterministic_cleanup_count": 294,
+            "remaining_artifact_count": 174
+          },
+          "deterministic_cleanup": {
+            "scope": "bounded_deterministic_only",
+            "counts_by_category": {
+              "one_letter_line_wrap_repairs": 27,
+              "repeated_footer_lines_suppressed": 0,
+              "repeated_text_footer_lines_suppressed": 174,
+              "url_path_line_wrap_repairs": 6,
+              "url_spacing_normalizations": 87
+            }
+          },
+          "remaining_artifacts": {
+            "total_count": 174,
+            "counts_by_category": {
+              "bare_numeric_lines_adjacent_to_numeric_content": 14,
+              "empty_pages_without_extracted_text": 0,
+              "mid_page_footer_like_lines": 19,
+              "possible_layout_artifact_lines": 114,
+              "repeated_footer_missing_adjacent_numeric_lines": 0,
+              "repeated_footer_nonparseable_adjacent_numeric_lines": 0,
+              "repeated_footer_numeric_risk_skipped": 0,
+              "repeated_text_footer_skipped_adjacent_numeric_lines": 27
+            }
+          },
+          "intentional_retention": {
+            "markers": [
+              "full_text_extraction_retained_intentionally_for_review",
+              "uncertain_extraction_artifacts_retained_for_review"
+            ]
+          },
+          "promotion_safety": {
+            "promotion_capable": false,
+            "blocker_codes": [
+              "public_source_candidate_requires_human_retention_review"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "source_key": "meaningfultech_webpage",
+      "description": "Live-observed MeaningfulTech webpage replay-quality shape after public webpage chrome suppression.",
+      "replay_quality_metadata": {
+        "replay_classification": {
+          "source_type": "public_webpage",
+          "operational_state": "review-ready",
+          "promotion_state": "unsafe-to-promote",
+          "known_limitation_codes": [
+            "public_webpage_visible_text_extraction_requires_source_review",
+            "links_images_tables_comments_and_publication_metadata_may_be_incomplete",
+            "article_body_text_is_retained_not_summarized"
+          ],
+          "reviewability_assessment": {
+            "review_worth_doing": true,
+            "review_effort": "bounded",
+            "bounded_review_economics": true,
+            "retained_content_units": 17683,
+            "retained_content_unit": "retained_visible_text_character",
+            "deterministic_cleanup_count": 12,
+            "remaining_artifact_count": 0
+          },
+          "deterministic_cleanup": {
+            "scope": "bounded_deterministic_only",
+            "counts_by_category": {
+              "page_chrome_paragraphs_suppressed": 12
+            }
+          },
+          "remaining_artifacts": {
+            "total_count": 0,
+            "counts_by_category": {
+              "reported_remaining_webpage_chrome_artifacts": 0
+            }
+          },
+          "intentional_retention": {
+            "markers": [
+              "article_body_text_retained_intentionally_for_review"
+            ]
+          },
+          "promotion_safety": {
+            "promotion_capable": false,
+            "blocker_codes": [
+              "public_source_candidate_requires_human_retention_review"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "source_key": "dora_roi_2026_public_pdf",
+      "description": "Live-observed DORA ROI 2026 public PDF replay-quality non-regression shape.",
+      "replay_quality_metadata": {
+        "replay_classification": {
+          "source_type": "public_pdf",
+          "operational_state": "review-ready",
+          "promotion_state": "unsafe-to-promote",
+          "known_limitation_codes": [
+            "pdf_layout_tables_figures_footnotes_headers_reading_order_may_be_incomplete",
+            "scanned_image_only_pages_may_be_missing",
+            "public_pdf_full_text_extraction_requires_source_review"
+          ],
+          "reviewability_assessment": {
+            "review_worth_doing": true,
+            "review_effort": "focused",
+            "bounded_review_economics": true,
+            "retained_content_units": 3154,
+            "retained_content_unit": "normalized_nonempty_text_line",
+            "deterministic_cleanup_count": 199,
+            "remaining_artifact_count": 84
+          },
+          "deterministic_cleanup": {
+            "scope": "bounded_deterministic_only",
+            "counts_by_category": {
+              "one_letter_line_wrap_repairs": 0,
+              "repeated_footer_lines_suppressed": 110,
+              "repeated_text_footer_lines_suppressed": 0,
+              "url_path_line_wrap_repairs": 7,
+              "url_spacing_normalizations": 82
+            }
+          },
+          "remaining_artifacts": {
+            "total_count": 84,
+            "counts_by_category": {
+              "bare_numeric_lines_adjacent_to_numeric_content": 60,
+              "empty_pages_without_extracted_text": 0,
+              "mid_page_footer_like_lines": 8,
+              "possible_layout_artifact_lines": 14,
+              "repeated_footer_missing_adjacent_numeric_lines": 0,
+              "repeated_footer_nonparseable_adjacent_numeric_lines": 1,
+              "repeated_footer_numeric_risk_skipped": 1,
+              "repeated_text_footer_skipped_adjacent_numeric_lines": 0
+            }
+          },
+          "intentional_retention": {
+            "markers": [
+              "full_text_extraction_retained_intentionally_for_review",
+              "uncertain_extraction_artifacts_retained_for_review"
+            ]
+          },
+          "promotion_safety": {
+            "promotion_capable": false,
+            "blocker_codes": [
+              "public_source_candidate_requires_human_retention_review"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

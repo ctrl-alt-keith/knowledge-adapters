@@ -43,6 +43,7 @@ knowledge-adapters --help
 knowledge-adapters local_files --help
 knowledge-adapters public_webpage --help
 knowledge-adapters public_pdf --help
+knowledge-adapters public_replay_acceptance --help
 knowledge-adapters confluence --help
 ```
 
@@ -154,6 +155,14 @@ normalization and replay-quality metadata in `knowledge-adapters`, and reserve
 knowledge-vault replay for milestone or integration validation. See
 `docs/public-pdf-dora-regression-fixtures.md` for when full replay validation is
 still required.
+
+Known public-source shapes also have a local replay acceptance contract. Run
+`knowledge-adapters public_replay_acceptance` as an intentional live milestone
+check before returning to knowledge-vault replay; it reports whether DORA 2023,
+MeaningfulTech, and DORA ROI 2026 still match expected classification,
+reviewability, cleanup, remaining-artifact, limitation, retention, and promotion
+blocker ranges. The deterministic fixture-backed contract is documented in
+`docs/public-source-replay-acceptance.md`.
 
 Recommended Confluence first run:
 
