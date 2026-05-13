@@ -446,12 +446,12 @@
       "expectation": "normalized",
       "tags": ["required_case", "previous_dora_replay_failure", "line_wrap"],
       "raw_pages": [
-        "Teams can\ns\nafely improve delivery.\nDORA Report\n1",
-        "The service\np\nrovides reliable behavior.\nDORA Report\n2"
+        "• Software delivery performance—Teams can\ns\nafely improve delivery.\nDORA Report\n1",
+        "• Operational performance—The service\np\nrovides reliable behavior.\nDORA Report\n2"
       ],
       "expected_pages": [
-        "Teams can\nsafely improve delivery.",
-        "The service\nprovides reliable behavior."
+        "• Software delivery performance—Teams can\nsafely improve delivery.",
+        "• Operational performance—The service\nprovides reliable behavior."
       ],
       "expected_metadata": {
         "one_letter_line_wrap_normalization": {
@@ -467,6 +467,32 @@
       },
       "expected_markdown_metadata_lines": [
         "- replay_quality_one_letter_line_wrap_repair_count: 2"
+      ]
+    },
+    {
+      "id": "standalone_one_letter_lines",
+      "description": "Legitimate standalone one-letter lines such as headings, pronouns, and list markers are retained.",
+      "expectation": "unchanged",
+      "tags": ["required_case", "no_op_safety", "line_wrap"],
+      "raw_pages": [
+        "Appendix marker\nA\nabout the cohort\nPronoun marker\nI\nintend to keep this line separate\nList marker\nb\nlowercase list item text"
+      ],
+      "expected_pages": [
+        "Appendix marker\nA\nabout the cohort\nPronoun marker\nI\nintend to keep this line separate\nList marker\nb\nlowercase list item text"
+      ],
+      "expected_metadata": {
+        "one_letter_line_wrap_normalization": {
+          "activity": "none",
+          "repair_count": 0,
+          "affected_page_count": 0
+        },
+        "repeated_footer_suppression": {
+          "activity": "none",
+          "suppressed_line_count": 0
+        }
+      },
+      "expected_markdown_metadata_lines": [
+        "- replay_quality_one_letter_line_wrap_repair_count: 0"
       ]
     }
   ]

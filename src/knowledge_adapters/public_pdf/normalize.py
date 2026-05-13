@@ -35,6 +35,9 @@ _PAGE_NUMBER_LINE_RE = re.compile(
     re.IGNORECASE,
 )
 _VERSION_FOOTER_LINE_RE = re.compile(r"^v\.\s*\d{4}(?:[-.]\d{1,4})?$", re.IGNORECASE)
+_ONE_LETTER_LINE_WRAP_PREVIOUS_CONTEXT_RE = re.compile(
+    r"^(?:[\u2022*-]\s+|\d+[.)]?$|authors$)", re.IGNORECASE
+)
 _MEANINGFUL_NUMERIC_CONTEXT_RE = re.compile(
     r"(\b(total|metric|value|score|cost|savings|roi|result|input|output|"
     r"calculator|table|figure|formula|baseline|target|year|month|rate|percent|"
@@ -233,7 +236,8 @@ def _normalize_one_letter_split_word_lines_with_count(text: str) -> tuple[str, i
             continue
 
         next_line = lines[index + 1].strip()
-        if _is_one_letter_split_word_pair(line, next_line):
+        previous_line = lines[index - 1].strip() if index > 0 else ""
+        if _is_one_letter_split_word_pair(previous_line, line, next_line):
             normalized_lines.append(f"{line}{next_line}")
             repair_count += 1
             index += 2
@@ -245,9 +249,12 @@ def _normalize_one_letter_split_word_lines_with_count(text: str) -> tuple[str, i
     return "\n".join(normalized_lines).strip(), repair_count
 
 
-def _is_one_letter_split_word_pair(line: str, next_line: str) -> bool:
+def _is_one_letter_split_word_pair(
+    previous_line: str, line: str, next_line: str
+) -> bool:
     return bool(
-        len(line) == 1
+        _ONE_LETTER_LINE_WRAP_PREVIOUS_CONTEXT_RE.match(previous_line)
+        and len(line) == 1
         and line.isalpha()
         and next_line
         and next_line[0].islower()
