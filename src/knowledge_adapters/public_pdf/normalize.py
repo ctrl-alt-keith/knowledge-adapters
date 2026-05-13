@@ -1359,6 +1359,22 @@ def _render_replay_quality_metadata(metadata: Mapping[str, object]) -> str:
                         f"{_metadata_value(source_intent, 'likely_target_mismatch')}"
                     ),
                     (
+                        "- replay_quality_webpage_historical_report_redirect_detected: "
+                        f"{_metadata_value(source_intent, 'historical_report_redirect_detected')}"
+                    ),
+                    (
+                        "- replay_quality_webpage_stable_research_asset_detected: "
+                        f"{_metadata_value(source_intent, 'stable_research_asset_detected')}"
+                    ),
+                    (
+                        "- replay_quality_webpage_canonical_target_resolution_status: "
+                        f"{_metadata_value(source_intent, 'canonical_target_resolution_status')}"
+                    ),
+                    (
+                        "- replay_quality_webpage_canonical_source_confidence: "
+                        f"{_metadata_value(source_intent, 'canonical_source_confidence')}"
+                    ),
+                    (
                         "- replay_quality_webpage_selected_target_url: "
                         f"{_metadata_value(source_intent, 'selected_target_url')}"
                     ),

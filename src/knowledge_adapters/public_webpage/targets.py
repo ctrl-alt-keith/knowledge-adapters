@@ -49,16 +49,42 @@ _REPORT_TERMS = {
     "accelerate",
     "ai",
     "assisted",
+    "article",
+    "chapter",
     "development",
     "devops",
     "dora",
     "download",
+    "paper",
     "pdf",
+    "publication",
     "report",
     "research",
     "software",
     "state",
+    "study",
+    "workbook",
     "whitepaper",
+}
+_STABLE_PUBLICATION_PATH_PARTS = {
+    "/article/",
+    "/articles/",
+    "/chapter/",
+    "/chapters/",
+    "/detail.cfm",
+    "/download/",
+    "/files/",
+    "/paper/",
+    "/papers/",
+    "/publication/",
+    "/publications/",
+    "/report/",
+    "/reports/",
+    "/resource/",
+    "/resources/",
+    "/uploads/",
+    "/whitepaper/",
+    "/whitepapers/",
 }
 _REJECT_HOST_PARTS = {
     "accounts.google.com",
@@ -91,11 +117,22 @@ def discover_target_links(
     source_intent_assessment: Mapping[str, object],
 ) -> dict[str, object]:
     """Select one high-confidence same-page report target when it is unambiguous."""
+    if _bool_value(source_intent_assessment, "commercial_landing_page_detected"):
+        return _target_selection(
+            status="no_selection_commercial_landing_page",
+            reason="commercial_landing_page_requires_operator_source_choice",
+            candidate_links=(),
+            canonical_status="no_selection",
+            canonical_confidence="none",
+        )
+
     if not _bool_value(source_intent_assessment, "likely_target_mismatch"):
         return _target_selection(
             status="not_applicable_no_target_mismatch",
             reason="source_intent_assessment_did_not_flag_target_mismatch",
             candidate_links=(),
+            canonical_status="not_applicable",
+            canonical_confidence=_source_canonical_confidence(source_intent_assessment),
         )
 
     candidates = _candidate_links(
@@ -114,12 +151,16 @@ def discover_target_links(
             status="no_high_confidence_target",
             reason="no_same_page_report_asset_met_selection_guards",
             candidate_links=candidates,
+            canonical_status="no_selection",
+            canonical_confidence="none",
         )
     if len(high_confidence_candidates) > 1:
         return _target_selection(
             status="ambiguous_multiple_high_confidence_targets",
             reason="multiple_same_page_report_assets_met_selection_guards",
             candidate_links=candidates,
+            canonical_status="ambiguous",
+            canonical_confidence="low",
         )
 
     selected = high_confidence_candidates[0]
@@ -129,6 +170,8 @@ def discover_target_links(
         candidate_links=candidates,
         selected_url=str(selected["url"]),
         selected_content_type=str(selected["content_type"]),
+        canonical_status="selected_stable_canonical_asset",
+        canonical_confidence=_candidate_confidence(selected),
     )
 
 
@@ -220,20 +263,30 @@ def _score_candidate_link(
         return None
 
     is_pdf = parsed.path.lower().endswith(".pdf")
+    stable_publication_url = _is_stable_publication_url(parsed, label)
     score = 0
     reasons: list[str] = []
     if is_pdf:
         score += 48
         reasons.append("pdf_asset")
+    elif stable_publication_url:
+        score += 34
+        reasons.append("stable_publication_url")
     elif any(term in normalized_url_text for term in ("report", "whitepaper", "download")):
         score += 28
         reasons.append("report_like_html_target")
     if link.source in {"anchor_href", "link_href", "meta_url"}:
         score += 8
         reasons.append(f"observed_in_{link.source}")
+    if any(term in label for term in ("canonical", "citation_pdf_url", "og:url")):
+        score += 10
+        reasons.append("explicit_canonical_metadata")
     if link.source == "embedded_page_url":
         score += 6
         reasons.append("observed_in_embedded_page_url")
+    if stable_publication_url:
+        score += 12
+        reasons.append("stable_research_asset")
     score += min(36, len(identity_matches) * 6)
     if "dora" in identity_matches:
         score += 8
@@ -259,6 +312,7 @@ def _score_candidate_link(
         "content_type": content_type,
         "confidence_score": score,
         "identity_matches": identity_matches,
+        "stable_research_asset": stable_publication_url or is_pdf,
         "selection_reason": ",".join(reasons),
     }
 
@@ -268,10 +322,14 @@ def _target_selection(
     status: str,
     reason: str,
     candidate_links: Sequence[Mapping[str, object]],
+    canonical_status: str,
+    canonical_confidence: str,
     selected_url: str = "",
     selected_content_type: str = "",
 ) -> dict[str, object]:
     return {
+        "canonical_target_resolution_status": canonical_status,
+        "canonical_source_confidence": canonical_confidence,
         "candidate_target_links": [dict(candidate) for candidate in candidate_links],
         "selected_target_url": selected_url,
         "selected_target_content_type": selected_content_type,
@@ -337,6 +395,23 @@ def _has_report_semantics(url_text: str, label: str) -> bool:
     return any(term in text for term in _REPORT_TERMS)
 
 
+def _is_stable_publication_url(parsed: ParseResult, label: str) -> bool:
+    path = str(parsed.path or "").lower()
+    query = str(parsed.query or "").lower()
+    if path.endswith(".pdf"):
+        return True
+    if any(path_part in path for path_part in _STABLE_PUBLICATION_PATH_PARTS):
+        return True
+    if path.endswith("/toc") or path.endswith("/table-of-contents"):
+        return True
+    if path.endswith(("/toc/", "/table-of-contents/")):
+        return True
+    if parsed.hostname == "queue.acm.org" and path.endswith("/detail.cfm") and "id=" in query:
+        return True
+    normalized_label = _normalize_text(label)
+    return "canonical" in normalized_label and _has_report_semantics(path, normalized_label)
+
+
 def _identity_tokens(text: str) -> set[str]:
     tokens = set(re.findall(r"[a-z0-9]+", _normalize_text(text)))
     return {
@@ -379,3 +454,17 @@ def _bool_value(metadata: Mapping[str, object], key: str) -> bool:
 def _int_value(metadata: Mapping[str, object], key: str) -> int:
     value = metadata.get(key, 0)
     return value if isinstance(value, int) else 0
+
+
+def _source_canonical_confidence(source_intent_assessment: Mapping[str, object]) -> str:
+    value = source_intent_assessment.get("canonical_source_confidence", "none")
+    return str(value) if value else "none"
+
+
+def _candidate_confidence(candidate: Mapping[str, object]) -> str:
+    score = _int_value(candidate, "confidence_score")
+    if score >= 75:
+        return "high"
+    if score >= 70:
+        return "medium"
+    return "low"
