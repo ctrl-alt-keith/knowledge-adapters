@@ -78,11 +78,46 @@ class GitHubPullRequest:
     updated_at: str
     source_url: str
     body: str
+    comments: tuple[GitHubPullRequestComment, ...] = ()
+    review_comments: tuple[GitHubPullRequestReviewComment, ...] = ()
 
     @property
     def canonical_id(self) -> str:
         """Return the pull request canonical ID."""
         return f"github_metadata:{self.host}:{self.repo}:pull_request:{self.number}"
+
+
+@dataclass(frozen=True)
+class GitHubPullRequestComment:
+    """One normalized whole-pull-request comment record."""
+
+    comment_id: int | None
+    source_url: str | None
+    author: str | None
+    created_at: str
+    updated_at: str
+    body: str
+
+
+@dataclass(frozen=True)
+class GitHubPullRequestReviewComment:
+    """One normalized pull request review comment record."""
+
+    comment_id: int | None
+    source_url: str | None
+    author: str | None
+    created_at: str
+    updated_at: str
+    path: str | None
+    line: int | None
+    original_line: int | None
+    start_line: int | None
+    original_start_line: int | None
+    position: int | None
+    original_position: int | None
+    side: str | None
+    start_side: str | None
+    body: str
 
 
 @dataclass(frozen=True)
@@ -344,6 +379,8 @@ def list_repository_pull_requests(
     state: str = "open",
     since: str | None = None,
     max_items: int | None = None,
+    include_pr_comments: bool = False,
+    include_pr_review_comments: bool = False,
 ) -> tuple[GitHubPullRequest, ...]:
     """List normalized pull requests for one repository through the REST API."""
     owner, repo_name, normalized_repo = validate_repo(repo)
@@ -394,9 +431,48 @@ def list_repository_pull_requests(
             for pull_request in ordered_pull_requests
             if _parse_timestamp(pull_request.updated_at) >= since_cutoff
         )
-    if normalized_max_items is None:
-        return ordered_pull_requests
-    return ordered_pull_requests[:normalized_max_items]
+    selected_pull_requests = (
+        ordered_pull_requests
+        if normalized_max_items is None
+        else ordered_pull_requests[:normalized_max_items]
+    )
+    if not include_pr_comments and not include_pr_review_comments:
+        return selected_pull_requests
+
+    hydrated_pull_requests: list[GitHubPullRequest] = []
+    for pull_request in selected_pull_requests:
+        comments = (
+            _list_pull_request_comments(
+                pull_number=pull_request.number,
+                owner=owner,
+                repo_name=repo_name,
+                repo=normalized_repo,
+                api_root=base_urls.api_root,
+                request_auth=request_auth,
+            )
+            if include_pr_comments
+            else pull_request.comments
+        )
+        review_comments = (
+            _list_pull_request_review_comments(
+                pull_number=pull_request.number,
+                owner=owner,
+                repo_name=repo_name,
+                repo=normalized_repo,
+                api_root=base_urls.api_root,
+                request_auth=request_auth,
+            )
+            if include_pr_review_comments
+            else pull_request.review_comments
+        )
+        hydrated_pull_requests.append(
+            replace(
+                pull_request,
+                comments=comments,
+                review_comments=review_comments,
+            )
+        )
+    return tuple(hydrated_pull_requests)
 
 
 def list_repository_releases(
@@ -633,6 +709,39 @@ def issue_comments_api_url(
     )
 
 
+def pull_request_comments_api_url(
+    *,
+    api_root: str,
+    owner: str,
+    repo_name: str,
+    pull_number: int,
+) -> str:
+    """Build the first whole-pull-request comments API URL."""
+    return issue_comments_api_url(
+        api_root=api_root,
+        owner=owner,
+        repo_name=repo_name,
+        issue_number=pull_number,
+    )
+
+
+def pull_request_review_comments_api_url(
+    *,
+    api_root: str,
+    owner: str,
+    repo_name: str,
+    pull_number: int,
+) -> str:
+    """Build the first pull request review comments API URL."""
+    encoded_owner = parse.quote(owner, safe="")
+    encoded_repo = parse.quote(repo_name, safe="")
+    query = parse.urlencode({"per_page": _PAGE_SIZE})
+    return (
+        f"{api_root.rstrip('/')}/repos/{encoded_owner}/{encoded_repo}/pulls/"
+        f"{pull_number}/comments?{query}"
+    )
+
+
 def _list_issue_comments(
     *,
     issue_number: int,
@@ -704,6 +813,169 @@ def _map_issue_comment(payload: dict[str, object]) -> GitHubIssueComment:
     )
 
 
+def _list_pull_request_comments(
+    *,
+    pull_number: int,
+    owner: str,
+    repo_name: str,
+    repo: str,
+    api_root: str,
+    request_auth: RequestAuth,
+) -> tuple[GitHubPullRequestComment, ...]:
+    next_url: str | None = pull_request_comments_api_url(
+        api_root=api_root,
+        owner=owner,
+        repo_name=repo_name,
+        pull_number=pull_number,
+    )
+    seen_urls: set[str] = set()
+    comments: list[GitHubPullRequestComment] = []
+    while next_url is not None:
+        if next_url in seen_urls:
+            raise ValueError(
+                "Response error: repeated GitHub pull request comments pagination URL."
+            )
+        seen_urls.add(next_url)
+
+        payload, link_header = _request_json_list(
+            next_url,
+            request_auth=request_auth,
+            repo=repo,
+            api_root=api_root,
+        )
+        for item in payload:
+            comments.append(_map_pull_request_comment(item))
+        next_url = _next_link_url(link_header)
+
+    return tuple(
+        sorted(
+            comments,
+            key=lambda comment: (
+                comment.created_at,
+                comment.updated_at,
+                -1 if comment.comment_id is None else comment.comment_id,
+                "" if comment.source_url is None else comment.source_url,
+                "" if comment.author is None else comment.author,
+                comment.body,
+            ),
+        )
+    )
+
+
+def _list_pull_request_review_comments(
+    *,
+    pull_number: int,
+    owner: str,
+    repo_name: str,
+    repo: str,
+    api_root: str,
+    request_auth: RequestAuth,
+) -> tuple[GitHubPullRequestReviewComment, ...]:
+    next_url: str | None = pull_request_review_comments_api_url(
+        api_root=api_root,
+        owner=owner,
+        repo_name=repo_name,
+        pull_number=pull_number,
+    )
+    seen_urls: set[str] = set()
+    comments: list[GitHubPullRequestReviewComment] = []
+    while next_url is not None:
+        if next_url in seen_urls:
+            raise ValueError(
+                "Response error: repeated GitHub pull request review comments pagination URL."
+            )
+        seen_urls.add(next_url)
+
+        payload, link_header = _request_json_list(
+            next_url,
+            request_auth=request_auth,
+            repo=repo,
+            api_root=api_root,
+        )
+        for item in payload:
+            comments.append(_map_pull_request_review_comment(item))
+        next_url = _next_link_url(link_header)
+
+    return tuple(
+        sorted(
+            comments,
+            key=lambda comment: (
+                comment.created_at,
+                comment.updated_at,
+                -1 if comment.comment_id is None else comment.comment_id,
+                "" if comment.source_url is None else comment.source_url,
+                "" if comment.path is None else comment.path,
+                -1 if comment.line is None else comment.line,
+                -1 if comment.original_line is None else comment.original_line,
+                "" if comment.author is None else comment.author,
+                comment.body,
+            ),
+        )
+    )
+
+
+def _map_pull_request_comment(payload: dict[str, object]) -> GitHubPullRequestComment:
+    created_at = _require_string(payload, "created_at")
+    updated_at = _require_string(payload, "updated_at")
+    body = _optional_body(payload, "pull request comment")
+    user = payload.get("user")
+    author: str | None = None
+    if isinstance(user, dict):
+        login = user.get("login")
+        if isinstance(login, str) and login:
+            author = login
+
+    return GitHubPullRequestComment(
+        comment_id=_optional_int(payload, "id"),
+        source_url=_optional_string(payload, "html_url") or _optional_string(payload, "url"),
+        author=author,
+        created_at=created_at,
+        updated_at=updated_at,
+        body=body,
+    )
+
+
+def _map_pull_request_review_comment(
+    payload: dict[str, object],
+) -> GitHubPullRequestReviewComment:
+    created_at = _require_string(payload, "created_at")
+    updated_at = _require_string(payload, "updated_at")
+    body = _optional_body(payload, "pull request review comment")
+    user = payload.get("user")
+    author: str | None = None
+    if isinstance(user, dict):
+        login = user.get("login")
+        if isinstance(login, str) and login:
+            author = login
+
+    return GitHubPullRequestReviewComment(
+        comment_id=_optional_int(payload, "id"),
+        source_url=_optional_string(payload, "html_url") or _optional_string(payload, "url"),
+        author=author,
+        created_at=created_at,
+        updated_at=updated_at,
+        path=_optional_string(payload, "path"),
+        line=_optional_int(payload, "line"),
+        original_line=_optional_int(payload, "original_line"),
+        start_line=_optional_int(payload, "start_line"),
+        original_start_line=_optional_int(payload, "original_start_line"),
+        position=_optional_int(payload, "position"),
+        original_position=_optional_int(payload, "original_position"),
+        side=_optional_string(payload, "side"),
+        start_side=_optional_string(payload, "start_side"),
+        body=body,
+    )
+
+
+def _optional_body(payload: dict[str, object], label: str) -> str:
+    body_value = payload.get("body")
+    if body_value is None:
+        return ""
+    if isinstance(body_value, str):
+        return body_value
+    raise ValueError(f"Response error: invalid {label} body.")
+
+
 def _require_string(payload: dict[str, object], key: str) -> str:
     value = payload.get(key)
     if not isinstance(value, str):
@@ -716,6 +988,15 @@ def _optional_string(payload: dict[str, object], key: str) -> str | None:
     if value is None:
         return None
     if not isinstance(value, str):
+        raise ValueError(f"Response error: missing or invalid {key}.")
+    return value
+
+
+def _optional_int(payload: dict[str, object], key: str) -> int | None:
+    value = payload.get(key)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"Response error: missing or invalid {key}.")
     return value
 
