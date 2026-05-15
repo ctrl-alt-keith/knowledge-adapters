@@ -3838,6 +3838,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             resolve_base_urls,
         )
         from knowledge_adapters.github_metadata.config import GitHubMetadataConfig
+        from knowledge_adapters.github_metadata.incremental import (
+            classify_github_metadata_sync,
+        )
         from knowledge_adapters.github_metadata.normalize import (
             normalize_issue_to_markdown,
             normalize_pull_request_to_markdown,
@@ -4074,18 +4077,55 @@ def main(argv: Sequence[str] | None = None) -> int:
                     ).as_posix(),
                 }
             )
-        stale_artifacts = [
-            (artifact.canonical_id, artifact.output_path)
-            for artifact in find_stale_artifacts(
+        github_lifecycle_decisions = [
+            classify_github_metadata_sync(
                 github_metadata_config.output_dir,
                 previous_manifest_index,
-                current_output_paths=[
-                    str(entry["output_path"]) for entry in github_manifest_entries
-                ],
+                manifest_entry=entry,
             )
+            for entry in github_manifest_entries
         ]
+        new_count = sum(1 for decision in github_lifecycle_decisions if decision.status == "new")
+        changed_count = sum(
+            1 for decision in github_lifecycle_decisions if decision.status == "changed"
+        )
+        unchanged_count = sum(
+            1 for decision in github_lifecycle_decisions if decision.status == "unchanged"
+        )
+        write_count = new_count + changed_count
+        skip_count = unchanged_count
 
-        for record, output_path in zip(records, github_written_output_paths, strict=True):
+        stale_artifact_records = find_stale_artifacts(
+            github_metadata_config.output_dir,
+            previous_manifest_index,
+            current_output_paths=[
+                str(entry["output_path"]) for entry in github_manifest_entries
+            ],
+        )
+        stale_artifacts = [
+            (artifact.canonical_id, artifact.output_path) for artifact in stale_artifact_records
+        ]
+        stale_manifest_entries: list[dict[str, object]] = []
+        for artifact in stale_artifact_records:
+            stale_entry: dict[str, object] = {
+                "canonical_id": artifact.canonical_id,
+                "output_path": artifact.output_path,
+            }
+            prior_entry = (
+                previous_manifest_index.get(artifact.canonical_id)
+                if previous_manifest_index is not None
+                else None
+            )
+            if prior_entry is not None and prior_entry.content_hash is not None:
+                stale_entry["content_hash"] = prior_entry.content_hash
+            stale_manifest_entries.append(stale_entry)
+
+        for record, output_path, decision in zip(
+            records,
+            github_written_output_paths,
+            github_lifecycle_decisions,
+            strict=True,
+        ):
             if isinstance(record, GitHubRelease):
                 print(f"\n  {resource_label}: {record.tag_name}")
             else:
@@ -4101,11 +4141,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                     f"{resource_label.replace('_', ' ')} body; output will include an "
                     "empty-body marker"
                 )
-            print(f"  action: {'would write' if github_metadata_config.dry_run else 'write'}")
+            print(f"  lifecycle_status: {decision.status}")
+            print(f"  lifecycle_reason: {decision.reason}")
+            action = "skip" if decision.status == "unchanged" else "write"
+            print(f"  action: {'would ' if github_metadata_config.dry_run else ''}{action}")
 
         manifest_output_path = output_dir / "manifest.json"
         if github_metadata_config.dry_run:
-            print(f"\nSummary: would write {len(records)}, would skip 0")
+            print(f"\nSummary: would write {write_count}, would skip {skip_count}")
+            print(f"  new_records: {new_count}")
+            print(f"  changed_records: {changed_count}")
+            print(f"  unchanged_records: {unchanged_count}")
             print(f"  stale_artifacts: {len(stale_artifacts)}")
             print_stale_artifacts(github_metadata_config.output_dir, stale_artifacts)
             print(f"Manifest path: {render_user_path(manifest_output_path)}")
@@ -4113,7 +4159,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
 
         try:
-            for record in records:
+            github_rewritten_output_paths: list[Path] = []
+            github_skipped_output_paths: list[tuple[Path, str]] = []
+            for record, output_path, decision in zip(
+                records,
+                github_written_output_paths,
+                github_lifecycle_decisions,
+                strict=True,
+            ):
+                if decision.status == "unchanged":
+                    github_skipped_output_paths.append((output_path, decision.reason))
+                    continue
                 record_identifier = (
                     record.release_id if isinstance(record, GitHubRelease) else record.number
                 )
@@ -4123,9 +4179,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                     record_identifier,
                     record_markdowns[record.canonical_id],
                 )
+                github_rewritten_output_paths.append(output_path)
             manifest = write_manifest(
                 github_metadata_config.output_dir,
                 github_manifest_entries,
+                stale_artifacts=stale_manifest_entries,
             )
         except OSError as exc:
             exit_with_output_error(
@@ -4134,9 +4192,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 exc=exc,
             )
 
-        for output_path in github_written_output_paths:
+        for output_path in github_rewritten_output_paths:
             print(f"\nWrote: {render_user_path(output_path)}")
-        print(f"\nSummary: wrote {len(records)}, skipped 0")
+        for output_path, reason in github_skipped_output_paths:
+            print(f"\nSkipped: {render_user_path(output_path)} ({reason})")
+        print(f"\nSummary: wrote {write_count}, skipped {skip_count}")
+        print(f"  new_records: {new_count}")
+        print(f"  changed_records: {changed_count}")
+        print(f"  unchanged_records: {unchanged_count}")
         print(f"  stale_artifacts: {len(stale_artifacts)}")
         print_stale_artifacts(github_metadata_config.output_dir, stale_artifacts)
         print(f"Manifest path: {render_user_path(manifest)}")
