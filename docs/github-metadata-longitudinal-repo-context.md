@@ -25,9 +25,9 @@ by providing receipts, not conclusions.
 
 ## Why Longitudinal Context
 
-The existing issues-only `github_metadata` contract is a useful first slice, but
-repo trajectory analysis needs evidence across time rather than a single
-snapshot.
+The current `github_metadata` contract captures issues, pull requests,
+releases, and optional issue comments as bounded evidence slices, but repo
+trajectory analysis needs evidence across time rather than a single snapshot.
 
 Future acquisition can support questions such as:
 
@@ -44,10 +44,8 @@ capturing the evidence. Interpretation belongs elsewhere.
 
 Candidate future `github_metadata` inputs include:
 
-- issues;
-- pull requests;
-- issue and PR comments;
-- releases;
+- pull request comments and review comments;
+- release assets;
 - repository docs and selected metadata;
 - project maps or planning surfaces when exposed through a bounded API;
 - changed paths from pull requests;

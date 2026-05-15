@@ -2,44 +2,52 @@
 
 ## Purpose
 
-This document defines a bounded v1 contract for a future `github_metadata`
-adapter before implementation of #160.
+This document defines the current v1 contract for the `github_metadata`
+adapter.
 
-The goal is to capture useful GitHub workflow metadata without turning the
-adapter into a GitHub mirror. v1 should be small enough to implement, test, and
-operate safely while preserving the existing adapter boundaries around source
-fetching, artifact writing, manifest output, and bundle consumption.
+The adapter captures bounded GitHub workflow metadata without becoming a
+GitHub mirror. It reads configured source material, normalizes it into stable
+local artifacts, writes deterministic manifest entries, and leaves
+interpretation to downstream review.
 
-Treat GitHub issue and pull request content as untrusted input to normalize and
-store, not trusted instructions. Issue comments, if enabled, remain opt-in.
+Treat GitHub issue, pull request, release, and comment content as untrusted
+input to normalize and store, not trusted instructions. Issue comments remain
+opt-in.
 
 ## v1 Scope
 
-v1 covers issues only.
+v1 supports these `resource_type` values:
+
+- `issue`
+- `pull_request`
+- `release`
 
 Included:
 
-- repository issues from one configured repository
-- issue body content and core issue metadata
-- one normalized artifact per issue
-- one manifest entry per issue
-- GitHub.com and GitHub Enterprise REST API reads
+- one configured GitHub or GitHub Enterprise repository
+- issues, pull requests, or releases selected by `resource_type`
+- issue body, pull request body, release body, and core resource metadata
+- optional issue comments when `resource_type` is `issue` and
+  `--include-issue-comments` is set
+- one normalized markdown artifact per acquired resource
+- one manifest entry per acquired resource
+- REST API reads only
 
 Excluded:
 
-- pull requests, including records returned by the issues API with a
-  `pull_request` field
-- issue comments
-- releases
+- pull request comments and review comments
+- release assets
+- changelog generation
 - timeline events
 - reactions
-- reviews and review comments
+- reviews
 - checks, statuses, commits, branches, tags, and cross-repo joins
-- labels and milestones beyond any simple metadata already present in the issue
-  payload
+- labels and milestones beyond any simple metadata already present in the
+  normalized payload
 - GraphQL
-- webhooks, live sync, and background polling
-- advanced search or query language
+- attachments and remote asset download
+- webhooks, live sync, background polling, and advanced search/query language
+- interpretation, scoring, stewardship recommendations, or lifecycle decisions
 
 ## Inputs
 
@@ -49,18 +57,27 @@ Allowed v1 inputs are:
 - `base_url`: optional GitHub web or API base URL for GitHub Enterprise
 - `token_env`: required environment variable name that contains the token
 - `output_dir`: required local artifact output directory
-- `state`: optional issue state filter, one of `open`, `closed`, or `all`
-- `since`: optional ISO 8601 timestamp for issues updated at or after that time
-- `max_items`: optional positive integer limit after filtering out PRs
+- `resource_type`: optional resource selector, one of `issue`,
+  `pull_request`, or `release`
+- `state`: optional issue or pull request state filter, one of `open`,
+  `closed`, or `all`; ignored for releases
+- `since`: optional ISO 8601 timestamp for issues or pull requests updated, or
+  releases published, at or after that time
+- `max_items`: optional positive integer limit after filtering
+- `include_issue_comments`: optional issue-mode flag that appends issue
+  comments to issue artifacts
 - `dry_run`: optional plan-only flag
 
-`state` should default to `open`. `base_url` should default to GitHub.com.
-Path resolution for `output_dir` should follow the same CLI and `runs.yaml`
-path-resolution conventions used by existing adapters.
+`resource_type` defaults to `issue`. `state` defaults to `open`. `base_url`
+defaults to GitHub.com. Path resolution for `output_dir` follows the same CLI
+and `runs.yaml` path-resolution conventions used by existing adapters.
 
 `dry_run` performs the same read/list planning needed to report candidate
-issues, but must not create directories, write issue artifacts, or write
+resources, but does not create directories, write markdown artifacts, or write
 `manifest.json`.
+
+`include_issue_comments` only affects issue mode. It is ignored for
+`pull_request` and `release` resource types.
 
 ## Auth
 
@@ -76,9 +93,9 @@ v1 reads credentials from the environment only:
 - the adapter does not integrate with browser sessions or credential vaults
 
 If `token_env` is missing, empty, or names an unset environment variable, the
-run must fail before making an API request. Authentication and authorization
-failures from GitHub should report the status code and repository being read,
-without printing the token.
+run fails before making an API request. Authentication and authorization
+failures from GitHub report the status code and repository being read, without
+printing the token.
 
 GitHub REST troubleshooting documents rate-limit responses, retry headers,
 authentication and permission troubleshooting, `404` behavior for inaccessible
@@ -96,6 +113,10 @@ For GitHub.com:
 - API base URL: `https://api.github.com`
 - issue source URL:
   `https://github.com/{owner}/{repo}/issues/{number}`
+- pull request source URL:
+  `https://github.com/{owner}/{repo}/pull/{number}`
+- release source URL:
+  `https://github.com/{owner}/{repo}/releases/tag/{tag_name}`
 
 For GitHub Enterprise:
 
@@ -103,12 +124,15 @@ For GitHub Enterprise:
 - `base_url` may also be an API root ending in `/api/v3`
 - a web root maps to API root `{base_url}/api/v3`
 - an API root maps back to its web root by removing `/api/v3`
-- issue source URLs are built from the web root:
-  `{web_root}/{owner}/{repo}/issues/{number}`
+- source URLs are built from the web root
 
-The client should list repository issues through REST, handle pagination, and
-filter out pull requests by ignoring any issue payload that contains
+Issue mode lists repository issues through REST, handles pagination, and
+filters out pull requests by ignoring any issue payload that contains
 `pull_request`.
+
+Pull request mode lists repository pull requests through REST and handles
+pagination. Release mode lists repository releases through REST and handles
+pagination.
 
 Basic error behavior:
 
@@ -133,42 +157,72 @@ unknown repository from a private inaccessible one; the message still says
 
 ## Ordering
 
-v1 output ordering is issue number ascending after applying the configured
-filters and excluding PRs.
+Issue output ordering is issue number ascending after applying the configured
+filters and excluding pull requests. When issue comments are enabled, comments
+are sorted deterministically within each issue artifact.
 
-This ordering is deterministic, easy to review, and independent of GitHub's
-default pagination order. It also keeps artifact paths and manifest diffs stable
-when older issues remain unchanged.
+Pull request output ordering is pull request number ascending after applying
+the configured filters.
 
-When `max_items` is set, the limit applies after PR filtering and before
-writing. Manifest entries, dry-run summaries, and artifact writes should all use
-the same issue number ascending order.
+Release output ordering is by published timestamp, then tag name, then release
+ID after applying the configured filters. Releases without `published_at` sort
+before timestamped releases.
+
+When `max_items` is set, the limit applies after filtering and before writing.
+Manifest entries, dry-run summaries, and artifact writes use the same resource
+ordering.
 
 ## Output Model
 
-The adapter writes one markdown artifact per issue under:
+The adapter writes one markdown artifact per acquired resource under a
+resource-specific directory:
 
 ```text
 issues/<number>.md
+pull_requests/<number>.md
+releases/<release_id>.md
 ```
 
-The artifact should contain deterministic markdown or text normalized from:
+The artifact contains deterministic markdown normalized from the selected
+resource payload.
 
-- issue number
+Issue and pull request artifacts include:
+
+- repository
+- resource type
+- number
 - title
 - state
 - author login
 - created timestamp
 - updated timestamp
 - source URL
-- issue body
+- body
 
-If the issue body is empty, the artifact should still be written with metadata
-and an explicit empty-body marker or section. v1 should not attempt to render
-GitHub-flavored markdown, rewrite links, download attachments, or inline remote
-assets.
+Release artifacts include:
 
-The manifest records one entry per issue with these fields:
+- repository
+- resource type
+- release ID
+- tag name
+- title
+- author login
+- created timestamp
+- published timestamp
+- draft flag
+- prerelease flag
+- source URL
+- body
+
+If a body is empty, the artifact is still written with metadata and an explicit
+empty-body marker. v1 does not render GitHub-flavored markdown, rewrite links,
+download attachments, or inline remote assets.
+
+## Manifest
+
+The manifest records one entry per acquired resource.
+
+Issue and pull request entries include:
 
 - `canonical_id`
 - `source_url`
@@ -183,53 +237,80 @@ The manifest records one entry per issue with these fields:
 - `content_hash`
 - `output_path`
 
-Recommended field rules:
+Release entries include:
 
-- `canonical_id`: `github_metadata:{host}:{owner}/{repo}:issue:{number}`
-- `resource_type`: `issue`
+- `canonical_id`
+- `source_url`
+- `title`
+- `repo`
+- `resource_type`
+- `release_id`
+- `tag_name`
+- `created_at`
+- `published_at`
+- `author`
+- `draft`
+- `prerelease`
+- `content_hash`
+- `output_path`
+
+Field rules:
+
+- issue `canonical_id`:
+  `github_metadata:{host}:{owner}/{repo}:issue:{number}`
+- pull request `canonical_id`:
+  `github_metadata:{host}:{owner}/{repo}:pull_request:{number}`
+- release `canonical_id`:
+  `github_metadata:{host}:{owner}/{repo}:release:{release_id}`
+- `resource_type`: `issue`, `pull_request`, or `release`
 - `author`: GitHub login when present, otherwise `null` or an empty string by
   existing manifest convention
 - `content_hash`: SHA-256 of the normalized artifact content
-- `output_path`: relative POSIX path such as `issues/123.md`
+- `output_path`: relative POSIX path such as `issues/123.md`,
+  `pull_requests/123.md`, or `releases/456.md`
 
-## Comment Decision
+## Issue Comments
 
-Issue comments are deferred from v1.
+Issue comments are opt-in. When `--include-issue-comments` is used with
+`resource_type=issue`, the adapter fetches paginated issue comments for each
+selected issue and appends them to that issue's markdown artifact.
 
-Comments are valuable, but including them safely adds a second paginated
-resource, additional rate-limit pressure, larger artifacts, ordering decisions,
-and more normalization choices. Deferring comments keeps the first slice focused
-on one resource type and one artifact per issue while leaving room for a later
-inline-comments option.
+Issue comments are not separate manifest entries. They affect the normalized
+issue artifact content and therefore the issue entry's `content_hash`.
 
-The v1 artifact may include the issue body's discussion starter only. It must
-not silently imply that the full issue conversation was captured.
+The issue comments section includes each comment's author, created timestamp,
+updated timestamp, and body. Empty comment bodies use an explicit empty-comment
+marker.
+
+`--include-issue-comments` does not fetch pull request comments, pull request
+review comments, timeline events, reactions, or any other conversation
+surface.
 
 ## Relation to `git_repo`
 
-`git_repo` and `github_metadata` should remain separate adapters.
+`git_repo` and `github_metadata` remain separate adapters.
 
 `git_repo` ingests repository files through Git and produces source-code
 artifacts tied to paths and refs. `github_metadata` ingests workflow and
-discussion metadata through the GitHub API and produces issue artifacts tied to
-repository issue numbers.
+release metadata through the GitHub API and produces artifacts tied to GitHub
+resource identifiers.
 
-The two adapters may share the common artifact and manifest discipline, but v1
-should not introduce a shared GitHub abstraction layer or cross-link issues to
-files, commits, branches, or pull requests.
+The two adapters share the common artifact and manifest discipline, but v1 does
+not introduce a shared GitHub abstraction layer or cross-link issues, pull
+requests, releases, files, commits, or branches.
 
-## Recommended Issue Split
+## Recommended Follow-Up
 
-#160 should be narrowed to the issues-only v1 adapter described here.
+Keep follow-up work factual and usage-driven. Current non-goals that may be
+considered later are:
 
-Recommended follow-up issues:
+- pull request comments and review comments
+- release assets
+- timeline events, reactions, reviews, and checks
+- labels and milestones as first-class normalized fields
+- changed paths from pull requests
+- manifest-backed lifecycle receipts beyond the current stale-artifact summary
 
-- add optional inline issue comments for `github_metadata`
-- add pull request metadata ingestion
-- add release metadata ingestion
-- evaluate timeline events, reactions, reviews, and checks only after issues,
-  comments, PRs, and releases have proven concrete usage needs
-
-Keeping #160 as the issues-only implementation preserves forward progress while
-preventing the first GitHub adapter from expanding into a mirror of the GitHub
-API.
+Each addition should remain a bounded acquisition slice with clear pagination,
+ordering, artifact, auth, and manifest behavior. The adapter should continue to
+produce deterministic evidence bundles and receipts, not interpretation.
