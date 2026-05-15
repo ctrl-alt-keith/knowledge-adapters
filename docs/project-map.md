@@ -10,8 +10,8 @@ grouping them into meaningful lanes.
   space discovery by key/URL, TLS/auth, portable CA bundle overrides,
   environment-specific config overrides, progress output)
 - Git repo ingestion: complete (`git_repo` adapter, polish, and example config)
-- GitHub metadata ingestion: issues-only v1 complete (`github_metadata` adapter
-  for GitHub/GHE repository issues)
+- GitHub metadata ingestion: v1 complete (`github_metadata` adapter for
+  GitHub/GHE issues, pull requests, releases, and optional issue comments)
 - Google Docs destination: design completed as a separate post-bundle
   publication layer, not a `knowledge-adapters` adapter or bundle subcommand
 - Bundle command:
@@ -29,8 +29,8 @@ grouping them into meaningful lanes.
 
 #### GitHub metadata ingestion
 
-- Split PRs, releases, and comments into follow-up issues after the issues-only
-  v1 adapter proves out
+- Keep future additions usage-driven and bounded, such as pull request comments,
+  review comments, release assets, changed paths, labels, or milestones
 
 ## Deferred / Usage-driven
 
