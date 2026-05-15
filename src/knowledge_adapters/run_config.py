@@ -104,6 +104,8 @@ _GITHUB_METADATA_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
         "dry_run",
         "enabled",
         "include_issue_comments",
+        "include_pr_comments",
+        "include_pr_review_comments",
         "max_items",
         "output_dir",
         "repo",
@@ -1178,6 +1180,22 @@ def _build_github_metadata_argv(
         default=False,
     ):
         argv.append("--include-issue-comments")
+    if _optional_bool(
+        run_config,
+        "include_pr_comments",
+        index=index,
+        config_path=config_path,
+        default=False,
+    ):
+        argv.append("--include-pr-comments")
+    if _optional_bool(
+        run_config,
+        "include_pr_review_comments",
+        index=index,
+        config_path=config_path,
+        default=False,
+    ):
+        argv.append("--include-pr-review-comments")
 
     if _optional_bool(run_config, "dry_run", index=index, config_path=config_path, default=False):
         argv.append("--dry-run")

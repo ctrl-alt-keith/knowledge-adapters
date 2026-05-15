@@ -8,6 +8,8 @@ EMPTY_BODY_MARKER = "(empty issue body)"
 EMPTY_PULL_REQUEST_BODY_MARKER = "(empty pull request body)"
 EMPTY_RELEASE_BODY_MARKER = "(empty release body)"
 EMPTY_COMMENT_BODY_MARKER = "(empty issue comment body)"
+EMPTY_PR_COMMENT_BODY_MARKER = "(empty pull request comment body)"
+EMPTY_PR_REVIEW_COMMENT_BODY_MARKER = "(empty pull request review comment body)"
 
 
 def normalize_issue_to_markdown(issue: Mapping[str, object]) -> str:
@@ -29,6 +31,7 @@ def normalize_pull_request_to_markdown(pull_request: Mapping[str, object]) -> st
         resource_type="pull_request",
         empty_body_marker=EMPTY_PULL_REQUEST_BODY_MARKER,
         include_comments=False,
+        comments_section=_normalize_pull_request_sections(pull_request),
     )
 
 
@@ -93,6 +96,7 @@ def _normalize_record_to_markdown(
     resource_type: str,
     empty_body_marker: str,
     include_comments: bool,
+    comments_section: str = "",
 ) -> str:
     number_value = record.get("number")
     if not isinstance(number_value, int) or isinstance(number_value, bool):
@@ -108,8 +112,10 @@ def _normalize_record_to_markdown(
     repo = str(record.get("repo", ""))
     body = str(record.get("body") or "").rstrip("\n")
     body_text = body if body else empty_body_marker
-    comments_section = (
-        _normalize_comments_section(record.get("comments")) if include_comments else ""
+    rendered_comments_section = (
+        _normalize_comments_section(record.get("comments"))
+        if include_comments
+        else comments_section
     )
 
     return f"""# {heading_prefix} #{number}: {title}
@@ -126,7 +132,7 @@ def _normalize_record_to_markdown(
 
 ## Body
 
-{body_text}{comments_section}
+{body_text}{rendered_comments_section}
 """
 
 
@@ -159,3 +165,82 @@ def _normalize_comments_section(comments_value: object) -> str:
 """
         )
     return "\n\n## Comments\n\n" + "\n".join(rendered_comments).rstrip("\n")
+
+
+def _normalize_pull_request_sections(record: Mapping[str, object]) -> str:
+    sections = [
+        _normalize_pull_request_comments_section(record.get("comments")),
+        _normalize_pull_request_review_comments_section(record.get("review_comments")),
+    ]
+    return "".join(section for section in sections if section)
+
+
+def _normalize_pull_request_comments_section(comments_value: object) -> str:
+    if comments_value is None:
+        return ""
+    if not isinstance(comments_value, (list, tuple)):
+        raise ValueError("pull request comments must be a list or tuple when provided.")
+    if not comments_value:
+        return ""
+
+    rendered_comments: list[str] = []
+    for index, comment_value in enumerate(comments_value, start=1):
+        if not isinstance(comment_value, Mapping):
+            raise ValueError("pull request comments must contain mapping entries.")
+        author = comment_value.get("author")
+        body = str(comment_value.get("body") or "").rstrip("\n")
+        rendered_comments.append(
+            f"""### Comment {index}
+
+- id: {_format_optional_value(comment_value.get("comment_id"))}
+- source_url: {_format_optional_value(comment_value.get("source_url"))}
+- author: {'' if author is None else str(author)}
+- created_at: {str(comment_value.get("created_at", ""))}
+- updated_at: {str(comment_value.get("updated_at", ""))}
+
+{body if body else EMPTY_PR_COMMENT_BODY_MARKER}
+"""
+        )
+    return "\n\n## Comments\n\n" + "\n".join(rendered_comments).rstrip("\n")
+
+
+def _normalize_pull_request_review_comments_section(comments_value: object) -> str:
+    if comments_value is None:
+        return ""
+    if not isinstance(comments_value, (list, tuple)):
+        raise ValueError("pull request review comments must be a list or tuple when provided.")
+    if not comments_value:
+        return ""
+
+    rendered_comments: list[str] = []
+    for index, comment_value in enumerate(comments_value, start=1):
+        if not isinstance(comment_value, Mapping):
+            raise ValueError("pull request review comments must contain mapping entries.")
+        author = comment_value.get("author")
+        body = str(comment_value.get("body") or "").rstrip("\n")
+        rendered_comments.append(
+            f"""### Review Comment {index}
+
+- id: {_format_optional_value(comment_value.get("comment_id"))}
+- source_url: {_format_optional_value(comment_value.get("source_url"))}
+- author: {'' if author is None else str(author)}
+- created_at: {str(comment_value.get("created_at", ""))}
+- updated_at: {str(comment_value.get("updated_at", ""))}
+- path: {_format_optional_value(comment_value.get("path"))}
+- line: {_format_optional_value(comment_value.get("line"))}
+- original_line: {_format_optional_value(comment_value.get("original_line"))}
+- start_line: {_format_optional_value(comment_value.get("start_line"))}
+- original_start_line: {_format_optional_value(comment_value.get("original_start_line"))}
+- position: {_format_optional_value(comment_value.get("position"))}
+- original_position: {_format_optional_value(comment_value.get("original_position"))}
+- side: {_format_optional_value(comment_value.get("side"))}
+- start_side: {_format_optional_value(comment_value.get("start_side"))}
+
+{body if body else EMPTY_PR_REVIEW_COMMENT_BODY_MARKER}
+"""
+        )
+    return "\n\n## Review Comments\n\n" + "\n".join(rendered_comments).rstrip("\n")
+
+
+def _format_optional_value(value: object) -> str:
+    return "" if value is None else str(value)

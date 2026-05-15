@@ -926,8 +926,9 @@ def build_parser() -> argparse.ArgumentParser:
             "artifact per record under issues/, pull_requests/, or releases/. Issue "
             "mode filters out pull requests returned by the issues endpoint. Issue "
             "comments can be included optionally in issue mode. Pull request "
-            "comments, release assets, changelog generation, timelines, reactions, "
-            "reviews, checks, GraphQL, attachments, and live sync are not included. "
+            "comments and review comments can be included optionally in pull_request "
+            "mode. Release assets, changelog generation, timelines, reactions, "
+            "checks, GraphQL, attachments, and live sync are not included. "
             "The token is read only from --token-env, and token values are never "
             "printed."
         ),
@@ -998,6 +999,22 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Fetch issue comments and append them to issue artifacts. Ignored for "
             "pull_request and release resource types."
+        ),
+    )
+    github_metadata_parser.add_argument(
+        "--include-pr-comments",
+        action="store_true",
+        help=(
+            "Fetch whole-pull-request comments and append them to pull request "
+            "artifacts. Ignored for issue and release resource types."
+        ),
+    )
+    github_metadata_parser.add_argument(
+        "--include-pr-review-comments",
+        action="store_true",
+        help=(
+            "Fetch pull request review comments and append them to pull request "
+            "artifacts. Ignored for issue and release resource types."
         ),
     )
     github_metadata_parser.add_argument(
@@ -3868,6 +3885,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             since=args.since,
             max_items=args.max_items,
             include_issue_comments=args.include_issue_comments,
+            include_pr_comments=args.include_pr_comments,
+            include_pr_review_comments=args.include_pr_review_comments,
             dry_run=args.dry_run,
         )
 
@@ -3903,6 +3922,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     state=github_metadata_config.state,
                     since=github_metadata_config.since,
                     max_items=github_metadata_config.max_items,
+                    include_pr_comments=github_metadata_config.include_pr_comments,
+                    include_pr_review_comments=(
+                        github_metadata_config.include_pr_review_comments
+                    ),
                 )
             else:
                 records = list_repository_releases(
@@ -3938,6 +3961,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             and github_metadata_config.include_issue_comments
         ):
             print("  include_issue_comments: true")
+        if (
+            github_metadata_config.resource_type == "pull_request"
+            and github_metadata_config.include_pr_comments
+        ):
+            print("  include_pr_comments: true")
+        if (
+            github_metadata_config.resource_type == "pull_request"
+            and github_metadata_config.include_pr_review_comments
+        ):
+            print("  include_pr_review_comments: true")
         print(f"  run_mode: {'dry-run' if github_metadata_config.dry_run else 'write'}")
 
         try:
@@ -4016,6 +4049,39 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "source_url": record.source_url,
                     "body": record.body,
                 }
+                if record.comments:
+                    normalized_record["comments"] = [
+                        {
+                            "comment_id": comment.comment_id,
+                            "source_url": comment.source_url,
+                            "author": comment.author,
+                            "created_at": comment.created_at,
+                            "updated_at": comment.updated_at,
+                            "body": comment.body,
+                        }
+                        for comment in record.comments
+                    ]
+                if record.review_comments:
+                    normalized_record["review_comments"] = [
+                        {
+                            "comment_id": comment.comment_id,
+                            "source_url": comment.source_url,
+                            "author": comment.author,
+                            "created_at": comment.created_at,
+                            "updated_at": comment.updated_at,
+                            "path": comment.path,
+                            "line": comment.line,
+                            "original_line": comment.original_line,
+                            "start_line": comment.start_line,
+                            "original_start_line": comment.original_start_line,
+                            "position": comment.position,
+                            "original_position": comment.original_position,
+                            "side": comment.side,
+                            "start_side": comment.start_side,
+                            "body": comment.body,
+                        }
+                        for comment in record.review_comments
+                    ]
                 markdown = normalize_pull_request_to_markdown(normalized_record)
                 manifest_entry = {
                     "canonical_id": record.canonical_id,
@@ -4030,6 +4096,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "author": record.author,
                     "content_hash": hashlib.sha256(markdown.encode("utf-8")).hexdigest(),
                 }
+                if github_metadata_config.include_pr_comments:
+                    manifest_entry["pr_comments_count"] = len(record.comments)
+                if github_metadata_config.include_pr_review_comments:
+                    manifest_entry["pr_review_comments_count"] = len(
+                        record.review_comments
+                    )
             else:
                 assert isinstance(record, GitHubRelease)
                 record_identifier = record.release_id

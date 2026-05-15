@@ -488,6 +488,8 @@ runs:
     since: 2026-01-01T00:00:00Z
     max_items: 25
     include_issue_comments: true
+    include_pr_comments: true
+    include_pr_review_comments: true
     output_dir: ./artifacts/github/repo-issues
     dry_run: true
 """.strip()
@@ -520,6 +522,8 @@ runs:
                 "--max-items",
                 "25",
                 "--include-issue-comments",
+                "--include-pr-comments",
+                "--include-pr-review-comments",
                 "--dry-run",
             ),
             dry_run=True,

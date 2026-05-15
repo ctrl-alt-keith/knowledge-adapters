@@ -22,12 +22,16 @@ from knowledge_adapters.github_metadata.client import (
     list_repository_issues,
     list_repository_pull_requests,
     list_repository_releases,
+    pull_request_comments_api_url,
     pull_request_list_api_url,
+    pull_request_review_comments_api_url,
     release_list_api_url,
     resolve_base_urls,
 )
 from knowledge_adapters.github_metadata.normalize import (
     EMPTY_BODY_MARKER,
+    EMPTY_PR_COMMENT_BODY_MARKER,
+    EMPTY_PR_REVIEW_COMMENT_BODY_MARKER,
     EMPTY_PULL_REQUEST_BODY_MARKER,
     EMPTY_RELEASE_BODY_MARKER,
     normalize_issue_to_markdown,
@@ -135,6 +139,57 @@ def _issue_comment(
     return payload
 
 
+def _pr_comment(
+    comment_id: int,
+    *,
+    body: str | None = "PR comment",
+    author: str | None = "alice",
+    created_at: str | None = None,
+    updated_at: str | None = None,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "id": comment_id,
+        "html_url": f"https://github.com/octo/project/pull/4#issuecomment-{comment_id}",
+        "created_at": created_at or f"2026-04-{comment_id:02d}T02:00:00Z",
+        "updated_at": updated_at or f"2026-04-{comment_id:02d}T03:00:00Z",
+        "body": body,
+    }
+    if author is not None:
+        payload["user"] = {"login": author}
+    return payload
+
+
+def _pr_review_comment(
+    comment_id: int,
+    *,
+    body: str | None = "Review comment",
+    author: str | None = "alice",
+    path: str | None = "src/app.py",
+    line: int | None = 12,
+    created_at: str | None = None,
+    updated_at: str | None = None,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "id": comment_id,
+        "html_url": f"https://github.com/octo/project/pull/4#discussion-diff-{comment_id}",
+        "created_at": created_at or f"2026-04-{comment_id:02d}T02:00:00Z",
+        "updated_at": updated_at or f"2026-04-{comment_id:02d}T03:00:00Z",
+        "path": path,
+        "line": line,
+        "original_line": line,
+        "start_line": None,
+        "original_start_line": None,
+        "position": 5,
+        "original_position": 4,
+        "side": "RIGHT",
+        "start_side": None,
+        "body": body,
+    }
+    if author is not None:
+        payload["user"] = {"login": author}
+    return payload
+
+
 def _release(
     release_id: int,
     *,
@@ -207,6 +262,24 @@ def test_github_metadata_resolves_github_and_ghe_base_urls() -> None:
             state="open",
         )
         == "https://api.github.com/repos/octo/project/pulls?state=open&per_page=100"
+    )
+    assert (
+        pull_request_comments_api_url(
+            api_root=github_urls.api_root,
+            owner="octo",
+            repo_name="project",
+            pull_number=4,
+        )
+        == "https://api.github.com/repos/octo/project/issues/4/comments?per_page=100"
+    )
+    assert (
+        pull_request_review_comments_api_url(
+            api_root=github_urls.api_root,
+            owner="octo",
+            repo_name="project",
+            pull_number=4,
+        )
+        == "https://api.github.com/repos/octo/project/pulls/4/comments?per_page=100"
     )
     assert (
         release_list_api_url(
@@ -394,6 +467,105 @@ def test_github_metadata_pull_requests_paginate_filter_since_and_limit(
         "github_metadata:github.com:octo/project:pull_request:2",
         "github_metadata:github.com:octo/project:pull_request:4",
     ]
+
+
+def test_github_metadata_pr_comments_paginate_and_sort_deterministically(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GH_TOKEN", "secret-token")
+    pull_requests_url = pull_request_list_api_url(
+        api_root="https://api.github.com",
+        owner="octo",
+        repo_name="project",
+        state="open",
+    )
+    pr_comments_url = pull_request_comments_api_url(
+        api_root="https://api.github.com",
+        owner="octo",
+        repo_name="project",
+        pull_number=4,
+    )
+    pr_comments_page_2_url = (
+        "https://api.github.com/repos/octo/project/issues/4/comments?per_page=100&page=2"
+    )
+    pr_review_comments_url = pull_request_review_comments_api_url(
+        api_root="https://api.github.com",
+        owner="octo",
+        repo_name="project",
+        pull_number=4,
+    )
+    fake_urlopen = _install_fake_urlopen(
+        monkeypatch,
+        {
+            pull_requests_url: _FakeGitHubResponse([_pull_request(4)]),
+            pr_comments_url: _FakeGitHubResponse(
+                [
+                    _pr_comment(
+                        30,
+                        body="Later whole-PR comment",
+                        created_at="2026-04-04T05:00:00Z",
+                    )
+                ],
+                headers={"Link": f'<{pr_comments_page_2_url}>; rel="next"'},
+            ),
+            pr_comments_page_2_url: _FakeGitHubResponse(
+                [
+                    _pr_comment(
+                        20,
+                        body="Earlier whole-PR comment",
+                        author="bob",
+                        created_at="2026-04-04T04:00:00Z",
+                    )
+                ]
+            ),
+            pr_review_comments_url: _FakeGitHubResponse(
+                [
+                    _pr_review_comment(
+                        44,
+                        body="Later line comment",
+                        path="src/late.py",
+                        line=20,
+                        created_at="2026-04-04T07:00:00Z",
+                    ),
+                    _pr_review_comment(
+                        43,
+                        body="Earlier line comment",
+                        author=None,
+                        path="src/early.py",
+                        line=None,
+                        created_at="2026-04-04T06:00:00Z",
+                    ),
+                ]
+            ),
+        },
+    )
+
+    pull_requests = list_repository_pull_requests(
+        repo="octo/project",
+        token_env="GH_TOKEN",
+        include_pr_comments=True,
+        include_pr_review_comments=True,
+    )
+
+    assert fake_urlopen.calls == [
+        pull_requests_url,
+        pr_comments_url,
+        pr_comments_page_2_url,
+        pr_review_comments_url,
+    ]
+    assert len(pull_requests) == 1
+    assert [comment.body for comment in pull_requests[0].comments] == [
+        "Earlier whole-PR comment",
+        "Later whole-PR comment",
+    ]
+    assert pull_requests[0].comments[0].comment_id == 20
+    assert [comment.body for comment in pull_requests[0].review_comments] == [
+        "Earlier line comment",
+        "Later line comment",
+    ]
+    assert pull_requests[0].review_comments[0].author is None
+    assert pull_requests[0].review_comments[0].path == "src/early.py"
+    assert pull_requests[0].review_comments[0].line is None
 
 
 def test_github_metadata_releases_paginate_filter_since_order_and_limit(
@@ -1027,6 +1199,8 @@ def test_github_metadata_cli_writes_pull_request_artifacts_and_manifest(
     pr_8_markdown = pr_8_path.read_text(encoding="utf-8")
     assert "# Pull Request #4: Add API docs" in pr_4_markdown
     assert "Implements docs." in pr_4_markdown
+    assert "## Comments" not in pr_4_markdown
+    assert "## Review Comments" not in pr_4_markdown
     assert EMPTY_PULL_REQUEST_BODY_MARKER in pr_8_markdown
 
     manifest_payload = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
@@ -1060,6 +1234,119 @@ def test_github_metadata_cli_writes_pull_request_artifacts_and_manifest(
             "content_hash": hashlib.sha256(pr_8_markdown.encode("utf-8")).hexdigest(),
             "output_path": "pull_requests/8.md",
         },
+    ]
+
+
+def test_github_metadata_cli_writes_pr_comments_when_enabled(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("GH_TOKEN", "secret-token")
+    pull_requests_url = pull_request_list_api_url(
+        api_root="https://api.github.com",
+        owner="octo",
+        repo_name="project",
+        state="open",
+    )
+    pr_4_comments_url = pull_request_comments_api_url(
+        api_root="https://api.github.com",
+        owner="octo",
+        repo_name="project",
+        pull_number=4,
+    )
+    pr_4_review_comments_url = pull_request_review_comments_api_url(
+        api_root="https://api.github.com",
+        owner="octo",
+        repo_name="project",
+        pull_number=4,
+    )
+    fake_urlopen = _install_fake_urlopen(
+        monkeypatch,
+        {
+            pull_requests_url: _FakeGitHubResponse(
+                [_pull_request(4, title="Add API docs", body="Implements docs.\n")]
+            ),
+            pr_4_comments_url: _FakeGitHubResponse(
+                [
+                    _pr_comment(20, body="Whole PR note"),
+                    _pr_comment(21, body=None, author=None),
+                ]
+            ),
+            pr_4_review_comments_url: _FakeGitHubResponse(
+                [
+                    _pr_review_comment(
+                        43,
+                        body="Line note",
+                        path="src/knowledge.py",
+                        line=17,
+                    ),
+                    _pr_review_comment(44, body=None, path=None, line=None),
+                ]
+            ),
+        },
+    )
+    output_dir = tmp_path / "out"
+
+    exit_code = main(
+        [
+            "github_metadata",
+            "--repo",
+            "octo/project",
+            "--token-env",
+            "GH_TOKEN",
+            "--resource-type",
+            "pull_request",
+            "--output-dir",
+            str(output_dir),
+            "--include-pr-comments",
+            "--include-pr-review-comments",
+        ]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "include_pr_comments: true" in captured.out
+    assert "include_pr_review_comments: true" in captured.out
+    assert_write_summary(captured.out, wrote=1, skipped=0)
+    assert fake_urlopen.calls == [
+        pull_requests_url,
+        pr_4_comments_url,
+        pr_4_review_comments_url,
+    ]
+
+    pr_4_markdown = (output_dir / "pull_requests" / "4.md").read_text(encoding="utf-8")
+    assert "## Comments" in pr_4_markdown
+    assert "### Comment 1" in pr_4_markdown
+    assert "- id: 20" in pr_4_markdown
+    assert "- source_url: https://github.com/octo/project/pull/4#issuecomment-20" in pr_4_markdown
+    assert "Whole PR note" in pr_4_markdown
+    assert EMPTY_PR_COMMENT_BODY_MARKER in pr_4_markdown
+    assert "## Review Comments" in pr_4_markdown
+    assert "### Review Comment 1" in pr_4_markdown
+    assert "- path: src/knowledge.py" in pr_4_markdown
+    assert "- line: 17" in pr_4_markdown
+    assert "Line note" in pr_4_markdown
+    assert EMPTY_PR_REVIEW_COMMENT_BODY_MARKER in pr_4_markdown
+
+    manifest_payload = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest_payload["files"] == [
+        {
+            "canonical_id": "github_metadata:github.com:octo/project:pull_request:4",
+            "source_url": "https://github.com/octo/project/pull/4",
+            "title": "Add API docs",
+            "repo": "octo/project",
+            "resource_type": "pull_request",
+            "number": 4,
+            "state": "open",
+            "created_at": "2026-04-04T00:00:00Z",
+            "updated_at": "2026-04-04T01:00:00Z",
+            "author": "alice",
+            "content_hash": hashlib.sha256(pr_4_markdown.encode("utf-8")).hexdigest(),
+            "pr_comments_count": 2,
+            "pr_review_comments_count": 2,
+            "output_path": "pull_requests/4.md",
+        }
     ]
 
 

@@ -20,4 +20,6 @@ class GitHubMetadataConfig:
     since: str | None = None
     max_items: int | None = None
     include_issue_comments: bool = False
+    include_pr_comments: bool = False
+    include_pr_review_comments: bool = False
     dry_run: bool = False
