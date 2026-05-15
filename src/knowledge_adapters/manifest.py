@@ -51,9 +51,14 @@ def build_manifest_entry(
     return entry
 
 
-def write_manifest(output_dir: str, files: list[dict[str, object]]) -> Path:
+def write_manifest(
+    output_dir: str,
+    files: list[dict[str, object]],
+    *,
+    stale_artifacts: list[dict[str, object]] | None = None,
+) -> Path:
     """Write a per-run manifest describing generated files."""
-    return write_manifest_with_context(output_dir, files)
+    return write_manifest_with_context(output_dir, files, stale_artifacts=stale_artifacts)
 
 
 def write_manifest_with_context(
@@ -62,6 +67,7 @@ def write_manifest_with_context(
     *,
     root_page_id: str | None = None,
     max_depth: int | None = None,
+    stale_artifacts: list[dict[str, object]] | None = None,
 ) -> Path:
     """Write a per-run manifest describing generated files."""
     path = manifest_path(output_dir)
@@ -73,6 +79,8 @@ def write_manifest_with_context(
     if max_depth is not None:
         payload["max_depth"] = max_depth
     payload["files"] = files
+    if stale_artifacts:
+        payload["stale_artifacts"] = stale_artifacts
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(f"{json.dumps(payload, indent=2)}\n", encoding="utf-8")

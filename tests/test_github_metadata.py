@@ -30,6 +30,7 @@ from knowledge_adapters.github_metadata.normalize import (
     EMPTY_BODY_MARKER,
     EMPTY_PULL_REQUEST_BODY_MARKER,
     EMPTY_RELEASE_BODY_MARKER,
+    normalize_issue_to_markdown,
 )
 from tests.cli_output_assertions import (
     assert_dry_run_summary,
@@ -761,6 +762,216 @@ def test_github_metadata_cli_dry_run_does_not_write_files(
     assert "source_url: https://github.example.com/octo/project/issues/5" in captured.out
     assert_dry_run_summary(captured.out, would_write=1, would_skip=0)
     assert not output_dir.exists()
+
+
+def test_github_metadata_cli_skips_unchanged_issue_and_preserves_manifest_continuity(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("GH_TOKEN", "secret-token")
+    first_url = issue_list_api_url(
+        api_root="https://api.github.com",
+        owner="octo",
+        repo_name="project",
+        state="open",
+        since=None,
+    )
+    _install_fake_urlopen(
+        monkeypatch,
+        {first_url: _FakeGitHubResponse([_issue(2, title="Useful bug", body="Bug details.\n")])},
+    )
+    output_dir = tmp_path / "out"
+    issue_2_markdown = normalize_issue_to_markdown(
+        {
+            "repo": "octo/project",
+            "number": 2,
+            "title": "Useful bug",
+            "state": "open",
+            "author": "alice",
+            "created_at": "2026-04-02T00:00:00Z",
+            "updated_at": "2026-04-02T01:00:00Z",
+            "source_url": "https://github.com/octo/project/issues/2",
+            "body": "Bug details.\n",
+        }
+    )
+    issue_2_path = output_dir / "issues" / "2.md"
+    issue_2_path.parent.mkdir(parents=True, exist_ok=True)
+    issue_2_path.write_text(issue_2_markdown, encoding="utf-8")
+    stale_issue_path = output_dir / "issues" / "9.md"
+    stale_issue_path.write_text("stale issue\n", encoding="utf-8")
+    issue_2_hash = hashlib.sha256(issue_2_markdown.encode("utf-8")).hexdigest()
+    (output_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-04-01T00:00:00Z",
+                "files": [
+                    {
+                        "canonical_id": "github_metadata:github.com:octo/project:issue:2",
+                        "source_url": "https://github.com/octo/project/issues/2",
+                        "title": "Useful bug",
+                        "content_hash": issue_2_hash,
+                        "output_path": "issues/2.md",
+                    },
+                    {
+                        "canonical_id": "github_metadata:github.com:octo/project:issue:9",
+                        "source_url": "https://github.com/octo/project/issues/9",
+                        "title": "Stale issue",
+                        "content_hash": "stale-hash",
+                        "output_path": "issues/9.md",
+                    },
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def fail_write_markdown(*args: object, **kwargs: object) -> None:
+        raise AssertionError("unchanged artifact should not be rewritten")
+
+    monkeypatch.setattr(
+        "knowledge_adapters.github_metadata.writer.write_markdown",
+        fail_write_markdown,
+    )
+
+    exit_code = main(
+        [
+            "github_metadata",
+            "--repo",
+            "octo/project",
+            "--token-env",
+            "GH_TOKEN",
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "lifecycle_status: unchanged" in captured.out
+    assert "lifecycle_reason: content_hash unchanged" in captured.out
+    assert_write_summary(captured.out, wrote=0, skipped=1, stale_artifacts=1)
+    assert "new_records: 0" in captured.out
+    assert "changed_records: 0" in captured.out
+    assert "unchanged_records: 1" in captured.out
+    assert_stale_artifacts(captured.out, count=1, artifact_paths=[stale_issue_path])
+    manifest_payload = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest_payload["files"] == [
+        {
+            "canonical_id": "github_metadata:github.com:octo/project:issue:2",
+            "source_url": "https://github.com/octo/project/issues/2",
+            "title": "Useful bug",
+            "repo": "octo/project",
+            "resource_type": "issue",
+            "number": 2,
+            "state": "open",
+            "created_at": "2026-04-02T00:00:00Z",
+            "updated_at": "2026-04-02T01:00:00Z",
+            "author": "alice",
+            "content_hash": issue_2_hash,
+            "output_path": "issues/2.md",
+        }
+    ]
+    assert manifest_payload["stale_artifacts"] == [
+        {
+            "canonical_id": "github_metadata:github.com:octo/project:issue:9",
+            "output_path": "issues/9.md",
+            "content_hash": "stale-hash",
+        }
+    ]
+
+
+def test_github_metadata_cli_dry_run_reports_lifecycle_counts_without_writing(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("GH_TOKEN", "secret-token")
+    first_url = issue_list_api_url(
+        api_root="https://api.github.com",
+        owner="octo",
+        repo_name="project",
+        state="open",
+        since=None,
+    )
+    _install_fake_urlopen(
+        monkeypatch,
+        {
+            first_url: _FakeGitHubResponse(
+                [
+                    _issue(2, title="Useful bug", body="Bug details.\n"),
+                    _issue(7, title="Changed issue", body="New body.\n"),
+                ]
+            )
+        },
+    )
+    output_dir = tmp_path / "out"
+    issue_2_markdown = normalize_issue_to_markdown(
+        {
+            "repo": "octo/project",
+            "number": 2,
+            "title": "Useful bug",
+            "state": "open",
+            "author": "alice",
+            "created_at": "2026-04-02T00:00:00Z",
+            "updated_at": "2026-04-02T01:00:00Z",
+            "source_url": "https://github.com/octo/project/issues/2",
+            "body": "Bug details.\n",
+        }
+    )
+    issue_2_path = output_dir / "issues" / "2.md"
+    issue_7_path = output_dir / "issues" / "7.md"
+    issue_2_path.parent.mkdir(parents=True, exist_ok=True)
+    issue_2_path.write_text(issue_2_markdown, encoding="utf-8")
+    issue_7_path.write_text("old body\n", encoding="utf-8")
+    (output_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-04-01T00:00:00Z",
+                "files": [
+                    {
+                        "canonical_id": "github_metadata:github.com:octo/project:issue:2",
+                        "content_hash": hashlib.sha256(
+                            issue_2_markdown.encode("utf-8")
+                        ).hexdigest(),
+                        "output_path": "issues/2.md",
+                    },
+                    {
+                        "canonical_id": "github_metadata:github.com:octo/project:issue:7",
+                        "content_hash": "old-hash",
+                        "output_path": "issues/7.md",
+                    },
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(
+        [
+            "github_metadata",
+            "--repo",
+            "octo/project",
+            "--token-env",
+            "GH_TOKEN",
+            "--output-dir",
+            str(output_dir),
+            "--dry-run",
+        ]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert_dry_run_summary(captured.out, would_write=1, would_skip=1)
+    assert "new_records: 0" in captured.out
+    assert "changed_records: 1" in captured.out
+    assert "unchanged_records: 1" in captured.out
+    assert "lifecycle_reason: content_hash changed" in captured.out
+    assert issue_7_path.read_text(encoding="utf-8") == "old body\n"
 
 
 def test_github_metadata_cli_writes_pull_request_artifacts_and_manifest(

@@ -16,6 +16,7 @@ class PreviousManifestEntry:
     output_path: str
     page_version: str | None
     last_modified: str | None
+    content_hash: str | None
 
 
 @dataclass(frozen=True)
@@ -92,6 +93,7 @@ def _load_previous_manifest_indexes(
             output_path=output_path,
             page_version=_normalize_metadata_value(entry.get("page_version")),
             last_modified=_normalize_metadata_value(entry.get("last_modified")),
+            content_hash=_normalize_metadata_value(entry.get("content_hash")),
         )
         entries_by_output_path[output_path] = canonical_id
 
