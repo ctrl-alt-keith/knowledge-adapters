@@ -286,6 +286,168 @@ def test_local_files_cli_fails_fast_for_same_name_different_directory_collision(
     assert manifest_payload["files"][0]["canonical_id"] == str(first_source.resolve())
 
 
+def test_local_files_cli_prune_flag_reports_and_deletes_stale_manifest_file(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    first_source = tmp_path / "first.txt"
+    first_source.write_text("First file.\n", encoding="utf-8")
+    second_source = tmp_path / "second.txt"
+    second_source.write_text("Second file.\n", encoding="utf-8")
+    output_dir = tmp_path / "out"
+
+    assert (
+        main(
+            [
+                "local_files",
+                "--file-path",
+                str(first_source),
+                "--output-dir",
+                str(output_dir),
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    stale_output = output_dir / "pages" / "first.md"
+    unmanifested_output = output_dir / "pages" / "unmanifested.md"
+    unmanifested_output.write_text("keep\n", encoding="utf-8")
+
+    exit_code = main(
+        [
+            "local_files",
+            "--file-path",
+            str(second_source),
+            "--output-dir",
+            str(output_dir),
+            "--prune-stale-artifacts",
+        ]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "Summary: wrote 1, skipped 0" in captured.out
+    assert "stale_artifacts: 1" in captured.out
+    assert "pruned_stale_artifacts: 1" in captured.out
+    assert str(stale_output) in captured.out
+    assert not stale_output.exists()
+    assert unmanifested_output.read_text(encoding="utf-8") == "keep\n"
+    assert (output_dir / "pages" / "second.md").exists()
+
+
+def test_local_files_cli_prune_dry_run_reports_candidates_without_deleting(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    first_source = tmp_path / "first.txt"
+    first_source.write_text("First file.\n", encoding="utf-8")
+    second_source = tmp_path / "second.txt"
+    second_source.write_text("Second file.\n", encoding="utf-8")
+    output_dir = tmp_path / "out"
+
+    assert (
+        main(
+            [
+                "local_files",
+                "--file-path",
+                str(first_source),
+                "--output-dir",
+                str(output_dir),
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    stale_output = output_dir / "pages" / "first.md"
+    stale_contents = stale_output.read_text(encoding="utf-8")
+
+    exit_code = main(
+        [
+            "local_files",
+            "--file-path",
+            str(second_source),
+            "--output-dir",
+            str(output_dir),
+            "--dry-run",
+            "--prune-stale-artifacts",
+        ]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "Summary: would write 1, would skip 0" in captured.out
+    assert "stale_artifacts: 1" in captured.out
+    assert "would_prune_stale_artifacts: 1" in captured.out
+    assert str(stale_output) in captured.out
+    assert stale_output.read_text(encoding="utf-8") == stale_contents
+
+
+def test_local_files_cli_prune_rejects_outside_manifest_path_before_delete(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    source_file = tmp_path / "current.txt"
+    source_file.write_text("Current file.\n", encoding="utf-8")
+    output_dir = tmp_path / "out"
+    current_output = output_dir / "pages" / "current.md"
+    safe_stale_output = output_dir / "pages" / "safe-stale.md"
+    outside_output = tmp_path / "outside.md"
+    safe_stale_output.parent.mkdir(parents=True)
+    current_output.write_text("old current\n", encoding="utf-8")
+    safe_stale_output.write_text("safe stale\n", encoding="utf-8")
+    outside_output.write_text("outside\n", encoding="utf-8")
+    (output_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-04-20T00:00:00Z",
+                "files": [
+                    {
+                        "canonical_id": str(source_file.resolve()),
+                        "source_url": source_file.resolve().as_uri(),
+                        "output_path": "pages/current.md",
+                        "title": "current.txt",
+                    },
+                    {
+                        "canonical_id": "safe-stale",
+                        "source_url": "file:///safe-stale",
+                        "output_path": "pages/safe-stale.md",
+                        "title": "safe-stale",
+                    },
+                    {
+                        "canonical_id": "outside",
+                        "source_url": "file:///outside",
+                        "output_path": str(outside_output),
+                        "title": "outside",
+                    },
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            [
+                "local_files",
+                "--file-path",
+                str(source_file),
+                "--output-dir",
+                str(output_dir),
+                "--prune-stale-artifacts",
+            ]
+        )
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert "knowledge-adapters local_files: error:" in captured.err
+    assert "outside output_dir" in captured.err
+    assert current_output.read_text(encoding="utf-8") == "old current\n"
+    assert safe_stale_output.read_text(encoding="utf-8") == "safe stale\n"
+    assert outside_output.read_text(encoding="utf-8") == "outside\n"
+
+
 def test_fetch_file_reports_permission_errors(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

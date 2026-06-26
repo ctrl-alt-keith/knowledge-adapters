@@ -1079,6 +1079,60 @@ runs:
     ]
 
 
+def test_run_command_parses_summary_when_configured_run_prunes_stale_artifacts(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    first_source = tmp_path / "inputs" / "first.txt"
+    second_source = tmp_path / "inputs" / "second.txt"
+    first_source.parent.mkdir(parents=True)
+    first_source.write_text("First.\n", encoding="utf-8")
+    second_source.write_text("Second.\n", encoding="utf-8")
+    output_dir = tmp_path / "artifacts" / "local" / "team-notes"
+
+    assert (
+        main(
+            [
+                "local_files",
+                "--file-path",
+                str(first_source),
+                "--output-dir",
+                str(output_dir),
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: team-notes
+    type: local_files
+    file_path: ./inputs/second.txt
+    output_dir: ./artifacts/local/team-notes
+    prune_stale_artifacts: true
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(["run", str(config_path)])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "--prune-stale-artifacts" in captured.out
+    assert "Summary: wrote 1, skipped 0" in captured.out
+    assert "pruned_stale_artifacts: 1" in captured.out
+    assert "Run summary: wrote 1, skipped 0" in captured.out
+    assert "Aggregate summary:" in captured.out
+    assert "wrote: 1" in captured.out
+    assert "skipped: 0" in captured.out
+    assert not (output_dir / "pages" / "first.md").exists()
+    assert (output_dir / "pages" / "second.md").exists()
+
+
 def test_run_command_preserves_nested_confluence_inline_progress_on_tty(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
