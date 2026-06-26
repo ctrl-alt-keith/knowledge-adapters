@@ -1351,6 +1351,183 @@ runs:
     assert not (tmp_path / "artifacts").exists()
 
 
+def test_effective_configured_run_argv_appends_global_dry_run_without_duplicates() -> None:
+    assert cli._effective_configured_run_argv(
+        run_type="local_files",
+        argv=("local_files", "--file-path", "notes.txt", "--output-dir", "out"),
+        debug=False,
+        dry_run=True,
+        verbose=False,
+    ) == ("local_files", "--file-path", "notes.txt", "--output-dir", "out", "--dry-run")
+
+    effective_argv = cli._effective_configured_run_argv(
+        run_type="local_files",
+        argv=("local_files", "--file-path", "notes.txt", "--output-dir", "out", "--dry-run"),
+        debug=False,
+        dry_run=True,
+        verbose=False,
+    )
+
+    assert effective_argv.count("--dry-run") == 1
+
+
+def test_run_command_global_dry_run_forces_false_runs_and_preserves_aggregate_summary(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    source_file = tmp_path / "inputs" / "team-notes.txt"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text("Ship it.\n", encoding="utf-8")
+    config_path = tmp_path / "runs.yaml"
+    config_text = """
+runs:
+  - name: team-notes
+    type: local_files
+    file_path: ./inputs/team-notes.txt
+    output_dir: ./artifacts/local/team-notes
+    dry_run: false
+  - name: docs-home
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home
+    dry_run: false
+""".strip() + "\n"
+    config_path.write_text(config_text, encoding="utf-8")
+
+    exit_code = main(["run", str(config_path), "--dry-run"])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "Run 1/2 completed: team-notes (local_files)" in captured.out
+    assert "Run 2/2 completed: docs-home (confluence)" in captured.out
+    assert "Run summary: would write 1, would skip 0" in captured.out
+    assert "Aggregate summary:" in captured.out
+    assert "write_runs: 0" in captured.out
+    assert "dry_run_runs: 2" in captured.out
+    assert "wrote: 0" in captured.out
+    assert "skipped: 0" in captured.out
+    assert "would_write: 2" in captured.out
+    assert "would_skip: 0" in captured.out
+    assert not (tmp_path / "artifacts").exists()
+    assert config_path.read_text(encoding="utf-8") == config_text
+
+
+def test_run_command_global_dry_run_works_when_config_omits_dry_run(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    source_file = tmp_path / "inputs" / "team-notes.txt"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text("Ship it.\n", encoding="utf-8")
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: team-notes
+    type: local_files
+    file_path: ./inputs/team-notes.txt
+    output_dir: ./artifacts/local/team-notes
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(["run", str(config_path), "--dry-run"])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "Run summary: would write 1, would skip 0" in captured.out
+    assert "dry_run_runs: 1" in captured.out
+    assert "would_write: 1" in captured.out
+    assert not (tmp_path / "artifacts").exists()
+
+
+def test_run_command_preserves_per_run_dry_run_true_without_global_override(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    source_file = tmp_path / "inputs" / "team-notes.txt"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text("Ship it.\n", encoding="utf-8")
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: team-notes
+    type: local_files
+    file_path: ./inputs/team-notes.txt
+    output_dir: ./artifacts/local/team-notes
+    dry_run: true
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(["run", str(config_path)])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "Run summary: would write 1, would skip 0" in captured.out
+    assert "write_runs: 0" in captured.out
+    assert "dry_run_runs: 1" in captured.out
+    assert "would_write: 1" in captured.out
+    assert not (tmp_path / "artifacts").exists()
+
+
+def test_run_command_global_dry_run_prune_reports_without_deleting(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    first_source = tmp_path / "inputs" / "first.txt"
+    second_source = tmp_path / "inputs" / "second.txt"
+    first_source.parent.mkdir(parents=True)
+    first_source.write_text("First file.\n", encoding="utf-8")
+    second_source.write_text("Second file.\n", encoding="utf-8")
+    output_dir = tmp_path / "artifacts" / "local" / "team-notes"
+
+    assert (
+        main(
+            [
+                "local_files",
+                "--file-path",
+                str(first_source),
+                "--output-dir",
+                str(output_dir),
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    stale_output = output_dir / "pages" / "first.md"
+    stale_contents = stale_output.read_text(encoding="utf-8")
+
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: team-notes
+    type: local_files
+    file_path: ./inputs/second.txt
+    output_dir: ./artifacts/local/team-notes
+    prune_stale_artifacts: true
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(["run", str(config_path), "--dry-run"])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "Summary: would write 1, would skip 0" in captured.out
+    assert "stale_artifacts: 1" in captured.out
+    assert "would_prune_stale_artifacts: 1" in captured.out
+    assert "Run summary: would write 1, would skip 0" in captured.out
+    assert "dry_run_runs: 1" in captured.out
+    assert stale_output.read_text(encoding="utf-8") == stale_contents
+
+
 def test_run_command_verbose_preserves_nested_confluence_per_item_output(
     tmp_path: Path,
     capsys: CaptureFixture[str],
