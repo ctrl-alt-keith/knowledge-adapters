@@ -57,6 +57,15 @@ Every adapter follows the same high-level shape:
 Recommended first run: use `--dry-run` to confirm the planned source,
 artifact path, and manifest path, then rerun without it.
 
+Manifest-backed adapter commands that write artifacts also support opt-in stale
+artifact pruning with `--prune-stale-artifacts`: `local_files`,
+`public_webpage`, `public_pdf`, `confluence`, `github_metadata`, and
+`git_repo`. Pruning is manifest-owned only. It deletes only stale regular files
+that were listed in the prior `manifest.json` and are absent from the current
+run plan under the selected `--output-dir`. It does not delete unmanifested
+files, and it does not delete directories. In `--dry-run`, pruning deletes
+nothing and reports `would_prune_stale_artifacts` with the candidate paths.
+
 Minimal local file first run:
 
 ```bash
@@ -328,6 +337,20 @@ The config uses a top-level `runs:` list. Each run includes a `name`, a `type`,
 adapter-specific inputs such as `base_url`/`target` or `file_path`, and its own
 `output_dir`. `runs.example.yaml` is committed for reference, while `runs.yaml`
 is gitignored for local use.
+
+To enable stale artifact pruning in config-driven refreshes, set
+`prune_stale_artifacts: true` on each adapter run that should prune. There is no
+top-level global prune setting for `knowledge-adapters run`; pruning remains
+opt-in per manifest-backed adapter run.
+
+```yaml
+runs:
+  - name: repo-docs
+    type: git_repo
+    repo_url: https://github.com/example/project.git
+    output_dir: ./artifacts/git/repo-docs
+    prune_stale_artifacts: true
+```
 
 To keep a lightweight human-readable record of a config-driven execution, pass
 `--report-output`:
