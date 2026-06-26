@@ -338,6 +338,17 @@ adapter-specific inputs such as `base_url`/`target` or `file_path`, and its own
 `output_dir`. `runs.example.yaml` is committed for reference, while `runs.yaml`
 is gitignored for local use.
 
+To test an entire config-driven run without editing `runs.yaml`, pass
+`--dry-run` to the top-level `run` command:
+
+```bash
+knowledge-adapters run runs.yaml --dry-run
+```
+
+This temporarily appends `--dry-run` to every configured adapter run that
+supports dry-run mode. It does not modify or persist `runs.yaml`, and it
+overrides per-run `dry_run:` settings only for that invocation.
+
 To enable stale artifact pruning in config-driven refreshes, set
 `prune_stale_artifacts: true` on each adapter run that should prune. There is no
 top-level global prune setting for `knowledge-adapters run`; pruning remains

@@ -184,6 +184,7 @@ GITHUB_METADATA_HELP_EXAMPLES = """Examples:
 RUN_HELP_EXAMPLES = """Examples:
   knowledge-adapters run runs.yaml
   knowledge-adapters run ./configs/runs.yaml
+  knowledge-adapters run runs.yaml --dry-run
   knowledge-adapters run runs.yaml --only team-notes,docs-home
   knowledge-adapters run runs.yaml --continue-on-error
   knowledge-adapters run runs.yaml --report-output ./artifacts/run-report.md
@@ -222,6 +223,16 @@ _CONFLUENCE_REAL_ONLY_INPUT_FLAGS = (
     "--tree-cache-dir",
     "--request-delay-ms",
     "--max-requests-per-second",
+)
+_DRY_RUN_CONFIGURED_RUN_TYPES = frozenset(
+    {
+        "confluence",
+        "git_repo",
+        "github_metadata",
+        "local_files",
+        "public_pdf",
+        "public_webpage",
+    }
 )
 _VERBOSE_HELP = "Show per-item write/skip details that are hidden by default."
 
@@ -1212,6 +1223,14 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     run_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Append --dry-run to every configured adapter run that supports it "
+            "for this invocation only, without editing runs.yaml."
+        ),
+    )
+    run_parser.add_argument(
         "--report-output",
         metavar="PATH",
         help=(
@@ -1584,12 +1603,19 @@ def _effective_configured_run_argv(
     run_type: str,
     argv: Sequence[str],
     debug: bool,
+    dry_run: bool,
     verbose: bool,
 ) -> tuple[str, ...]:
     """Apply safe top-level run overrides before invoking a configured run."""
     effective_argv = tuple(argv)
     if debug and run_type == "confluence" and "--debug" not in effective_argv:
         effective_argv = (*effective_argv, "--debug")
+    if (
+        dry_run
+        and run_type in _DRY_RUN_CONFIGURED_RUN_TYPES
+        and "--dry-run" not in effective_argv
+    ):
+        effective_argv = (*effective_argv, "--dry-run")
     if verbose and "--verbose" not in effective_argv:
         effective_argv = (*effective_argv, "--verbose")
     return effective_argv
@@ -1710,6 +1736,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 run_type=configured_run.run_type,
                 argv=configured_run.argv,
                 debug=args.debug,
+                dry_run=args.dry_run,
                 verbose=verbose,
             )
             display_command = shlex.join(("knowledge-adapters", *effective_argv))
