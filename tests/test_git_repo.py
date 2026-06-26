@@ -301,6 +301,58 @@ def test_git_repo_cli_reports_stale_artifacts_when_output_paths_change(
     assert (output_dir / "pages" / "README.md").exists()
 
 
+def test_git_repo_cli_prunes_stale_manifest_artifacts_only_with_flag(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    repo_dir = tmp_path / "repo"
+    _init_repo(repo_dir)
+    _write_text(repo_dir / "README.md", "# Repo\n")
+    _write_text(repo_dir / "docs" / "guide.txt", "Guide text.\n")
+    _commit_all(repo_dir, "initial import")
+    output_dir = tmp_path / "out"
+
+    first_exit_code = main(
+        [
+            "git_repo",
+            "--repo-url",
+            str(repo_dir),
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+
+    assert first_exit_code == 0
+    capsys.readouterr()
+    stale_output = output_dir / "pages" / "docs" / "guide.txt.md"
+    unmanifested_output = output_dir / "pages" / "unmanifested.md"
+    unmanifested_output.write_text("keep me\n", encoding="utf-8")
+
+    (repo_dir / "docs" / "guide.txt").unlink()
+    _commit_all(repo_dir, "remove guide")
+
+    exit_code = main(
+        [
+            "git_repo",
+            "--repo-url",
+            str(repo_dir),
+            "--output-dir",
+            str(output_dir),
+            "--prune-stale-artifacts",
+        ]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert_write_summary(captured.out, wrote=1, skipped=0, stale_artifacts=1)
+    assert "pruned_stale_artifacts: 1" in captured.out
+    assert "Pruned stale artifacts:" in captured.out
+    assert str(stale_output) in captured.out
+    assert not stale_output.exists()
+    assert unmanifested_output.read_text(encoding="utf-8") == "keep me\n"
+    assert (output_dir / "pages" / "README.md").exists()
+
+
 def test_git_repo_cli_dry_run_reports_stale_artifacts_when_files_disappear(
     tmp_path: Path,
     capsys: CaptureFixture[str],
@@ -357,3 +409,53 @@ def test_git_repo_cli_dry_run_reports_stale_artifacts_when_files_disappear(
         "README.md",
         "docs/guide.txt",
     ]
+
+
+def test_git_repo_cli_dry_run_with_prune_flag_reports_candidates_without_deleting(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    repo_dir = tmp_path / "repo"
+    _init_repo(repo_dir)
+    _write_text(repo_dir / "README.md", "# Repo\n")
+    _write_text(repo_dir / "docs" / "guide.txt", "Guide text.\n")
+    _commit_all(repo_dir, "initial import")
+    output_dir = tmp_path / "out"
+
+    assert (
+        main(
+            [
+                "git_repo",
+                "--repo-url",
+                str(repo_dir),
+                "--output-dir",
+                str(output_dir),
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    stale_output = output_dir / "pages" / "docs" / "guide.txt.md"
+    stale_contents = stale_output.read_text(encoding="utf-8")
+    (repo_dir / "docs" / "guide.txt").unlink()
+    _commit_all(repo_dir, "remove guide")
+
+    exit_code = main(
+        [
+            "git_repo",
+            "--repo-url",
+            str(repo_dir),
+            "--output-dir",
+            str(output_dir),
+            "--dry-run",
+            "--prune-stale-artifacts",
+        ]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert_dry_run_summary(captured.out, would_write=1, would_skip=0)
+    assert_stale_artifacts(captured.out, count=1, artifact_paths=[stale_output])
+    assert "would_prune_stale_artifacts: 1" in captured.out
+    assert stale_output.read_text(encoding="utf-8") == stale_contents

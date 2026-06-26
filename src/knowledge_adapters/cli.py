@@ -525,6 +525,17 @@ def build_parser() -> argparse.ArgumentParser:
             help=_VERBOSE_HELP,
         )
 
+    def add_prune_stale_artifacts_argument(subparser: argparse.ArgumentParser) -> None:
+        subparser.add_argument(
+            "--prune-stale-artifacts",
+            action="store_true",
+            help=(
+                "Opt in to deleting stale manifest-owned regular files under --output-dir "
+                "after a successful write. In --dry-run, validate and report candidates "
+                "without deleting files."
+            ),
+        )
+
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     confluence_parser = subparsers.add_parser(
@@ -551,6 +562,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     add_verbose_argument(confluence_parser)
+    add_prune_stale_artifacts_argument(confluence_parser)
     confluence_parser.add_argument(
         "--base-url",
         required=True,
@@ -726,6 +738,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     add_verbose_argument(local_files_parser)
+    add_prune_stale_artifacts_argument(local_files_parser)
     local_files_parser.add_argument(
         "--file-path",
         required=True,
@@ -769,6 +782,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     add_verbose_argument(public_webpage_parser)
+    add_prune_stale_artifacts_argument(public_webpage_parser)
     public_webpage_parser.add_argument(
         "--url",
         required=True,
@@ -807,6 +821,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     add_verbose_argument(public_pdf_parser)
+    add_prune_stale_artifacts_argument(public_pdf_parser)
     public_pdf_parser.add_argument(
         "--url",
         required=True,
@@ -863,6 +878,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     add_verbose_argument(git_repo_parser)
+    add_prune_stale_artifacts_argument(git_repo_parser)
     git_repo_parser.add_argument(
         "--repo-url",
         required=True,
@@ -936,6 +952,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     add_verbose_argument(github_metadata_parser)
+    add_prune_stale_artifacts_argument(github_metadata_parser)
     github_metadata_parser.add_argument(
         "--repo",
         required=True,
@@ -1271,6 +1288,24 @@ def print_stale_artifacts(
     remaining_count = len(stale_artifacts) - stale_preview_limit
     if remaining_count > 0:
         print(f"    ... and {remaining_count} more")
+
+
+def print_pruned_stale_artifacts(
+    output_dir: str | Path,
+    pruned_artifacts: Sequence[tuple[str, str]],
+) -> None:
+    """Print stale artifacts removed from disk."""
+    if not pruned_artifacts:
+        return
+
+    output_dir_path = Path(output_dir)
+    print("  Pruned stale artifacts:")
+    for canonical_id, relative_output_path in pruned_artifacts:
+        print(
+            "    "
+            f"{render_user_path(output_dir_path / relative_output_path)} "
+            f"(canonical_id: {canonical_id})"
+        )
 
 
 def _print_public_pdf_replay_quality_metadata(metadata: Mapping[str, object]) -> None:
@@ -1934,8 +1969,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             write_manifest_with_context,
         )
         from knowledge_adapters.manifest_stale import (
+            PrunedArtifact,
+            StaleArtifact,
             find_stale_artifacts,
             load_previous_manifest_index,
+            plan_stale_artifact_prune,
+            prune_stale_artifacts,
         )
 
         confluence_config = ConfluenceConfig(
@@ -2588,6 +2627,59 @@ def main(argv: Sequence[str] | None = None) -> int:
             _print_confluence_run_metrics(indent="  ")
             _print_confluence_request_summary(indent="  ")
 
+        def _plan_confluence_stale_prune(
+            stale_artifact_records: Sequence[StaleArtifact],
+        ) -> list[PrunedArtifact]:
+            if not args.prune_stale_artifacts:
+                return []
+            try:
+                return plan_stale_artifact_prune(
+                    confluence_config.output_dir,
+                    stale_artifact_records,
+                )
+            except RuntimeError as exc:
+                exit_with_cli_error(str(exc), command="confluence")
+            raise AssertionError("unreachable")
+
+        def _print_confluence_dry_run_prune_summary(
+            prune_stale_artifact_plan: Sequence[PrunedArtifact],
+        ) -> None:
+            if args.prune_stale_artifacts:
+                _print(
+                    "  would_prune_stale_artifacts: "
+                    f"{len(prune_stale_artifact_plan)}"
+                )
+
+        def _prune_confluence_stale_after_write(
+            stale_artifact_records: Sequence[StaleArtifact],
+        ) -> list[PrunedArtifact]:
+            if not args.prune_stale_artifacts:
+                return []
+            try:
+                return prune_stale_artifacts(
+                    confluence_config.output_dir,
+                    stale_artifact_records,
+                )
+            except RuntimeError as exc:
+                exit_with_cli_error(str(exc), command="confluence")
+            raise AssertionError("unreachable")
+
+        def _print_confluence_write_prune_summary(
+            stale_artifacts: Sequence[tuple[str, str]],
+            pruned_stale_artifacts: Sequence[PrunedArtifact],
+        ) -> None:
+            if args.prune_stale_artifacts:
+                _print(f"  pruned_stale_artifacts: {len(pruned_stale_artifacts)}")
+                print_pruned_stale_artifacts(
+                    confluence_config.output_dir,
+                    [
+                        (artifact.canonical_id, artifact.output_path)
+                        for artifact in pruned_stale_artifacts
+                    ],
+                )
+            else:
+                print_stale_artifacts(confluence_config.output_dir, stale_artifacts)
+
         def _print_stub_tree_mode_note() -> None:
             if not (confluence_config.tree and confluence_config.client_mode == "stub"):
                 return
@@ -2696,17 +2788,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 action = "skip" if page_decision.status == "unchanged" else "write"
                 space_page_records.append((page, output_path, page_decision, action))
+            stale_artifact_records = find_stale_artifacts(
+                confluence_config.output_dir,
+                previous_manifest_index,
+                current_output_paths=[
+                    output_path.relative_to(Path(confluence_config.output_dir)).as_posix()
+                    for _page, output_path, _page_decision, _action in space_page_records
+                ],
+            )
             stale_artifacts = [
                 (artifact.canonical_id, artifact.output_path)
-                for artifact in find_stale_artifacts(
-                    confluence_config.output_dir,
-                    previous_manifest_index,
-                    current_output_paths=[
-                        output_path.relative_to(Path(confluence_config.output_dir)).as_posix()
-                        for _page, output_path, _page_decision, _action in space_page_records
-                    ],
-                )
+                for artifact in stale_artifact_records
             ]
+            prune_stale_artifact_plan = _plan_confluence_stale_prune(
+                stale_artifact_records
+            )
 
             write_count = sum(
                 1
@@ -2746,6 +2842,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     space_key=resolved_space_key,
                     discovered_count=len(discovered_page_ids),
                 )
+                _print_confluence_dry_run_prune_summary(prune_stale_artifact_plan)
                 print_stale_artifacts(confluence_config.output_dir, stale_artifacts)
                 if verbose:
                     for _page, output_path, page_decision, action in space_page_records:
@@ -2844,6 +2941,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     command="confluence",
                     exc=exc,
                 )
+            pruned_stale_artifacts = _prune_confluence_stale_after_write(
+                stale_artifact_records
+            )
             _print_confluence_write_summary(
                 new_count=new_count,
                 changed_count=changed_count,
@@ -2852,7 +2952,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 skip_count=skip_count,
                 stale_count=len(stale_artifacts),
             )
-            print_stale_artifacts(confluence_config.output_dir, stale_artifacts)
+            _print_confluence_write_prune_summary(stale_artifacts, pruned_stale_artifacts)
             _print(f"Manifest: {_display_output_path(manifest)}")
             print_write_complete(output_dir)
             return 0
@@ -2910,17 +3010,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 action = "skip" if page_decision.status == "unchanged" else "write"
                 page_records.append((page, output_path, page_decision, action))
+            stale_artifact_records = find_stale_artifacts(
+                confluence_config.output_dir,
+                previous_manifest_index,
+                current_output_paths=[
+                    output_path.relative_to(Path(confluence_config.output_dir)).as_posix()
+                    for _page, output_path, _page_decision, _action in page_records
+                ],
+            )
             stale_artifacts = [
                 (artifact.canonical_id, artifact.output_path)
-                for artifact in find_stale_artifacts(
-                    confluence_config.output_dir,
-                    previous_manifest_index,
-                    current_output_paths=[
-                        output_path.relative_to(Path(confluence_config.output_dir)).as_posix()
-                        for _page, output_path, _page_decision, _action in page_records
-                    ],
-                )
+                for artifact in stale_artifact_records
             ]
+            prune_stale_artifact_plan = _plan_confluence_stale_prune(
+                stale_artifact_records
+            )
 
             write_count = sum(
                 1
@@ -2959,6 +3063,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     skip_count=skip_count,
                     stale_count=len(stale_artifacts),
                 )
+                _print_confluence_dry_run_prune_summary(prune_stale_artifact_plan)
                 print_stale_artifacts(confluence_config.output_dir, stale_artifacts)
                 if verbose:
                     for _page, output_path, page_decision, action in page_records:
@@ -3062,6 +3167,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     command="confluence",
                     exc=exc,
                 )
+            pruned_stale_artifacts = _prune_confluence_stale_after_write(
+                stale_artifact_records
+            )
             _print_confluence_write_summary(
                 new_count=new_count,
                 changed_count=changed_count,
@@ -3070,7 +3178,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 skip_count=skip_count,
                 stale_count=len(stale_artifacts),
             )
-            print_stale_artifacts(confluence_config.output_dir, stale_artifacts)
+            _print_confluence_write_prune_summary(stale_artifacts, pruned_stale_artifacts)
             _print(f"Manifest: {_display_output_path(manifest)}")
             print_write_complete(output_dir)
             return 0
@@ -3107,16 +3215,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             page=page,
             output_path=output_path,
         )
+        stale_artifact_records = find_stale_artifacts(
+            confluence_config.output_dir,
+            previous_manifest_index,
+            current_output_paths=[
+                output_path.relative_to(Path(confluence_config.output_dir)).as_posix()
+            ],
+        )
         stale_artifacts = [
             (artifact.canonical_id, artifact.output_path)
-            for artifact in find_stale_artifacts(
-                confluence_config.output_dir,
-                previous_manifest_index,
-                current_output_paths=[
-                    output_path.relative_to(Path(confluence_config.output_dir)).as_posix()
-                ],
-            )
+            for artifact in stale_artifact_records
         ]
+        prune_stale_artifact_plan = _plan_confluence_stale_prune(stale_artifact_records)
         action = "skip" if page_decision.status == "unchanged" else "write"
 
         if confluence_config.dry_run:
@@ -3142,6 +3252,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 stale_count=len(stale_artifacts),
                 markdown=planned_markdown,
             )
+            _print_confluence_dry_run_prune_summary(prune_stale_artifact_plan)
             print_stale_artifacts(confluence_config.output_dir, stale_artifacts)
             print_dry_run_complete()
             return 0
@@ -3200,6 +3311,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 command="confluence",
                 exc=exc,
             )
+        pruned_stale_artifacts = _prune_confluence_stale_after_write(
+            stale_artifact_records
+        )
         write_count = 1 if action == "write" else 0
         skip_count = 1 if action == "skip" else 0
         _print_confluence_write_summary(
@@ -3210,7 +3324,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             skip_count=skip_count,
             stale_count=len(stale_artifacts),
         )
-        print_stale_artifacts(confluence_config.output_dir, stale_artifacts)
+        _print_confluence_write_prune_summary(stale_artifacts, pruned_stale_artifacts)
         print(f"Manifest: {_display_output_path(manifest)}")
         print_write_complete(output_dir)
         return 0
@@ -3464,6 +3578,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             find_stale_artifacts,
             load_previous_manifest_index,
             load_previous_manifest_output_index,
+            plan_stale_artifact_prune,
+            prune_stale_artifacts,
         )
 
         local_files_config = LocalFilesConfig(
@@ -3521,14 +3637,23 @@ def main(argv: Sequence[str] | None = None) -> int:
                 prior_source_path=prior_source_path,
                 current_source_path=current_source_path,
             )
+        stale_artifact_records = find_stale_artifacts(
+            local_files_config.output_dir,
+            previous_manifest_index,
+            current_output_paths=[planned_output_path],
+        )
         stale_artifacts = [
-            (artifact.canonical_id, artifact.output_path)
-            for artifact in find_stale_artifacts(
-                local_files_config.output_dir,
-                previous_manifest_index,
-                current_output_paths=[planned_output_path],
-            )
+            (artifact.canonical_id, artifact.output_path) for artifact in stale_artifact_records
         ]
+        prune_stale_artifact_plan = []
+        if args.prune_stale_artifacts:
+            try:
+                prune_stale_artifact_plan = plan_stale_artifact_prune(
+                    local_files_config.output_dir,
+                    stale_artifact_records,
+                )
+            except RuntimeError as exc:
+                exit_with_cli_error(str(exc), command="local_files")
 
         print("\nPlan: Local files run")
         print(f"  resolved_file_path: {resolved_input_path}")
@@ -3547,6 +3672,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         if local_files_config.dry_run:
             print("  Summary: would write 1, would skip 0")
             print(f"  stale_artifacts: {len(stale_artifacts)}")
+            if args.prune_stale_artifacts:
+                print(
+                    "  would_prune_stale_artifacts: "
+                    f"{len(prune_stale_artifact_plan)}"
+                )
             print_stale_artifacts(local_files_config.output_dir, stale_artifacts)
             print()
             print(markdown)
@@ -3577,10 +3707,29 @@ def main(argv: Sequence[str] | None = None) -> int:
                 command="local_files",
                 exc=exc,
             )
+        pruned_stale_artifacts = []
+        if args.prune_stale_artifacts:
+            try:
+                pruned_stale_artifacts = prune_stale_artifacts(
+                    local_files_config.output_dir,
+                    stale_artifact_records,
+                )
+            except RuntimeError as exc:
+                exit_with_cli_error(str(exc), command="local_files")
         print(f"\nWrote: {render_user_path(output_path)}")
         print("\nSummary: wrote 1, skipped 0")
         print(f"  stale_artifacts: {len(stale_artifacts)}")
-        print_stale_artifacts(local_files_config.output_dir, stale_artifacts)
+        if args.prune_stale_artifacts:
+            print(f"  pruned_stale_artifacts: {len(pruned_stale_artifacts)}")
+            print_pruned_stale_artifacts(
+                local_files_config.output_dir,
+                [
+                    (artifact.canonical_id, artifact.output_path)
+                    for artifact in pruned_stale_artifacts
+                ],
+            )
+        else:
+            print_stale_artifacts(local_files_config.output_dir, stale_artifacts)
         print(f"Artifact path: {render_user_path(output_path)}")
         print(f"Manifest path: {render_user_path(manifest)}")
         print_write_complete(output_dir)
@@ -3629,6 +3778,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         from knowledge_adapters.manifest_stale import (
             find_stale_artifacts,
             load_previous_manifest_index,
+            plan_stale_artifact_prune,
+            prune_stale_artifacts,
         )
 
         command = str(args.command)
@@ -3777,14 +3928,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             manifest_entry["fetched_at"] = fetched_at
             if replay_quality_metadata:
                 manifest_entry["replay_quality_metadata"] = dict(replay_quality_metadata)
+        stale_artifact_records = find_stale_artifacts(
+            output_dir_arg,
+            previous_manifest_index,
+            current_output_paths=[str(manifest_entry["output_path"])],
+        )
         stale_artifacts = [
-            (artifact.canonical_id, artifact.output_path)
-            for artifact in find_stale_artifacts(
-                output_dir_arg,
-                previous_manifest_index,
-                current_output_paths=[str(manifest_entry["output_path"])],
-            )
+            (artifact.canonical_id, artifact.output_path) for artifact in stale_artifact_records
         ]
+        prune_stale_artifact_plan = []
+        if args.prune_stale_artifacts:
+            try:
+                prune_stale_artifact_plan = plan_stale_artifact_prune(
+                    output_dir_arg,
+                    stale_artifact_records,
+                )
+            except RuntimeError as exc:
+                exit_with_cli_error(str(exc), command=command)
 
         print(f"\nPlan: {plan_title}")
         print(f"  source_url: {source_url}")
@@ -3812,6 +3972,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         if dry_run:
             print("  Summary: would write 1, would skip 0")
             print(f"  stale_artifacts: {len(stale_artifacts)}")
+            if args.prune_stale_artifacts:
+                print(
+                    "  would_prune_stale_artifacts: "
+                    f"{len(prune_stale_artifact_plan)}"
+                )
             print_stale_artifacts(output_dir_arg, stale_artifacts)
             print()
             print(markdown)
@@ -3831,11 +3996,30 @@ def main(argv: Sequence[str] | None = None) -> int:
                 command=command,
                 exc=exc,
             )
+        pruned_stale_artifacts = []
+        if args.prune_stale_artifacts:
+            try:
+                pruned_stale_artifacts = prune_stale_artifacts(
+                    output_dir_arg,
+                    stale_artifact_records,
+                )
+            except RuntimeError as exc:
+                exit_with_cli_error(str(exc), command=command)
 
         print(f"\nWrote: {render_user_path(output_path)}")
         print("\nSummary: wrote 1, skipped 0")
         print(f"  stale_artifacts: {len(stale_artifacts)}")
-        print_stale_artifacts(output_dir_arg, stale_artifacts)
+        if args.prune_stale_artifacts:
+            print(f"  pruned_stale_artifacts: {len(pruned_stale_artifacts)}")
+            print_pruned_stale_artifacts(
+                output_dir_arg,
+                [
+                    (artifact.canonical_id, artifact.output_path)
+                    for artifact in pruned_stale_artifacts
+                ],
+            )
+        else:
+            print_stale_artifacts(output_dir_arg, stale_artifacts)
         print(f"Artifact path: {render_user_path(output_path)}")
         print(f"Manifest path: {render_user_path(manifest)}")
         print_write_complete(output_dir)
@@ -3873,6 +4057,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         from knowledge_adapters.manifest_stale import (
             find_stale_artifacts,
             load_previous_manifest_index,
+            plan_stale_artifact_prune,
+            prune_stale_artifacts,
         )
 
         github_metadata_config = GitHubMetadataConfig(
@@ -4191,6 +4377,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             if prior_entry is not None and prior_entry.content_hash is not None:
                 stale_entry["content_hash"] = prior_entry.content_hash
             stale_manifest_entries.append(stale_entry)
+        prune_stale_artifact_plan = []
+        if args.prune_stale_artifacts:
+            try:
+                prune_stale_artifact_plan = plan_stale_artifact_prune(
+                    github_metadata_config.output_dir,
+                    stale_artifact_records,
+                )
+            except RuntimeError as exc:
+                exit_with_cli_error(str(exc), command="github_metadata")
 
         for record, output_path, decision in zip(
             records,
@@ -4225,6 +4420,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"  changed_records: {changed_count}")
             print(f"  unchanged_records: {unchanged_count}")
             print(f"  stale_artifacts: {len(stale_artifacts)}")
+            if args.prune_stale_artifacts:
+                print(
+                    "  would_prune_stale_artifacts: "
+                    f"{len(prune_stale_artifact_plan)}"
+                )
             print_stale_artifacts(github_metadata_config.output_dir, stale_artifacts)
             print(f"Manifest path: {render_user_path(manifest_output_path)}")
             print_dry_run_complete()
@@ -4263,6 +4463,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 command="github_metadata",
                 exc=exc,
             )
+        pruned_stale_artifacts = []
+        if args.prune_stale_artifacts:
+            try:
+                pruned_stale_artifacts = prune_stale_artifacts(
+                    github_metadata_config.output_dir,
+                    stale_artifact_records,
+                )
+            except RuntimeError as exc:
+                exit_with_cli_error(str(exc), command="github_metadata")
 
         for output_path in github_rewritten_output_paths:
             print(f"\nWrote: {render_user_path(output_path)}")
@@ -4273,7 +4482,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"  changed_records: {changed_count}")
         print(f"  unchanged_records: {unchanged_count}")
         print(f"  stale_artifacts: {len(stale_artifacts)}")
-        print_stale_artifacts(github_metadata_config.output_dir, stale_artifacts)
+        if args.prune_stale_artifacts:
+            print(f"  pruned_stale_artifacts: {len(pruned_stale_artifacts)}")
+            print_pruned_stale_artifacts(
+                github_metadata_config.output_dir,
+                [
+                    (artifact.canonical_id, artifact.output_path)
+                    for artifact in pruned_stale_artifacts
+                ],
+            )
+        else:
+            print_stale_artifacts(github_metadata_config.output_dir, stale_artifacts)
         print(f"Manifest path: {render_user_path(manifest)}")
         print_write_complete(output_dir)
         return 0
@@ -4297,6 +4516,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         from knowledge_adapters.manifest_stale import (
             find_stale_artifacts,
             load_previous_manifest_index,
+            plan_stale_artifact_prune,
+            prune_stale_artifacts,
         )
 
         git_repo_config = GitRepoConfig(
@@ -4388,14 +4609,23 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             )
             written_output_paths.append(output_path)
+        stale_artifact_records = find_stale_artifacts(
+            git_repo_config.output_dir,
+            previous_manifest_index,
+            current_output_paths=[str(entry["output_path"]) for entry in manifest_entries],
+        )
         stale_artifacts = [
-            (artifact.canonical_id, artifact.output_path)
-            for artifact in find_stale_artifacts(
-                git_repo_config.output_dir,
-                previous_manifest_index,
-                current_output_paths=[str(entry["output_path"]) for entry in manifest_entries],
-            )
+            (artifact.canonical_id, artifact.output_path) for artifact in stale_artifact_records
         ]
+        prune_stale_artifact_plan = []
+        if args.prune_stale_artifacts:
+            try:
+                prune_stale_artifact_plan = plan_stale_artifact_prune(
+                    git_repo_config.output_dir,
+                    stale_artifact_records,
+                )
+            except RuntimeError as exc:
+                exit_with_cli_error(str(exc), command="git_repo")
 
         for repo_file, output_path in zip(snapshot.files, written_output_paths, strict=True):
             print(f"\n  path: {repo_file.repo_path}")
@@ -4427,6 +4657,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"{len(snapshot.files)}, would skip {len(snapshot.skipped_files)}"
             )
             print(f"  stale_artifacts: {len(stale_artifacts)}")
+            if args.prune_stale_artifacts:
+                print(
+                    "  would_prune_stale_artifacts: "
+                    f"{len(prune_stale_artifact_plan)}"
+                )
             print_stale_artifacts(git_repo_config.output_dir, stale_artifacts)
             print(f"Manifest path: {render_user_path(manifest_output_path)}")
             print_dry_run_complete()
@@ -4459,6 +4694,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 command="git_repo",
                 exc=exc,
             )
+        pruned_stale_artifacts = []
+        if args.prune_stale_artifacts:
+            try:
+                pruned_stale_artifacts = prune_stale_artifacts(
+                    git_repo_config.output_dir,
+                    stale_artifact_records,
+                )
+            except RuntimeError as exc:
+                exit_with_cli_error(str(exc), command="git_repo")
 
         for output_path in written_output_paths:
             print(f"\nWrote: {render_user_path(output_path)}")
@@ -4466,7 +4710,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"\nSkipped: {skipped_file.repo_path} ({skipped_file.reason})")
         print(f"\nSummary: wrote {len(snapshot.files)}, skipped {len(snapshot.skipped_files)}")
         print(f"  stale_artifacts: {len(stale_artifacts)}")
-        print_stale_artifacts(git_repo_config.output_dir, stale_artifacts)
+        if args.prune_stale_artifacts:
+            print(f"  pruned_stale_artifacts: {len(pruned_stale_artifacts)}")
+            print_pruned_stale_artifacts(
+                git_repo_config.output_dir,
+                [
+                    (artifact.canonical_id, artifact.output_path)
+                    for artifact in pruned_stale_artifacts
+                ],
+            )
+        else:
+            print_stale_artifacts(git_repo_config.output_dir, stale_artifacts)
         print(f"Manifest path: {render_user_path(manifest)}")
         print_write_complete(output_dir)
         return 0

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import stat
 from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +26,15 @@ class StaleArtifact:
 
     canonical_id: str
     output_path: str
+
+
+@dataclass(frozen=True)
+class PrunedArtifact:
+    """Stale manifest-owned artifact removed from disk."""
+
+    canonical_id: str
+    output_path: str
+    path: Path
 
 
 def _normalize_metadata_value(value: object) -> str | None:
@@ -151,3 +161,76 @@ def find_stale_artifacts(
         )
 
     return stale_artifacts
+
+
+def plan_stale_artifact_prune(
+    output_dir: str | Path,
+    stale_artifacts: Collection[StaleArtifact],
+) -> list[PrunedArtifact]:
+    """Validate stale-artifact prune candidates without deleting anything."""
+    output_dir_path = Path(output_dir).expanduser().resolve()
+    pruned_artifacts: list[PrunedArtifact] = []
+    validation_errors: list[str] = []
+
+    for artifact in sorted(stale_artifacts, key=lambda item: (item.output_path, item.canonical_id)):
+        artifact_path = output_dir_path / artifact.output_path
+        try:
+            resolved_artifact_path = artifact_path.resolve(strict=True)
+        except OSError as exc:
+            validation_errors.append(
+                f"{artifact.output_path!r} ({artifact.canonical_id}) could not be resolved: {exc}"
+            )
+            continue
+
+        try:
+            resolved_artifact_path.relative_to(output_dir_path)
+        except ValueError:
+            validation_errors.append(
+                f"{artifact.output_path!r} ({artifact.canonical_id}) resolves outside "
+                f"output_dir {output_dir_path}: {resolved_artifact_path}"
+            )
+            continue
+
+        try:
+            artifact_stat = artifact_path.stat(follow_symlinks=False)
+        except OSError as exc:
+            validation_errors.append(
+                f"{artifact.output_path!r} ({artifact.canonical_id}) could not be inspected: {exc}"
+            )
+            continue
+
+        if not stat.S_ISREG(artifact_stat.st_mode):
+            validation_errors.append(
+                f"{artifact.output_path!r} ({artifact.canonical_id}) is not a regular file"
+            )
+            continue
+
+        pruned_artifacts.append(
+            PrunedArtifact(
+                canonical_id=artifact.canonical_id,
+                output_path=artifact.output_path,
+                path=resolved_artifact_path,
+            )
+        )
+
+    if validation_errors:
+        details = "\n  ".join(validation_errors)
+        raise RuntimeError(f"Could not safely prune stale artifacts:\n  {details}")
+
+    return pruned_artifacts
+
+
+def prune_stale_artifacts(
+    output_dir: str | Path,
+    stale_artifacts: Collection[StaleArtifact],
+) -> list[PrunedArtifact]:
+    """Delete validated stale manifest-owned regular files under output_dir."""
+    pruned_artifacts = plan_stale_artifact_prune(output_dir, stale_artifacts)
+    for artifact in pruned_artifacts:
+        try:
+            artifact.path.unlink()
+        except OSError as exc:
+            raise RuntimeError(
+                f"Could not prune stale artifact {artifact.path}: {exc}"
+            ) from exc
+    return pruned_artifacts
