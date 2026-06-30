@@ -1133,18 +1133,9 @@ runs:
     assert (output_dir / "pages" / "second.md").exists()
 
 
-def test_run_command_passes_report_orphaned_artifacts(
+def test_run_config_rejects_removed_report_orphaned_artifacts_key(
     tmp_path: Path,
-    capsys: CaptureFixture[str],
 ) -> None:
-    source_file = tmp_path / "inputs" / "current.txt"
-    source_file.parent.mkdir(parents=True)
-    source_file.write_text("Current.\n", encoding="utf-8")
-    output_dir = tmp_path / "artifacts" / "local" / "team-notes"
-    orphaned_output = output_dir / "pages" / "orphaned.md"
-    orphaned_output.parent.mkdir(parents=True)
-    orphaned_output.write_text("orphaned\n", encoding="utf-8")
-
     config_path = tmp_path / "runs.yaml"
     config_path.write_text(
         """
@@ -1159,15 +1150,8 @@ runs:
         encoding="utf-8",
     )
 
-    exit_code = main(["run", str(config_path)])
-
-    assert exit_code == 0
-    captured = capsys.readouterr()
-    assert "--report-orphaned-artifacts" in captured.out
-    assert "orphaned_artifacts: 1" in captured.out
-    assert str(orphaned_output) in captured.out
-    assert "Run summary: wrote 1, skipped 0" in captured.out
-    assert orphaned_output.read_text(encoding="utf-8") == "orphaned\n"
+    with pytest.raises(ValueError, match="report_orphaned_artifacts"):
+        load_run_config(config_path)
 
 
 def test_run_command_passes_prune_orphaned_artifacts(

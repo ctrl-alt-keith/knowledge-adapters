@@ -47,7 +47,6 @@ _SUPPORTED_GITHUB_METADATA_STATES = frozenset({"open", "closed", "all"})
 _SUPPORTED_GITHUB_METADATA_RESOURCE_TYPES = SUPPORTED_RESOURCE_TYPES
 
 _COMMON_REQUIRED_KEYS = frozenset({"name", "type"})
-_REPORT_ORPHANED_ARTIFACTS_KEY = "report_orphaned_artifacts"
 _PRUNE_ORPHANED_ARTIFACTS_KEY = "prune_orphaned_artifacts"
 _PRUNE_STALE_ARTIFACTS_KEY = "prune_stale_artifacts"
 _BUNDLE_OPTION_KEYS = frozenset(
@@ -82,7 +81,6 @@ _CONFLUENCE_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
         "output_dir",
         _PRUNE_STALE_ARTIFACTS_KEY,
         _PRUNE_ORPHANED_ARTIFACTS_KEY,
-        _REPORT_ORPHANED_ARTIFACTS_KEY,
         "request_delay_ms",
         "space_key",
         "space_url",
@@ -103,7 +101,6 @@ _LOCAL_FILES_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
         "output_dir",
         _PRUNE_STALE_ARTIFACTS_KEY,
         _PRUNE_ORPHANED_ARTIFACTS_KEY,
-        _REPORT_ORPHANED_ARTIFACTS_KEY,
     }
 )
 _PUBLIC_URL_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
@@ -114,7 +111,6 @@ _PUBLIC_URL_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
         "url",
         _PRUNE_STALE_ARTIFACTS_KEY,
         _PRUNE_ORPHANED_ARTIFACTS_KEY,
-        _REPORT_ORPHANED_ARTIFACTS_KEY,
     }
 )
 _GIT_REPO_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
@@ -129,7 +125,6 @@ _GIT_REPO_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
         "subdir",
         _PRUNE_STALE_ARTIFACTS_KEY,
         _PRUNE_ORPHANED_ARTIFACTS_KEY,
-        _REPORT_ORPHANED_ARTIFACTS_KEY,
     }
 )
 _GITHUB_METADATA_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
@@ -144,7 +139,6 @@ _GITHUB_METADATA_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
         "output_dir",
         _PRUNE_STALE_ARTIFACTS_KEY,
         _PRUNE_ORPHANED_ARTIFACTS_KEY,
-        _REPORT_ORPHANED_ARTIFACTS_KEY,
         "repo",
         "resource_type",
         "since",
@@ -1053,14 +1047,6 @@ def _append_orphaned_artifacts_argv(
     index: int | str,
     config_path: Path,
 ) -> None:
-    if _optional_bool(
-        run_config,
-        _REPORT_ORPHANED_ARTIFACTS_KEY,
-        index=index,
-        config_path=config_path,
-        default=False,
-    ):
-        argv.append("--report-orphaned-artifacts")
     if _optional_bool(
         run_config,
         _PRUNE_ORPHANED_ARTIFACTS_KEY,
