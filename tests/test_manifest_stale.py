@@ -123,6 +123,57 @@ def test_find_orphaned_artifacts_reports_unreferenced_markdown_under_pages(
     ]
 
 
+def test_find_orphaned_artifacts_does_not_report_markdown_symlinks(
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "out"
+    real_orphaned = output_dir / "pages" / "real.md"
+    symlink_orphaned = output_dir / "pages" / "linked.md"
+    outside_target = tmp_path / "outside.md"
+    real_orphaned.parent.mkdir(parents=True)
+    real_orphaned.write_text("real\n", encoding="utf-8")
+    outside_target.write_text("outside\n", encoding="utf-8")
+    try:
+        symlink_orphaned.symlink_to(outside_target)
+    except OSError as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
+
+    orphaned_artifacts = find_orphaned_artifacts(
+        output_dir,
+        current_output_paths=[],
+    )
+
+    assert [artifact.output_path for artifact in orphaned_artifacts] == ["pages/real.md"]
+
+
+def test_find_orphaned_artifacts_does_not_report_uninspectable_candidates(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "out"
+    visible = output_dir / "pages" / "visible.md"
+    uninspectable = output_dir / "pages" / "uninspectable.md"
+    for path in (visible, uninspectable):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(path.name, encoding="utf-8")
+
+    original_lstat = Path.lstat
+
+    def fake_lstat(self: Path) -> object:
+        if self == uninspectable:
+            raise OSError("cannot inspect")
+        return original_lstat(self)
+
+    monkeypatch.setattr(Path, "lstat", fake_lstat)
+
+    orphaned_artifacts = find_orphaned_artifacts(
+        output_dir,
+        current_output_paths=[],
+    )
+
+    assert [artifact.output_path for artifact in orphaned_artifacts] == ["pages/visible.md"]
+
+
 def test_prune_orphaned_artifacts_deletes_only_unreferenced_markdown_under_pages(
     tmp_path: Path,
 ) -> None:

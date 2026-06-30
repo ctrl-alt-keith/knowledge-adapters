@@ -275,9 +275,8 @@ def find_orphaned_artifacts(
         try:
             artifact_stat = artifact_path.lstat()
         except OSError:
-            orphaned_artifacts.append(OrphanedArtifact(output_path=relative_output_path))
             continue
-        if stat.S_ISREG(artifact_stat.st_mode) or stat.S_ISLNK(artifact_stat.st_mode):
+        if stat.S_ISREG(artifact_stat.st_mode):
             orphaned_artifacts.append(OrphanedArtifact(output_path=relative_output_path))
 
     return sorted(orphaned_artifacts, key=lambda artifact: artifact.output_path)
