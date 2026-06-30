@@ -57,14 +57,24 @@ Every adapter follows the same high-level shape:
 Recommended first run: use `--dry-run` to confirm the planned source,
 artifact path, and manifest path, then rerun without it.
 
-Manifest-backed adapter commands that write artifacts also support opt-in stale
-artifact pruning with `--prune-stale-artifacts`: `local_files`,
-`public_webpage`, `public_pdf`, `confluence`, `github_metadata`, and
-`git_repo`. Pruning is manifest-owned only. It deletes only stale regular files
-that were listed in the prior `manifest.json` and are absent from the current
-run plan under the selected `--output-dir`. It does not delete unmanifested
-files, and it does not delete directories. In `--dry-run`, pruning deletes
-nothing and reports `would_prune_stale_artifacts` with the candidate paths.
+Manifest-backed adapter commands that write artifacts also support opt-in
+artifact cleanup: `local_files`, `public_webpage`, `public_pdf`, `confluence`,
+`github_metadata`, and `git_repo`.
+
+- A stale artifact was listed in the prior `manifest.json` but is absent from
+  the current run plan. `--prune-stale-artifacts` deletes only those stale
+  regular files under the selected `--output-dir`.
+- An orphaned artifact is a regular generated markdown file under
+  `--output-dir/pages/**/*.md` that is not referenced by the current run plan.
+  `--report-orphaned-artifacts` reports these candidates without deleting
+  files. `--prune-orphaned-artifacts` implies reporting and deletes only
+  validated orphan candidates.
+
+In `--dry-run`, stale pruning reports `would_prune_stale_artifacts`, orphan
+pruning reports `would_prune_orphaned_artifacts`, and nothing is deleted.
+Orphan cleanup is intentionally limited to generated markdown artifacts under
+`pages/**/*.md`; it never deletes `manifest.json`, directories, non-markdown
+files, or files outside `pages/`.
 
 Minimal local file first run:
 
@@ -349,10 +359,10 @@ This temporarily appends `--dry-run` to every configured adapter run that
 supports dry-run mode. It does not modify or persist `runs.yaml`, and it
 overrides per-run `dry_run:` settings only for that invocation.
 
-To enable stale artifact pruning in config-driven refreshes, set
-`prune_stale_artifacts: true` on each adapter run that should prune. There is no
-top-level global prune setting for `knowledge-adapters run`; pruning remains
-opt-in per manifest-backed adapter run.
+To enable artifact cleanup in config-driven refreshes, set per-run cleanup keys
+on each manifest-backed adapter run that should report or prune. There are no
+top-level global cleanup settings for `knowledge-adapters run`; cleanup remains
+opt-in per run.
 
 ```yaml
 runs:
@@ -361,7 +371,14 @@ runs:
     repo_url: https://github.com/example/project.git
     output_dir: ./artifacts/git/repo-docs
     prune_stale_artifacts: true
+    report_orphaned_artifacts: true
+    prune_orphaned_artifacts: true
 ```
+
+Use `report_orphaned_artifacts: true` to list orphaned `pages/**/*.md`
+candidates without deleting them. Use `prune_orphaned_artifacts: true` to delete
+validated orphan candidates; top-level `knowledge-adapters run --dry-run` turns
+that into `would_prune_orphaned_artifacts` reporting and deletes nothing.
 
 To keep a lightweight human-readable record of a config-driven execution, pass
 `--report-output`:

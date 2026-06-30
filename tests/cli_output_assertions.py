@@ -28,6 +28,22 @@ def assert_stale_artifacts(
         assert_contains_normalized(output, str(path))
 
 
+def assert_orphaned_artifacts(
+    output: str,
+    *,
+    count: int,
+    artifact_paths: Iterable[Path] = (),
+) -> None:
+    assert f"orphaned_artifacts: {count}" in output
+    if count == 0:
+        assert "Orphaned artifacts:" not in output
+        return
+
+    assert "Orphaned artifacts:" in output
+    for path in artifact_paths:
+        assert_contains_normalized(output, str(path))
+
+
 def assert_dry_run_summary(
     output: str,
     *,

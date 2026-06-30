@@ -1,4 +1,4 @@
-"""Shared helpers for stale-artifact reporting across manifest-backed adapters."""
+"""Shared helpers for manifest-backed artifact cleanup."""
 
 from __future__ import annotations
 
@@ -33,6 +33,21 @@ class PrunedArtifact:
     """Stale manifest-owned artifact removed from disk."""
 
     canonical_id: str
+    output_path: str
+    path: Path
+
+
+@dataclass(frozen=True)
+class OrphanedArtifact:
+    """Generated markdown artifact not referenced by the current run output."""
+
+    output_path: str
+
+
+@dataclass(frozen=True)
+class PrunedOrphanedArtifact:
+    """Orphaned generated markdown artifact removed from disk."""
+
     output_path: str
     path: Path
 
@@ -234,3 +249,140 @@ def prune_stale_artifacts(
                 f"Could not prune stale artifact {artifact.path}: {exc}"
             ) from exc
     return pruned_artifacts
+
+
+def find_orphaned_artifacts(
+    output_dir: str | Path,
+    *,
+    current_output_paths: Collection[str],
+) -> list[OrphanedArtifact]:
+    """Return unreferenced generated markdown artifacts under output_dir/pages."""
+    output_dir_path = Path(output_dir).expanduser()
+    pages_dir = output_dir_path / "pages"
+    if not pages_dir.exists():
+        return []
+
+    current_paths = frozenset(_normalize_output_path(path) for path in current_output_paths)
+    orphaned_artifacts: list[OrphanedArtifact] = []
+
+    for artifact_path in pages_dir.rglob("*.md"):
+        try:
+            relative_output_path = artifact_path.relative_to(output_dir_path).as_posix()
+        except ValueError:
+            continue
+        if _normalize_output_path(relative_output_path) in current_paths:
+            continue
+        try:
+            artifact_stat = artifact_path.lstat()
+        except OSError:
+            continue
+        if stat.S_ISREG(artifact_stat.st_mode):
+            orphaned_artifacts.append(OrphanedArtifact(output_path=relative_output_path))
+
+    return sorted(orphaned_artifacts, key=lambda artifact: artifact.output_path)
+
+
+def plan_orphaned_artifact_prune(
+    output_dir: str | Path,
+    orphaned_artifacts: Collection[OrphanedArtifact],
+    *,
+    current_output_paths: Collection[str] = (),
+) -> list[PrunedOrphanedArtifact]:
+    """Validate orphaned-artifact prune candidates without deleting anything."""
+    output_dir_path = Path(output_dir).expanduser().resolve()
+    pages_dir = output_dir_path / "pages"
+    current_paths = frozenset(_normalize_output_path(path) for path in current_output_paths)
+    pruned_artifacts: list[PrunedOrphanedArtifact] = []
+    validation_errors: list[str] = []
+
+    for artifact in sorted(orphaned_artifacts, key=lambda item: item.output_path):
+        normalized_output_path = _normalize_output_path(artifact.output_path)
+        artifact_path = output_dir_path / normalized_output_path
+
+        if normalized_output_path in current_paths:
+            validation_errors.append(
+                f"{artifact.output_path!r} is referenced by the current run plan"
+            )
+            continue
+        if Path(normalized_output_path).is_absolute():
+            validation_errors.append(f"{artifact.output_path!r} is not a relative path")
+            continue
+        if Path(normalized_output_path).parts[:1] != ("pages",):
+            validation_errors.append(f"{artifact.output_path!r} is outside pages/")
+            continue
+        if artifact_path.suffix != ".md":
+            validation_errors.append(f"{artifact.output_path!r} is not a markdown artifact")
+            continue
+
+        try:
+            resolved_artifact_path = artifact_path.resolve(strict=True)
+        except OSError as exc:
+            validation_errors.append(f"{artifact.output_path!r} could not be resolved: {exc}")
+            continue
+
+        try:
+            resolved_artifact_path.relative_to(output_dir_path)
+        except ValueError:
+            validation_errors.append(
+                f"{artifact.output_path!r} resolves outside output_dir "
+                f"{output_dir_path}: {resolved_artifact_path}"
+            )
+            continue
+
+        try:
+            resolved_artifact_path.relative_to(pages_dir)
+        except ValueError:
+            validation_errors.append(
+                f"{artifact.output_path!r} resolves outside pages/ "
+                f"{pages_dir}: {resolved_artifact_path}"
+            )
+            continue
+
+        try:
+            artifact_stat = artifact_path.stat(follow_symlinks=False)
+        except OSError as exc:
+            validation_errors.append(f"{artifact.output_path!r} could not be inspected: {exc}")
+            continue
+
+        if not stat.S_ISREG(artifact_stat.st_mode):
+            validation_errors.append(f"{artifact.output_path!r} is not a regular file")
+            continue
+
+        pruned_artifacts.append(
+            PrunedOrphanedArtifact(
+                output_path=normalized_output_path,
+                path=resolved_artifact_path,
+            )
+        )
+
+    if validation_errors:
+        details = "\n  ".join(validation_errors)
+        raise RuntimeError(f"Could not safely prune orphaned artifacts:\n  {details}")
+
+    return pruned_artifacts
+
+
+def prune_orphaned_artifacts(
+    output_dir: str | Path,
+    orphaned_artifacts: Collection[OrphanedArtifact],
+    *,
+    current_output_paths: Collection[str] = (),
+) -> list[PrunedOrphanedArtifact]:
+    """Delete validated orphaned markdown artifacts under output_dir/pages."""
+    pruned_artifacts = plan_orphaned_artifact_prune(
+        output_dir,
+        orphaned_artifacts,
+        current_output_paths=current_output_paths,
+    )
+    for artifact in pruned_artifacts:
+        try:
+            artifact.path.unlink()
+        except OSError as exc:
+            raise RuntimeError(
+                f"Could not prune orphaned artifact {artifact.path}: {exc}"
+            ) from exc
+    return pruned_artifacts
+
+
+def _normalize_output_path(output_path: str) -> str:
+    return Path(output_path).as_posix().removeprefix("./")
