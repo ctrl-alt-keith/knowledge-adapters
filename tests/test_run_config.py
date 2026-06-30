@@ -1133,6 +1133,118 @@ runs:
     assert (output_dir / "pages" / "second.md").exists()
 
 
+def test_run_command_passes_report_orphaned_artifacts(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    source_file = tmp_path / "inputs" / "current.txt"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text("Current.\n", encoding="utf-8")
+    output_dir = tmp_path / "artifacts" / "local" / "team-notes"
+    orphaned_output = output_dir / "pages" / "orphaned.md"
+    orphaned_output.parent.mkdir(parents=True)
+    orphaned_output.write_text("orphaned\n", encoding="utf-8")
+
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: team-notes
+    type: local_files
+    file_path: ./inputs/current.txt
+    output_dir: ./artifacts/local/team-notes
+    report_orphaned_artifacts: true
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(["run", str(config_path)])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "--report-orphaned-artifacts" in captured.out
+    assert "orphaned_artifacts: 1" in captured.out
+    assert str(orphaned_output) in captured.out
+    assert "Run summary: wrote 1, skipped 0" in captured.out
+    assert orphaned_output.read_text(encoding="utf-8") == "orphaned\n"
+
+
+def test_run_command_passes_prune_orphaned_artifacts(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    source_file = tmp_path / "inputs" / "current.txt"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text("Current.\n", encoding="utf-8")
+    output_dir = tmp_path / "artifacts" / "local" / "team-notes"
+    orphaned_output = output_dir / "pages" / "orphaned.md"
+    orphaned_output.parent.mkdir(parents=True)
+    orphaned_output.write_text("orphaned\n", encoding="utf-8")
+
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: team-notes
+    type: local_files
+    file_path: ./inputs/current.txt
+    output_dir: ./artifacts/local/team-notes
+    prune_orphaned_artifacts: true
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(["run", str(config_path)])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "--prune-orphaned-artifacts" in captured.out
+    assert "orphaned_artifacts: 1" in captured.out
+    assert "pruned_orphaned_artifacts: 1" in captured.out
+    assert "Run summary: wrote 1, skipped 0" in captured.out
+    assert not orphaned_output.exists()
+
+
+def test_run_command_global_dry_run_with_prune_orphaned_reports_without_deleting(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    source_file = tmp_path / "inputs" / "current.txt"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text("Current.\n", encoding="utf-8")
+    output_dir = tmp_path / "artifacts" / "local" / "team-notes"
+    orphaned_output = output_dir / "pages" / "orphaned.md"
+    orphaned_output.parent.mkdir(parents=True)
+    orphaned_output.write_text("orphaned\n", encoding="utf-8")
+
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: team-notes
+    type: local_files
+    file_path: ./inputs/current.txt
+    output_dir: ./artifacts/local/team-notes
+    prune_orphaned_artifacts: true
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(["run", str(config_path), "--dry-run"])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "Summary: would write 1, would skip 0" in captured.out
+    assert "orphaned_artifacts: 1" in captured.out
+    assert "would_prune_orphaned_artifacts: 1" in captured.out
+    assert "Run summary: would write 1, would skip 0" in captured.out
+    assert "dry_run_runs: 1" in captured.out
+    assert orphaned_output.read_text(encoding="utf-8") == "orphaned\n"
+
+
 def test_run_command_preserves_nested_confluence_inline_progress_on_tty(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,

@@ -12,6 +12,7 @@ from tests.artifact_assertions import (
     assert_markdown_document,
     manifest_file,
 )
+from tests.cli_output_assertions import assert_orphaned_artifacts
 
 
 def test_fetch_file_reads_local_path_into_adapter_payload(tmp_path: Path) -> None:
@@ -335,6 +336,129 @@ def test_local_files_cli_prune_flag_reports_and_deletes_stale_manifest_file(
     assert (output_dir / "pages" / "second.md").exists()
 
 
+def test_local_files_cli_reports_orphaned_artifacts_without_deleting(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    source_file = tmp_path / "current.txt"
+    source_file.write_text("Current file.\n", encoding="utf-8")
+    output_dir = tmp_path / "out"
+    orphaned_output = output_dir / "pages" / "orphaned.md"
+    orphaned_output.parent.mkdir(parents=True)
+    orphaned_output.write_text("orphaned\n", encoding="utf-8")
+    ignored_non_markdown = output_dir / "pages" / "ignored.txt"
+    ignored_non_markdown.write_text("ignored\n", encoding="utf-8")
+    outside_pages = output_dir / "other" / "orphaned.md"
+    outside_pages.parent.mkdir(parents=True)
+    outside_pages.write_text("outside\n", encoding="utf-8")
+
+    exit_code = main(
+        [
+            "local_files",
+            "--file-path",
+            str(source_file),
+            "--output-dir",
+            str(output_dir),
+            "--report-orphaned-artifacts",
+        ]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert_orphaned_artifacts(captured.out, count=1, artifact_paths=[orphaned_output])
+    assert "pruned_orphaned_artifacts" not in captured.out
+    assert orphaned_output.read_text(encoding="utf-8") == "orphaned\n"
+    assert ignored_non_markdown.read_text(encoding="utf-8") == "ignored\n"
+    assert outside_pages.read_text(encoding="utf-8") == "outside\n"
+
+
+def test_local_files_cli_prunes_orphaned_artifacts_only_under_pages_markdown(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    source_file = tmp_path / "current.txt"
+    source_file.write_text("Current file.\n", encoding="utf-8")
+    output_dir = tmp_path / "out"
+    orphaned_output = output_dir / "pages" / "orphaned.md"
+    orphaned_output.parent.mkdir(parents=True)
+    orphaned_output.write_text("orphaned\n", encoding="utf-8")
+    ignored_non_markdown = output_dir / "pages" / "ignored.txt"
+    ignored_non_markdown.write_text("ignored\n", encoding="utf-8")
+
+    exit_code = main(
+        [
+            "local_files",
+            "--file-path",
+            str(source_file),
+            "--output-dir",
+            str(output_dir),
+            "--prune-orphaned-artifacts",
+        ]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "orphaned_artifacts: 1" in captured.out
+    assert "pruned_orphaned_artifacts: 1" in captured.out
+    assert "Pruned orphaned artifacts:" in captured.out
+    assert str(orphaned_output) in captured.out
+    assert not orphaned_output.exists()
+    assert ignored_non_markdown.read_text(encoding="utf-8") == "ignored\n"
+    assert (output_dir / "pages" / "current.md").exists()
+
+
+def test_local_files_cli_prunes_stale_and_orphaned_artifacts_separately(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    first_source = tmp_path / "first.txt"
+    first_source.write_text("First file.\n", encoding="utf-8")
+    second_source = tmp_path / "second.txt"
+    second_source.write_text("Second file.\n", encoding="utf-8")
+    output_dir = tmp_path / "out"
+
+    assert (
+        main(
+            [
+                "local_files",
+                "--file-path",
+                str(first_source),
+                "--output-dir",
+                str(output_dir),
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    stale_output = output_dir / "pages" / "first.md"
+    orphaned_output = output_dir / "pages" / "orphaned.md"
+    orphaned_output.write_text("orphaned\n", encoding="utf-8")
+
+    exit_code = main(
+        [
+            "local_files",
+            "--file-path",
+            str(second_source),
+            "--output-dir",
+            str(output_dir),
+            "--prune-stale-artifacts",
+            "--prune-orphaned-artifacts",
+        ]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "stale_artifacts: 1" in captured.out
+    assert "pruned_stale_artifacts: 1" in captured.out
+    assert "orphaned_artifacts: 1" in captured.out
+    assert "pruned_orphaned_artifacts: 1" in captured.out
+    assert str(stale_output) in captured.out
+    assert str(orphaned_output) in captured.out
+    assert not stale_output.exists()
+    assert not orphaned_output.exists()
+    assert (output_dir / "pages" / "second.md").exists()
+
+
 def test_local_files_cli_prune_dry_run_reports_candidates_without_deleting(
     tmp_path: Path,
     capsys: CaptureFixture[str],
@@ -380,6 +504,37 @@ def test_local_files_cli_prune_dry_run_reports_candidates_without_deleting(
     assert "would_prune_stale_artifacts: 1" in captured.out
     assert str(stale_output) in captured.out
     assert stale_output.read_text(encoding="utf-8") == stale_contents
+
+
+def test_local_files_cli_dry_run_prune_orphaned_reports_without_deleting(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    source_file = tmp_path / "current.txt"
+    source_file.write_text("Current file.\n", encoding="utf-8")
+    output_dir = tmp_path / "out"
+    orphaned_output = output_dir / "pages" / "orphaned.md"
+    orphaned_output.parent.mkdir(parents=True)
+    orphaned_output.write_text("orphaned\n", encoding="utf-8")
+
+    exit_code = main(
+        [
+            "local_files",
+            "--file-path",
+            str(source_file),
+            "--output-dir",
+            str(output_dir),
+            "--dry-run",
+            "--prune-orphaned-artifacts",
+        ]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "Summary: would write 1, would skip 0" in captured.out
+    assert_orphaned_artifacts(captured.out, count=1, artifact_paths=[orphaned_output])
+    assert "would_prune_orphaned_artifacts: 1" in captured.out
+    assert orphaned_output.read_text(encoding="utf-8") == "orphaned\n"
 
 
 def test_local_files_cli_prune_rejects_outside_manifest_path_before_delete(

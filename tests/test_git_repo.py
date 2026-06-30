@@ -353,6 +353,44 @@ def test_git_repo_cli_prunes_stale_manifest_artifacts_only_with_flag(
     assert (output_dir / "pages" / "README.md").exists()
 
 
+def test_git_repo_cli_prunes_orphaned_artifacts_without_deleting_current_plan(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    repo_dir = tmp_path / "repo"
+    _init_repo(repo_dir)
+    _write_text(repo_dir / "README.md", "# Repo\n")
+    _commit_all(repo_dir, "initial import")
+    output_dir = tmp_path / "out"
+    current_output = output_dir / "pages" / "README.md"
+    current_output.parent.mkdir(parents=True)
+    current_output.write_text("old current\n", encoding="utf-8")
+    orphaned_output = output_dir / "pages" / "old.md"
+    orphaned_output.write_text("old artifact\n", encoding="utf-8")
+
+    exit_code = main(
+        [
+            "git_repo",
+            "--repo-url",
+            str(repo_dir),
+            "--output-dir",
+            str(output_dir),
+            "--prune-orphaned-artifacts",
+        ]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert_write_summary(captured.out, wrote=1, skipped=0)
+    assert "orphaned_artifacts: 1" in captured.out
+    assert "pruned_orphaned_artifacts: 1" in captured.out
+    assert "Pruned orphaned artifacts:" in captured.out
+    assert str(orphaned_output) in captured.out
+    assert not orphaned_output.exists()
+    assert current_output.exists()
+    assert "# Repo" in current_output.read_text(encoding="utf-8")
+
+
 def test_git_repo_cli_dry_run_reports_stale_artifacts_when_files_disappear(
     tmp_path: Path,
     capsys: CaptureFixture[str],

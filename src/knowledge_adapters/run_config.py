@@ -47,6 +47,8 @@ _SUPPORTED_GITHUB_METADATA_STATES = frozenset({"open", "closed", "all"})
 _SUPPORTED_GITHUB_METADATA_RESOURCE_TYPES = SUPPORTED_RESOURCE_TYPES
 
 _COMMON_REQUIRED_KEYS = frozenset({"name", "type"})
+_REPORT_ORPHANED_ARTIFACTS_KEY = "report_orphaned_artifacts"
+_PRUNE_ORPHANED_ARTIFACTS_KEY = "prune_orphaned_artifacts"
 _PRUNE_STALE_ARTIFACTS_KEY = "prune_stale_artifacts"
 _BUNDLE_OPTION_KEYS = frozenset(
     {
@@ -79,6 +81,8 @@ _CONFLUENCE_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
         "max_requests_per_second",
         "output_dir",
         _PRUNE_STALE_ARTIFACTS_KEY,
+        _PRUNE_ORPHANED_ARTIFACTS_KEY,
+        _REPORT_ORPHANED_ARTIFACTS_KEY,
         "request_delay_ms",
         "space_key",
         "space_url",
@@ -92,10 +96,26 @@ _BUNDLE_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | _BUNDLE_OPTION_KEYS | frozenset(
 )
 _NAMED_BUNDLE_ALLOWED_KEYS = _BUNDLE_OPTION_KEYS | frozenset({"name", "runs"})
 _LOCAL_FILES_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
-    {"dry_run", "enabled", "file_path", "output_dir", _PRUNE_STALE_ARTIFACTS_KEY}
+    {
+        "dry_run",
+        "enabled",
+        "file_path",
+        "output_dir",
+        _PRUNE_STALE_ARTIFACTS_KEY,
+        _PRUNE_ORPHANED_ARTIFACTS_KEY,
+        _REPORT_ORPHANED_ARTIFACTS_KEY,
+    }
 )
 _PUBLIC_URL_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
-    {"dry_run", "enabled", "output_dir", "url", _PRUNE_STALE_ARTIFACTS_KEY}
+    {
+        "dry_run",
+        "enabled",
+        "output_dir",
+        "url",
+        _PRUNE_STALE_ARTIFACTS_KEY,
+        _PRUNE_ORPHANED_ARTIFACTS_KEY,
+        _REPORT_ORPHANED_ARTIFACTS_KEY,
+    }
 )
 _GIT_REPO_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
     {
@@ -108,6 +128,8 @@ _GIT_REPO_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
         "repo_url",
         "subdir",
         _PRUNE_STALE_ARTIFACTS_KEY,
+        _PRUNE_ORPHANED_ARTIFACTS_KEY,
+        _REPORT_ORPHANED_ARTIFACTS_KEY,
     }
 )
 _GITHUB_METADATA_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
@@ -121,6 +143,8 @@ _GITHUB_METADATA_ALLOWED_KEYS = _COMMON_REQUIRED_KEYS | frozenset(
         "max_items",
         "output_dir",
         _PRUNE_STALE_ARTIFACTS_KEY,
+        _PRUNE_ORPHANED_ARTIFACTS_KEY,
+        _REPORT_ORPHANED_ARTIFACTS_KEY,
         "repo",
         "resource_type",
         "since",
@@ -650,6 +674,12 @@ def _build_confluence_argv(
         index=index,
         config_path=config_path,
     )
+    _append_orphaned_artifacts_argv(
+        argv,
+        run_config,
+        index=index,
+        config_path=config_path,
+    )
     if tree:
         argv.append("--tree")
 
@@ -1016,6 +1046,31 @@ def _append_prune_stale_artifacts_argv(
         argv.append("--prune-stale-artifacts")
 
 
+def _append_orphaned_artifacts_argv(
+    argv: list[str],
+    run_config: dict[str, object],
+    *,
+    index: int | str,
+    config_path: Path,
+) -> None:
+    if _optional_bool(
+        run_config,
+        _REPORT_ORPHANED_ARTIFACTS_KEY,
+        index=index,
+        config_path=config_path,
+        default=False,
+    ):
+        argv.append("--report-orphaned-artifacts")
+    if _optional_bool(
+        run_config,
+        _PRUNE_ORPHANED_ARTIFACTS_KEY,
+        index=index,
+        config_path=config_path,
+        default=False,
+    ):
+        argv.append("--prune-orphaned-artifacts")
+
+
 def _build_local_files_argv(
     run_config: dict[str, object],
     *,
@@ -1047,6 +1102,12 @@ def _build_local_files_argv(
     if _optional_bool(run_config, "dry_run", index=index, config_path=config_path, default=False):
         argv.append("--dry-run")
     _append_prune_stale_artifacts_argv(
+        argv,
+        run_config,
+        index=index,
+        config_path=config_path,
+    )
+    _append_orphaned_artifacts_argv(
         argv,
         run_config,
         index=index,
@@ -1112,6 +1173,12 @@ def _build_git_repo_argv(
         index=index,
         config_path=config_path,
     )
+    _append_orphaned_artifacts_argv(
+        argv,
+        run_config,
+        index=index,
+        config_path=config_path,
+    )
     return tuple(argv)
 
 
@@ -1144,6 +1211,12 @@ def _build_public_url_argv(
     if _optional_bool(run_config, "dry_run", index=index, config_path=config_path, default=False):
         argv.append("--dry-run")
     _append_prune_stale_artifacts_argv(
+        argv,
+        run_config,
+        index=index,
+        config_path=config_path,
+    )
+    _append_orphaned_artifacts_argv(
         argv,
         run_config,
         index=index,
@@ -1254,6 +1327,12 @@ def _build_github_metadata_argv(
     if _optional_bool(run_config, "dry_run", index=index, config_path=config_path, default=False):
         argv.append("--dry-run")
     _append_prune_stale_artifacts_argv(
+        argv,
+        run_config,
+        index=index,
+        config_path=config_path,
+    )
+    _append_orphaned_artifacts_argv(
         argv,
         run_config,
         index=index,
