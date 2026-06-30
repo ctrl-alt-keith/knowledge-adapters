@@ -66,12 +66,12 @@ artifact cleanup: `local_files`, `public_webpage`, `public_pdf`, `confluence`,
   regular files under the selected `--output-dir`.
 - An orphaned artifact is a regular generated markdown file under
   `--output-dir/pages/**/*.md` that is not referenced by the current run plan.
-  `--report-orphaned-artifacts` reports these candidates without deleting
-  files. `--prune-orphaned-artifacts` implies reporting and deletes only
-  validated orphan candidates.
+  `--prune-orphaned-artifacts` reports these candidates and deletes only
+  validated orphan candidates during write mode.
 
 In `--dry-run`, stale pruning reports `would_prune_stale_artifacts`, orphan
-pruning reports `would_prune_orphaned_artifacts`, and nothing is deleted.
+pruning reports `orphaned_artifacts` and `would_prune_orphaned_artifacts`, and
+nothing is deleted.
 Orphan cleanup is intentionally limited to generated markdown artifacts under
 `pages/**/*.md`; it never deletes `manifest.json`, directories, non-markdown
 files, or files outside `pages/`.
@@ -371,14 +371,13 @@ runs:
     repo_url: https://github.com/example/project.git
     output_dir: ./artifacts/git/repo-docs
     prune_stale_artifacts: true
-    report_orphaned_artifacts: true
     prune_orphaned_artifacts: true
 ```
 
-Use `report_orphaned_artifacts: true` to list orphaned `pages/**/*.md`
-candidates without deleting them. Use `prune_orphaned_artifacts: true` to delete
-validated orphan candidates; top-level `knowledge-adapters run --dry-run` turns
-that into `would_prune_orphaned_artifacts` reporting and deletes nothing.
+Use `prune_orphaned_artifacts: true` to report orphaned `pages/**/*.md`
+candidates and delete validated orphan candidates during write mode. Top-level
+`knowledge-adapters run --dry-run` previews that cleanup as
+`would_prune_orphaned_artifacts` reporting and deletes nothing.
 
 To keep a lightweight human-readable record of a config-driven execution, pass
 `--report-output`:

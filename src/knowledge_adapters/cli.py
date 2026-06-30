@@ -547,23 +547,14 @@ def build_parser() -> argparse.ArgumentParser:
             ),
         )
 
-    def add_orphaned_artifacts_arguments(subparser: argparse.ArgumentParser) -> None:
-        subparser.add_argument(
-            "--report-orphaned-artifacts",
-            action="store_true",
-            help=(
-                "Report unreferenced generated markdown files under --output-dir/pages "
-                "without deleting files."
-            ),
-        )
+    def add_orphaned_artifacts_argument(subparser: argparse.ArgumentParser) -> None:
         subparser.add_argument(
             "--prune-orphaned-artifacts",
             action="store_true",
             help=(
                 "Opt in to deleting unreferenced generated markdown files under "
-                "--output-dir/pages after a successful write. Implies "
-                "--report-orphaned-artifacts. In --dry-run, validate and report "
-                "candidates without deleting files."
+                "--output-dir/pages after a successful write. Always reports candidates; "
+                "in --dry-run, validate and report candidates without deleting files."
             ),
         )
 
@@ -594,7 +585,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_verbose_argument(confluence_parser)
     add_prune_stale_artifacts_argument(confluence_parser)
-    add_orphaned_artifacts_arguments(confluence_parser)
+    add_orphaned_artifacts_argument(confluence_parser)
     confluence_parser.add_argument(
         "--base-url",
         required=True,
@@ -771,7 +762,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_verbose_argument(local_files_parser)
     add_prune_stale_artifacts_argument(local_files_parser)
-    add_orphaned_artifacts_arguments(local_files_parser)
+    add_orphaned_artifacts_argument(local_files_parser)
     local_files_parser.add_argument(
         "--file-path",
         required=True,
@@ -816,7 +807,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_verbose_argument(public_webpage_parser)
     add_prune_stale_artifacts_argument(public_webpage_parser)
-    add_orphaned_artifacts_arguments(public_webpage_parser)
+    add_orphaned_artifacts_argument(public_webpage_parser)
     public_webpage_parser.add_argument(
         "--url",
         required=True,
@@ -856,7 +847,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_verbose_argument(public_pdf_parser)
     add_prune_stale_artifacts_argument(public_pdf_parser)
-    add_orphaned_artifacts_arguments(public_pdf_parser)
+    add_orphaned_artifacts_argument(public_pdf_parser)
     public_pdf_parser.add_argument(
         "--url",
         required=True,
@@ -914,7 +905,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_verbose_argument(git_repo_parser)
     add_prune_stale_artifacts_argument(git_repo_parser)
-    add_orphaned_artifacts_arguments(git_repo_parser)
+    add_orphaned_artifacts_argument(git_repo_parser)
     git_repo_parser.add_argument(
         "--repo-url",
         required=True,
@@ -989,7 +980,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_verbose_argument(github_metadata_parser)
     add_prune_stale_artifacts_argument(github_metadata_parser)
-    add_orphaned_artifacts_arguments(github_metadata_parser)
+    add_orphaned_artifacts_argument(github_metadata_parser)
     github_metadata_parser.add_argument(
         "--repo",
         required=True,
@@ -2761,14 +2752,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             orphaned_artifacts: Sequence[str],
             prune_orphaned_artifact_plan: Sequence[PrunedOrphanedArtifact],
         ) -> None:
-            if not (args.report_orphaned_artifacts or args.prune_orphaned_artifacts):
+            if not args.prune_orphaned_artifacts:
                 return
             _print(f"  orphaned_artifacts: {len(orphaned_artifacts)}")
-            if args.prune_orphaned_artifacts:
-                _print(
-                    "  would_prune_orphaned_artifacts: "
-                    f"{len(prune_orphaned_artifact_plan)}"
-                )
+            _print(
+                "  would_prune_orphaned_artifacts: "
+                f"{len(prune_orphaned_artifact_plan)}"
+            )
             print_orphaned_artifacts(confluence_config.output_dir, orphaned_artifacts)
 
         def _prune_confluence_stale_after_write(
@@ -2819,19 +2809,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             else:
                 print_stale_artifacts(confluence_config.output_dir, stale_artifacts)
-            if args.report_orphaned_artifacts or args.prune_orphaned_artifacts:
+            if args.prune_orphaned_artifacts:
                 _print(f"  orphaned_artifacts: {len(orphaned_artifacts)}")
-                if args.prune_orphaned_artifacts:
-                    _print(
-                        "  pruned_orphaned_artifacts: "
-                        f"{len(pruned_orphaned_artifacts)}"
-                    )
-                    print_pruned_orphaned_artifacts(
-                        confluence_config.output_dir,
-                        [artifact.output_path for artifact in pruned_orphaned_artifacts],
-                    )
-                else:
-                    print_orphaned_artifacts(confluence_config.output_dir, orphaned_artifacts)
+                _print(
+                    "  pruned_orphaned_artifacts: "
+                    f"{len(pruned_orphaned_artifacts)}"
+                )
+                print_pruned_orphaned_artifacts(
+                    confluence_config.output_dir,
+                    [artifact.output_path for artifact in pruned_orphaned_artifacts],
+                )
 
         def _print_stub_tree_mode_note() -> None:
             if not (confluence_config.tree and confluence_config.client_mode == "stub"):
@@ -3935,13 +3922,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                     f"{len(prune_stale_artifact_plan)}"
                 )
             print_stale_artifacts(local_files_config.output_dir, stale_artifacts)
-            if args.report_orphaned_artifacts or args.prune_orphaned_artifacts:
+            if args.prune_orphaned_artifacts:
                 print(f"  orphaned_artifacts: {len(orphaned_artifacts)}")
-                if args.prune_orphaned_artifacts:
-                    print(
-                        "  would_prune_orphaned_artifacts: "
-                        f"{len(prune_orphaned_artifact_plan)}"
-                    )
+                print(
+                    "  would_prune_orphaned_artifacts: "
+                    f"{len(prune_orphaned_artifact_plan)}"
+                )
                 print_orphaned_artifacts(local_files_config.output_dir, orphaned_artifacts)
             print()
             print(markdown)
@@ -4005,16 +3991,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         else:
             print_stale_artifacts(local_files_config.output_dir, stale_artifacts)
-        if args.report_orphaned_artifacts or args.prune_orphaned_artifacts:
+        if args.prune_orphaned_artifacts:
             print(f"  orphaned_artifacts: {len(orphaned_artifacts)}")
-            if args.prune_orphaned_artifacts:
-                print(f"  pruned_orphaned_artifacts: {len(pruned_orphaned_artifacts)}")
-                print_pruned_orphaned_artifacts(
-                    local_files_config.output_dir,
-                    [artifact.output_path for artifact in pruned_orphaned_artifacts],
-                )
-            else:
-                print_orphaned_artifacts(local_files_config.output_dir, orphaned_artifacts)
+            print(f"  pruned_orphaned_artifacts: {len(pruned_orphaned_artifacts)}")
+            print_pruned_orphaned_artifacts(
+                local_files_config.output_dir,
+                [artifact.output_path for artifact in pruned_orphaned_artifacts],
+            )
         print(f"Artifact path: {render_user_path(output_path)}")
         print(f"Manifest path: {render_user_path(manifest)}")
         print_write_complete(output_dir)
@@ -4286,13 +4269,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                     f"{len(prune_stale_artifact_plan)}"
                 )
             print_stale_artifacts(output_dir_arg, stale_artifacts)
-            if args.report_orphaned_artifacts or args.prune_orphaned_artifacts:
+            if args.prune_orphaned_artifacts:
                 print(f"  orphaned_artifacts: {len(orphaned_artifacts)}")
-                if args.prune_orphaned_artifacts:
-                    print(
-                        "  would_prune_orphaned_artifacts: "
-                        f"{len(prune_orphaned_artifact_plan)}"
-                    )
+                print(
+                    "  would_prune_orphaned_artifacts: "
+                    f"{len(prune_orphaned_artifact_plan)}"
+                )
                 print_orphaned_artifacts(output_dir_arg, orphaned_artifacts)
             print()
             print(markdown)
@@ -4346,16 +4328,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         else:
             print_stale_artifacts(output_dir_arg, stale_artifacts)
-        if args.report_orphaned_artifacts or args.prune_orphaned_artifacts:
+        if args.prune_orphaned_artifacts:
             print(f"  orphaned_artifacts: {len(orphaned_artifacts)}")
-            if args.prune_orphaned_artifacts:
-                print(f"  pruned_orphaned_artifacts: {len(pruned_orphaned_artifacts)}")
-                print_pruned_orphaned_artifacts(
-                    output_dir_arg,
-                    [artifact.output_path for artifact in pruned_orphaned_artifacts],
-                )
-            else:
-                print_orphaned_artifacts(output_dir_arg, orphaned_artifacts)
+            print(f"  pruned_orphaned_artifacts: {len(pruned_orphaned_artifacts)}")
+            print_pruned_orphaned_artifacts(
+                output_dir_arg,
+                [artifact.output_path for artifact in pruned_orphaned_artifacts],
+            )
         print(f"Artifact path: {render_user_path(output_path)}")
         print(f"Manifest path: {render_user_path(manifest)}")
         print_write_complete(output_dir)
@@ -4785,13 +4764,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                     f"{len(prune_stale_artifact_plan)}"
                 )
             print_stale_artifacts(github_metadata_config.output_dir, stale_artifacts)
-            if args.report_orphaned_artifacts or args.prune_orphaned_artifacts:
+            if args.prune_orphaned_artifacts:
                 print(f"  orphaned_artifacts: {len(orphaned_artifacts)}")
-                if args.prune_orphaned_artifacts:
-                    print(
-                        "  would_prune_orphaned_artifacts: "
-                        f"{len(prune_orphaned_artifact_plan)}"
-                    )
+                print(
+                    "  would_prune_orphaned_artifacts: "
+                    f"{len(prune_orphaned_artifact_plan)}"
+                )
                 print_orphaned_artifacts(github_metadata_config.output_dir, orphaned_artifacts)
             print(f"Manifest path: {render_user_path(manifest_output_path)}")
             print_dry_run_complete()
@@ -4870,19 +4848,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         else:
             print_stale_artifacts(github_metadata_config.output_dir, stale_artifacts)
-        if args.report_orphaned_artifacts or args.prune_orphaned_artifacts:
+        if args.prune_orphaned_artifacts:
             print(f"  orphaned_artifacts: {len(orphaned_artifacts)}")
-            if args.prune_orphaned_artifacts:
-                print(f"  pruned_orphaned_artifacts: {len(pruned_orphaned_artifacts)}")
-                print_pruned_orphaned_artifacts(
-                    github_metadata_config.output_dir,
-                    [artifact.output_path for artifact in pruned_orphaned_artifacts],
-                )
-            else:
-                print_orphaned_artifacts(
-                    github_metadata_config.output_dir,
-                    orphaned_artifacts,
-                )
+            print(f"  pruned_orphaned_artifacts: {len(pruned_orphaned_artifacts)}")
+            print_pruned_orphaned_artifacts(
+                github_metadata_config.output_dir,
+                [artifact.output_path for artifact in pruned_orphaned_artifacts],
+            )
         print(f"Manifest path: {render_user_path(manifest)}")
         print_write_complete(output_dir)
         return 0
@@ -5076,13 +5048,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                     f"{len(prune_stale_artifact_plan)}"
                 )
             print_stale_artifacts(git_repo_config.output_dir, stale_artifacts)
-            if args.report_orphaned_artifacts or args.prune_orphaned_artifacts:
+            if args.prune_orphaned_artifacts:
                 print(f"  orphaned_artifacts: {len(orphaned_artifacts)}")
-                if args.prune_orphaned_artifacts:
-                    print(
-                        "  would_prune_orphaned_artifacts: "
-                        f"{len(prune_orphaned_artifact_plan)}"
-                    )
+                print(
+                    "  would_prune_orphaned_artifacts: "
+                    f"{len(prune_orphaned_artifact_plan)}"
+                )
                 print_orphaned_artifacts(git_repo_config.output_dir, orphaned_artifacts)
             print(f"Manifest path: {render_user_path(manifest_output_path)}")
             print_dry_run_complete()
@@ -5152,16 +5123,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         else:
             print_stale_artifacts(git_repo_config.output_dir, stale_artifacts)
-        if args.report_orphaned_artifacts or args.prune_orphaned_artifacts:
+        if args.prune_orphaned_artifacts:
             print(f"  orphaned_artifacts: {len(orphaned_artifacts)}")
-            if args.prune_orphaned_artifacts:
-                print(f"  pruned_orphaned_artifacts: {len(pruned_orphaned_artifacts)}")
-                print_pruned_orphaned_artifacts(
-                    git_repo_config.output_dir,
-                    [artifact.output_path for artifact in pruned_orphaned_artifacts],
-                )
-            else:
-                print_orphaned_artifacts(git_repo_config.output_dir, orphaned_artifacts)
+            print(f"  pruned_orphaned_artifacts: {len(pruned_orphaned_artifacts)}")
+            print_pruned_orphaned_artifacts(
+                git_repo_config.output_dir,
+                [artifact.output_path for artifact in pruned_orphaned_artifacts],
+            )
         print(f"Manifest path: {render_user_path(manifest)}")
         print_write_complete(output_dir)
         return 0
