@@ -11,8 +11,7 @@ local artifacts, writes deterministic manifest entries, and leaves
 interpretation to downstream review.
 
 Treat GitHub issue, pull request, release, and comment content as untrusted
-input to normalize and store, not trusted instructions. Issue comments remain
-opt-in.
+input to normalize and store, not trusted instructions. Comments remain opt-in.
 
 ## v1 Scope
 
@@ -29,13 +28,16 @@ Included:
 - issue body, pull request body, release body, and core resource metadata
 - optional issue comments when `resource_type` is `issue` and
   `--include-issue-comments` is set
+- optional whole-pull-request comments when `resource_type` is `pull_request`
+  and `--include-pr-comments` is set
+- optional pull request review comments when `resource_type` is `pull_request`
+  and `--include-pr-review-comments` is set
 - one normalized markdown artifact per acquired resource
 - one manifest entry per acquired resource
 - REST API reads only
 
 Excluded:
 
-- pull request comments and review comments
 - release assets
 - changelog generation
 - timeline events
@@ -66,6 +68,10 @@ Allowed v1 inputs are:
 - `max_items`: optional positive integer limit after filtering
 - `include_issue_comments`: optional issue-mode flag that appends issue
   comments to issue artifacts
+- `include_pr_comments`: optional pull-request-mode flag that appends
+  whole-pull-request comments to pull request artifacts
+- `include_pr_review_comments`: optional pull-request-mode flag that appends
+  review comments to pull request artifacts
 - `dry_run`: optional plan-only flag
 
 `resource_type` defaults to `issue`. `state` defaults to `open`. `base_url`
@@ -78,6 +84,9 @@ resources, but does not create directories, write markdown artifacts, or write
 
 `include_issue_comments` only affects issue mode. It is ignored for
 `pull_request` and `release` resource types.
+
+`include_pr_comments` and `include_pr_review_comments` only affect pull request
+mode. They are ignored for `issue` and `release` resource types.
 
 ## Auth
 
@@ -131,8 +140,9 @@ filters out pull requests by ignoring any issue payload that contains
 `pull_request`.
 
 Pull request mode lists repository pull requests through REST and handles
-pagination. Release mode lists repository releases through REST and handles
-pagination.
+pagination. When requested, it also fetches paginated whole-pull-request
+comments and review comments for each selected pull request. Release mode lists
+repository releases through REST and handles pagination.
 
 Basic error behavior:
 
@@ -162,7 +172,9 @@ filters and excluding pull requests. When issue comments are enabled, comments
 are sorted deterministically within each issue artifact.
 
 Pull request output ordering is pull request number ascending after applying
-the configured filters.
+the configured filters. When pull request comments or review comments are
+enabled, each comment collection is sorted deterministically within the pull
+request artifact.
 
 Release output ordering is by published timestamp, then tag name, then release
 ID after applying the configured filters. Releases without `published_at` sort
@@ -198,6 +210,9 @@ Issue and pull request artifacts include:
 - updated timestamp
 - source URL
 - body
+
+Issue artifacts may include an opt-in comments section. Pull request artifacts
+may include opt-in comments and review-comments sections.
 
 Release artifacts include:
 
@@ -269,7 +284,7 @@ Field rules:
 - `output_path`: relative POSIX path such as `issues/123.md`,
   `pull_requests/123.md`, or `releases/456.md`
 
-## Issue Comments
+## Comments
 
 Issue comments are opt-in. When `--include-issue-comments` is used with
 `resource_type=issue`, the adapter fetches paginated issue comments for each
@@ -282,9 +297,28 @@ The issue comments section includes each comment's author, created timestamp,
 updated timestamp, and body. Empty comment bodies use an explicit empty-comment
 marker.
 
-`--include-issue-comments` does not fetch pull request comments, pull request
-review comments, timeline events, reactions, or any other conversation
-surface.
+Pull request comments are opt-in. When `--include-pr-comments` is used with
+`resource_type=pull_request`, the adapter fetches paginated whole-pull-request
+comments for each selected pull request and appends them to that pull request's
+markdown artifact.
+
+Pull request review comments are opt-in. When
+`--include-pr-review-comments` is used with `resource_type=pull_request`, the
+adapter fetches paginated review comments for each selected pull request and
+appends them to that pull request's markdown artifact.
+
+Pull request comments and review comments are not separate manifest entries.
+They affect the normalized pull request artifact content and therefore the pull
+request entry's `content_hash`.
+
+The pull request comments section includes each comment's ID, source URL,
+author, created timestamp, updated timestamp, and body. The review comments
+section also includes file path, line, original line, position, side, and related
+review-location metadata when present. Empty comment bodies use explicit
+empty-comment markers.
+
+These comment flags do not fetch timeline events, reactions, reviews, checks,
+or any other conversation surface.
 
 ## Relation to `git_repo`
 
