@@ -11,7 +11,8 @@ grouping them into meaningful lanes.
   environment-specific config overrides, progress output)
 - Git repo ingestion: complete (`git_repo` adapter, polish, and example config)
 - GitHub metadata ingestion: v1 complete (`github_metadata` adapter for
-  GitHub/GHE issues, pull requests, releases, and optional issue comments)
+  GitHub/GHE issues, pull requests, releases, optional issue comments, and
+  optional pull request comments/review comments)
 - Google Docs destination: design completed as a separate post-bundle
   publication layer, not a `knowledge-adapters` adapter or bundle subcommand
 - Bundle command:
@@ -29,8 +30,8 @@ grouping them into meaningful lanes.
 
 #### GitHub metadata ingestion
 
-- Keep future additions usage-driven and bounded, such as pull request comments,
-  review comments, release assets, changed paths, labels, or milestones
+- Keep future additions usage-driven and bounded, such as release assets,
+  changed paths, labels, milestones, reviews, or checks
 
 ## Deferred / Usage-driven
 
