@@ -44,6 +44,8 @@ knowledge-adapters local_files --help
 knowledge-adapters public_webpage --help
 knowledge-adapters public_pdf --help
 knowledge-adapters public_replay_acceptance --help
+knowledge-adapters git_repo --help
+knowledge-adapters github_metadata --help
 knowledge-adapters confluence --help
 ```
 
@@ -182,6 +184,44 @@ MeaningfulTech, and DORA ROI 2026 still match expected classification,
 reviewability, cleanup, remaining-artifact, limitation, retention, and promotion
 blocker ranges. The deterministic fixture-backed contract is documented in
 `docs/public-source-replay-acceptance.md`.
+
+Git repository first run:
+
+```bash
+knowledge-adapters git_repo \
+  --repo-url https://github.com/ctrl-alt-keith/ai-workflow-playbook.git \
+  --include "docs/**/*.md" \
+  --include "README.md" \
+  --output-dir ./artifacts/git/ai-workflow-playbook \
+  --dry-run
+```
+
+This clones or refreshes a Git repository with system Git, applies deterministic
+path filtering, previews one markdown artifact per included UTF-8 text file,
+and does not write files in dry-run mode. Binary and non-UTF-8 files are skipped
+with explicit reporting. Use include filters for first runs; ingesting an entire
+repository is usually noisier than reviewing one known documentation or source
+surface.
+
+GitHub metadata first run:
+
+```bash
+GITHUB_TOKEN=... knowledge-adapters github_metadata \
+  --repo ctrl-alt-keith/knowledge-adapters \
+  --token-env GITHUB_TOKEN \
+  --resource-type issue \
+  --state all \
+  --max-items 25 \
+  --output-dir ./artifacts/github-metadata/knowledge-adapters-issues \
+  --dry-run
+```
+
+This fetches issues, pull requests, or releases from one GitHub or GitHub
+Enterprise repository and writes workflow metadata under `issues/`,
+`pull_requests/`, or `releases/`. Token values are read from the named
+environment variable and are never printed. Issue mode filters out pull
+requests returned by the issues endpoint; use `--resource-type pull_request` to
+capture pull requests and opt into PR comments or review comments when needed.
 
 Recommended Confluence first run:
 
@@ -323,10 +363,9 @@ runs:
   `CONFLUENCE_CLIENT_CERT_FILE` and `CONFLUENCE_CLIENT_KEY_FILE`.
 - Explicit CLI flags or `runs.yaml` values override those env fallbacks.
 
-Confluence is also the adapter that currently uses manifest-based skip logic, so
-its dry runs and write runs may report `write` or `skip` for a page when an
-existing artifact already matches the planned output. `local_files` always plans
-one write.
+Manifest-backed adapter dry runs and write runs may report `write` or `skip`
+for planned artifacts when existing outputs already match the planned content.
+`local_files` always plans one write.
 
 ## Run Multiple Sources from One Config File
 
