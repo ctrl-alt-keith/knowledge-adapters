@@ -576,6 +576,96 @@ runs:
 
 
 @pytest.mark.parametrize(
+    ("run_block", "expected_run_type"),
+    [
+        (
+            """
+  - name: docs-home
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/docs-home
+    prune_stale_artifacts: true
+    prune_orphaned_artifacts: true
+""",
+            "confluence",
+        ),
+        (
+            """
+  - name: repo-docs
+    type: git_repo
+    repo_url: https://github.com/example/project.git
+    output_dir: ./artifacts/git/repo-docs
+    prune_stale_artifacts: true
+    prune_orphaned_artifacts: true
+""",
+            "git_repo",
+        ),
+        (
+            """
+  - name: repo-issues
+    type: github_metadata
+    repo: octo/project
+    token_env: GH_TOKEN
+    output_dir: ./artifacts/github/repo-issues
+    prune_stale_artifacts: true
+    prune_orphaned_artifacts: true
+""",
+            "github_metadata",
+        ),
+        (
+            """
+  - name: team-notes
+    type: local_files
+    file_path: ./inputs/team-notes.txt
+    output_dir: ./artifacts/local/team-notes
+    prune_stale_artifacts: true
+    prune_orphaned_artifacts: true
+""",
+            "local_files",
+        ),
+        (
+            """
+  - name: dora-report
+    type: public_pdf
+    url: https://example.com/report.pdf
+    output_dir: ./artifacts/public-pdf/dora-report
+    prune_stale_artifacts: true
+    prune_orphaned_artifacts: true
+""",
+            "public_pdf",
+        ),
+        (
+            """
+  - name: engineering-blog
+    type: public_webpage
+    url: https://example.com/blog
+    output_dir: ./artifacts/public-web/engineering-blog
+    prune_stale_artifacts: true
+    prune_orphaned_artifacts: true
+""",
+            "public_webpage",
+        ),
+    ],
+)
+def test_load_run_config_passes_cleanup_flags_for_supported_adapter_runs(
+    tmp_path: Path,
+    run_block: str,
+    expected_run_type: str,
+) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(f"runs:{run_block}\n", encoding="utf-8")
+
+    (configured_run,) = load_run_config(config_path).runs
+
+    assert configured_run.run_type == expected_run_type
+    assert configured_run.argv[-2:] == (
+        "--prune-stale-artifacts",
+        "--prune-orphaned-artifacts",
+    )
+
+
+@pytest.mark.parametrize(
     ("field_block", "expected_fragment"),
     [
         ("state: merged", "unsupported 'state' value"),
