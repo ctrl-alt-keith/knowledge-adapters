@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from knowledge_adapters.incremental_sync import SyncChangeKey, classify_incremental_sync
 from knowledge_adapters.manifest_stale import PreviousManifestEntry
 
 PageSyncStatus = Literal["new", "changed", "unchanged"]
@@ -39,39 +40,19 @@ def classify_page_sync(
 ) -> PageSyncDecision:
     """Classify a page as new, changed, or unchanged for incremental sync."""
     canonical_id = str(page.get("canonical_id") or "")
-    if previous_manifest_index is None:
-        return PageSyncDecision(status="new", rewrite_reason="new page")
-
-    prior_entry = previous_manifest_index.get(canonical_id)
-    if prior_entry is None:
-        return PageSyncDecision(
-            status="new",
-            rewrite_reason="prior manifest entry missing entirely",
-        )
-
     expected_output_path = output_path.relative_to(Path(output_dir)).as_posix()
-    if prior_entry.output_path != expected_output_path:
-        return PageSyncDecision(status="changed", rewrite_reason="output_path changed")
-
-    if not (Path(output_dir) / prior_entry.output_path).exists():
-        return PageSyncDecision(
-            status="changed",
-            rewrite_reason="prior artifact missing, so safe rewrite",
-        )
-
     current_page_version = _normalize_metadata_value(page.get("page_version"))
-    if current_page_version is not None and prior_entry.page_version is not None:
-        if current_page_version == prior_entry.page_version:
-            return PageSyncDecision(status="unchanged")
-        return PageSyncDecision(status="changed", rewrite_reason="page_version changed")
-
     current_last_modified = _normalize_metadata_value(page.get("last_modified"))
-    if current_last_modified is not None and prior_entry.last_modified is not None:
-        if current_last_modified == prior_entry.last_modified:
-            return PageSyncDecision(status="unchanged")
-        return PageSyncDecision(status="changed", rewrite_reason="last_modified changed")
-
-    return PageSyncDecision(
-        status="changed",
-        rewrite_reason="prior manifest entry missing metadata, so safe rewrite",
+    decision = classify_incremental_sync(
+        output_dir,
+        previous_manifest_index,
+        canonical_id=canonical_id,
+        output_path=expected_output_path,
+        change_keys=(
+            SyncChangeKey(name="page_version", current_value=current_page_version),
+            SyncChangeKey(name="last_modified", current_value=current_last_modified),
+        ),
+        no_previous_manifest_reason="new page",
+        missing_metadata_reason="prior manifest entry missing metadata, so safe rewrite",
     )
+    return PageSyncDecision(status=decision.status, rewrite_reason=decision.reason)

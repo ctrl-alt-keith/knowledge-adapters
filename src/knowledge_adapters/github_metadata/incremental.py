@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Literal
 
+from knowledge_adapters.incremental_sync import SyncChangeKey, classify_incremental_sync
 from knowledge_adapters.manifest_stale import PreviousManifestEntry
 
 GitHubMetadataSyncStatus = Literal["new", "changed", "unchanged"]
@@ -31,40 +31,29 @@ def classify_github_metadata_sync(
     if not isinstance(canonical_id, str) or not canonical_id:
         return GitHubMetadataSyncDecision(status="new", reason="canonical_id missing")
 
-    if previous_manifest_index is None:
-        return GitHubMetadataSyncDecision(status="new", reason="no previous manifest")
-
-    prior_entry = previous_manifest_index.get(canonical_id)
-    if prior_entry is None:
-        return GitHubMetadataSyncDecision(
-            status="new",
-            reason="prior manifest entry missing entirely",
-        )
-
     output_path = manifest_entry.get("output_path")
-    if not isinstance(output_path, str) or not output_path:
-        return GitHubMetadataSyncDecision(status="changed", reason="output_path missing")
-
-    if prior_entry.output_path != output_path:
-        return GitHubMetadataSyncDecision(status="changed", reason="output_path changed")
-
-    if not (Path(output_dir) / prior_entry.output_path).exists():
-        return GitHubMetadataSyncDecision(
-            status="changed",
-            reason="prior artifact missing, so safe rewrite",
-        )
+    normalized_output_path = output_path if isinstance(output_path, str) else ""
 
     content_hash = manifest_entry.get("content_hash")
-    if not isinstance(content_hash, str) or not content_hash:
-        return GitHubMetadataSyncDecision(status="changed", reason="content_hash missing")
-
-    if prior_entry.content_hash is None:
-        return GitHubMetadataSyncDecision(
-            status="changed",
-            reason="prior manifest entry missing content_hash",
-        )
-
-    if prior_entry.content_hash != content_hash:
-        return GitHubMetadataSyncDecision(status="changed", reason="content_hash changed")
-
-    return GitHubMetadataSyncDecision(status="unchanged", reason="content_hash unchanged")
+    normalized_content_hash = (
+        content_hash if isinstance(content_hash, str) and content_hash else None
+    )
+    decision = classify_incremental_sync(
+        output_dir,
+        previous_manifest_index,
+        canonical_id=canonical_id,
+        output_path=normalized_output_path,
+        change_keys=(
+            SyncChangeKey(
+                name="content_hash",
+                current_value=normalized_content_hash,
+                unchanged_reason="content_hash unchanged",
+            ),
+        ),
+        no_previous_manifest_reason="no previous manifest",
+        missing_metadata_reason="prior manifest entry missing content_hash",
+        missing_output_path_reason="output_path missing",
+        missing_current_change_key_reason="content_hash missing",
+        missing_previous_change_key_reason="prior manifest entry missing content_hash",
+    )
+    return GitHubMetadataSyncDecision(status=decision.status, reason=decision.reason or "")
