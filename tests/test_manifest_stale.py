@@ -118,8 +118,30 @@ def test_find_orphaned_artifacts_reports_unreferenced_markdown_under_pages(
         current_output_paths=["pages/kept.md"],
     )
 
+    assert [artifact.output_path for artifact in orphaned_artifacts] == ["pages/nested/orphaned.md"]
+
+
+def test_find_orphaned_artifacts_scans_configured_output_subdirectories(
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "out"
+    kept = output_dir / "issues" / "2.md"
+    orphaned_issue = output_dir / "issues" / "7.md"
+    orphaned_release = output_dir / "releases" / "9.md"
+    ignored_page = output_dir / "pages" / "old.md"
+    for path in (kept, orphaned_issue, orphaned_release, ignored_page):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(path.name, encoding="utf-8")
+
+    orphaned_artifacts = find_orphaned_artifacts(
+        output_dir,
+        current_output_paths=["issues/2.md"],
+        output_subdirectories=("issues", "pull_requests", "releases"),
+    )
+
     assert [artifact.output_path for artifact in orphaned_artifacts] == [
-        "pages/nested/orphaned.md"
+        "issues/7.md",
+        "releases/9.md",
     ]
 
 
@@ -201,6 +223,35 @@ def test_prune_orphaned_artifacts_deletes_only_unreferenced_markdown_under_pages
     assert not orphaned.exists()
     assert non_markdown.read_text(encoding="utf-8") == "ignored.txt"
     assert outside_pages.read_text(encoding="utf-8") == "orphaned.md"
+
+
+def test_prune_orphaned_artifacts_deletes_configured_output_subdirectory_orphans(
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "out"
+    kept = output_dir / "issues" / "2.md"
+    orphaned = output_dir / "pull_requests" / "4.md"
+    outside_layout = output_dir / "pages" / "old.md"
+    for path in (kept, orphaned, outside_layout):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(path.name, encoding="utf-8")
+
+    orphaned_artifacts = find_orphaned_artifacts(
+        output_dir,
+        current_output_paths=["issues/2.md"],
+        output_subdirectories=("issues", "pull_requests", "releases"),
+    )
+    pruned = prune_orphaned_artifacts(
+        output_dir,
+        orphaned_artifacts,
+        current_output_paths=["issues/2.md"],
+        output_subdirectories=("issues", "pull_requests", "releases"),
+    )
+
+    assert [artifact.output_path for artifact in pruned] == ["pull_requests/4.md"]
+    assert kept.read_text(encoding="utf-8") == "2.md"
+    assert not orphaned.exists()
+    assert outside_layout.read_text(encoding="utf-8") == "old.md"
 
 
 def test_plan_orphaned_artifact_prune_does_not_delete_files(tmp_path: Path) -> None:

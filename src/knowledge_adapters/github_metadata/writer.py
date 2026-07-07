@@ -9,6 +9,7 @@ _RESOURCE_DIRECTORIES = {
     "pull_request": "pull_requests",
     "release": "releases",
 }
+OUTPUT_SUBDIRECTORIES = tuple(_RESOURCE_DIRECTORIES.values())
 
 
 def markdown_path(output_dir: str, resource_type: str, identifier: int | str) -> Path:

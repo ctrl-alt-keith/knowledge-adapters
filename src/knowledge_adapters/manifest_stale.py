@@ -245,9 +245,7 @@ def prune_stale_artifacts(
         try:
             artifact.path.unlink()
         except OSError as exc:
-            raise RuntimeError(
-                f"Could not prune stale artifact {artifact.path}: {exc}"
-            ) from exc
+            raise RuntimeError(f"Could not prune stale artifact {artifact.path}: {exc}") from exc
     return pruned_artifacts
 
 
@@ -255,29 +253,37 @@ def find_orphaned_artifacts(
     output_dir: str | Path,
     *,
     current_output_paths: Collection[str],
+    output_subdirectories: Collection[str] = ("pages",),
 ) -> list[OrphanedArtifact]:
-    """Return unreferenced generated markdown artifacts under output_dir/pages."""
+    """Return unreferenced generated markdown artifacts under configured output roots."""
     output_dir_path = Path(output_dir).expanduser()
-    pages_dir = output_dir_path / "pages"
-    if not pages_dir.exists():
-        return []
+    artifact_subdirectories = _normalize_output_subdirectories(output_subdirectories)
 
     current_paths = frozenset(_normalize_output_path(path) for path in current_output_paths)
     orphaned_artifacts: list[OrphanedArtifact] = []
+    orphaned_output_paths: set[str] = set()
 
-    for artifact_path in pages_dir.rglob("*.md"):
-        try:
-            relative_output_path = artifact_path.relative_to(output_dir_path).as_posix()
-        except ValueError:
+    for output_subdirectory in artifact_subdirectories:
+        artifact_root = output_dir_path / output_subdirectory
+        if not artifact_root.exists():
             continue
-        if _normalize_output_path(relative_output_path) in current_paths:
-            continue
-        try:
-            artifact_stat = artifact_path.lstat()
-        except OSError:
-            continue
-        if stat.S_ISREG(artifact_stat.st_mode):
-            orphaned_artifacts.append(OrphanedArtifact(output_path=relative_output_path))
+
+        for artifact_path in artifact_root.rglob("*.md"):
+            try:
+                relative_output_path = artifact_path.relative_to(output_dir_path).as_posix()
+            except ValueError:
+                continue
+            if _normalize_output_path(relative_output_path) in current_paths:
+                continue
+            if relative_output_path in orphaned_output_paths:
+                continue
+            try:
+                artifact_stat = artifact_path.lstat()
+            except OSError:
+                continue
+            if stat.S_ISREG(artifact_stat.st_mode):
+                orphaned_output_paths.add(relative_output_path)
+                orphaned_artifacts.append(OrphanedArtifact(output_path=relative_output_path))
 
     return sorted(orphaned_artifacts, key=lambda artifact: artifact.output_path)
 
@@ -287,10 +293,12 @@ def plan_orphaned_artifact_prune(
     orphaned_artifacts: Collection[OrphanedArtifact],
     *,
     current_output_paths: Collection[str] = (),
+    output_subdirectories: Collection[str] = ("pages",),
 ) -> list[PrunedOrphanedArtifact]:
     """Validate orphaned-artifact prune candidates without deleting anything."""
     output_dir_path = Path(output_dir).expanduser().resolve()
-    pages_dir = output_dir_path / "pages"
+    artifact_subdirectories = _normalize_output_subdirectories(output_subdirectories)
+    artifact_roots = tuple(output_dir_path / subdir for subdir in artifact_subdirectories)
     current_paths = frozenset(_normalize_output_path(path) for path in current_output_paths)
     pruned_artifacts: list[PrunedOrphanedArtifact] = []
     validation_errors: list[str] = []
@@ -307,8 +315,13 @@ def plan_orphaned_artifact_prune(
         if Path(normalized_output_path).is_absolute():
             validation_errors.append(f"{artifact.output_path!r} is not a relative path")
             continue
-        if Path(normalized_output_path).parts[:1] != ("pages",):
-            validation_errors.append(f"{artifact.output_path!r} is outside pages/")
+        if not _is_under_any_output_subdirectory(
+            normalized_output_path,
+            artifact_subdirectories,
+        ):
+            validation_errors.append(
+                f"{artifact.output_path!r} is outside configured output subdirectories"
+            )
             continue
         if artifact_path.suffix != ".md":
             validation_errors.append(f"{artifact.output_path!r} is not a markdown artifact")
@@ -329,12 +342,13 @@ def plan_orphaned_artifact_prune(
             )
             continue
 
-        try:
-            resolved_artifact_path.relative_to(pages_dir)
-        except ValueError:
+        if not any(
+            _is_relative_to(resolved_artifact_path, artifact_root)
+            for artifact_root in artifact_roots
+        ):
             validation_errors.append(
-                f"{artifact.output_path!r} resolves outside pages/ "
-                f"{pages_dir}: {resolved_artifact_path}"
+                f"{artifact.output_path!r} resolves outside configured output "
+                f"subdirectories: {resolved_artifact_path}"
             )
             continue
 
@@ -367,22 +381,61 @@ def prune_orphaned_artifacts(
     orphaned_artifacts: Collection[OrphanedArtifact],
     *,
     current_output_paths: Collection[str] = (),
+    output_subdirectories: Collection[str] = ("pages",),
 ) -> list[PrunedOrphanedArtifact]:
-    """Delete validated orphaned markdown artifacts under output_dir/pages."""
+    """Delete validated orphaned markdown artifacts under configured output roots."""
     pruned_artifacts = plan_orphaned_artifact_prune(
         output_dir,
         orphaned_artifacts,
         current_output_paths=current_output_paths,
+        output_subdirectories=output_subdirectories,
     )
     for artifact in pruned_artifacts:
         try:
             artifact.path.unlink()
         except OSError as exc:
-            raise RuntimeError(
-                f"Could not prune orphaned artifact {artifact.path}: {exc}"
-            ) from exc
+            raise RuntimeError(f"Could not prune orphaned artifact {artifact.path}: {exc}") from exc
     return pruned_artifacts
 
 
 def _normalize_output_path(output_path: str) -> str:
     return Path(output_path).as_posix().removeprefix("./")
+
+
+def _normalize_output_subdirectories(output_subdirectories: Collection[str]) -> tuple[str, ...]:
+    normalized_subdirectories: list[str] = []
+    seen: set[str] = set()
+
+    for output_subdirectory in output_subdirectories:
+        normalized = _normalize_output_path(output_subdirectory).removesuffix("/")
+        path = Path(normalized)
+        if not normalized or path.is_absolute() or ".." in path.parts:
+            raise ValueError(
+                "orphan artifact output_subdirectories must be relative "
+                "subdirectories under output_dir"
+            )
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        normalized_subdirectories.append(normalized)
+
+    return tuple(normalized_subdirectories)
+
+
+def _is_under_any_output_subdirectory(
+    output_path: str,
+    output_subdirectories: Collection[str],
+) -> bool:
+    output_path_parts = Path(output_path).parts
+    return any(
+        output_path_parts[: len(Path(output_subdirectory).parts)] == Path(output_subdirectory).parts
+        for output_subdirectory in output_subdirectories
+    )
+
+
+def _is_relative_to(path: Path, other: Path) -> bool:
+    try:
+        path.relative_to(other)
+    except ValueError:
+        return False
+    return True
