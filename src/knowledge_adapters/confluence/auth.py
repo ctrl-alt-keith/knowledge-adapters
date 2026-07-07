@@ -7,6 +7,8 @@ import ssl
 from dataclasses import dataclass
 from typing import Protocol
 
+from knowledge_adapters.strategy_registry import select_strategy
+
 CONFLUENCE_CA_BUNDLE_ENV = "KNOWLEDGE_ADAPTERS_CONFLUENCE_CA_BUNDLE"
 
 
@@ -106,13 +108,7 @@ SUPPORTED_AUTH_METHODS = tuple(_AUTH_STRATEGIES)
 
 def select_auth_strategy(auth_method: str) -> ConfluenceAuthStrategy:
     """Select a supported Confluence auth strategy by its stable config name."""
-    try:
-        return _AUTH_STRATEGIES[auth_method]
-    except KeyError as exc:
-        supported_values = " or ".join(repr(method) for method in SUPPORTED_AUTH_METHODS)
-        raise ValueError(
-            f"Unsupported Confluence auth method {auth_method!r}. Use {supported_values}."
-        ) from exc
+    return select_strategy(_AUTH_STRATEGIES, auth_method, label="Confluence auth method")
 
 
 def build_request_auth(
