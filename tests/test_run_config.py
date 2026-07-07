@@ -420,6 +420,60 @@ bundles:
         load_run_config(config_path)
 
 
+def test_load_run_config_rejects_duplicate_run_names_for_named_bundles(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: team-notes
+    type: local_files
+    file_path: ./inputs/team-notes.txt
+    output_dir: ./artifacts/local/team-notes
+  - name: team-notes
+    type: confluence
+    base_url: https://example.com/wiki
+    target: "12345"
+    output_dir: ./artifacts/confluence/team-notes
+bundles:
+  - name: review-pack
+    runs: team-notes
+    output: ./bundles/review-pack.md
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Duplicate run names: 'team-notes'"):
+        load_run_config(config_path)
+
+
+def test_load_run_config_rejects_duplicate_named_bundle_names(tmp_path: Path) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: team-notes
+    type: local_files
+    file_path: ./inputs/team-notes.txt
+    output_dir: ./artifacts/local/team-notes
+bundles:
+  - name: review-pack
+    runs: team-notes
+    output: ./bundles/review-pack.md
+  - name: review-pack
+    runs: team-notes
+    output: ./bundles/review-pack-duplicate.md
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="duplicate bundle names: 'review-pack'"):
+        load_run_config(config_path)
+
+
 def test_load_run_config_supports_git_repo_filters_and_ref(tmp_path: Path) -> None:
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
