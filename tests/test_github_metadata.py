@@ -37,6 +37,7 @@ from knowledge_adapters.github_metadata.normalize import (
     normalize_issue_to_markdown,
 )
 from tests.cli_output_assertions import (
+    assert_contains_normalized,
     assert_dry_run_summary,
     assert_stale_artifacts,
     assert_write_summary,
@@ -802,6 +803,55 @@ def test_github_metadata_cli_writes_issue_artifacts_and_manifest(
             "output_path": "issues/7.md",
         },
     ]
+
+
+def test_github_metadata_cli_prunes_orphaned_artifacts_under_resource_directories(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("GH_TOKEN", "secret-token")
+    first_url = issue_list_api_url(
+        api_root="https://api.github.com",
+        owner="octo",
+        repo_name="project",
+        state="open",
+        since=None,
+    )
+    _install_fake_urlopen(
+        monkeypatch,
+        {first_url: _FakeGitHubResponse([_issue(2, title="Current issue")])},
+    )
+    output_dir = tmp_path / "out"
+    orphaned_issue = output_dir / "issues" / "99.md"
+    pages_artifact = output_dir / "pages" / "old.md"
+    for path in (orphaned_issue, pages_artifact):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(path.name, encoding="utf-8")
+
+    exit_code = main(
+        [
+            "github_metadata",
+            "--repo",
+            "octo/project",
+            "--token-env",
+            "GH_TOKEN",
+            "--output-dir",
+            str(output_dir),
+            "--prune-orphaned-artifacts",
+        ]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert_write_summary(captured.out, wrote=1, skipped=0)
+    assert "orphaned_artifacts: 1" in captured.out
+    assert "pruned_orphaned_artifacts: 1" in captured.out
+    assert "Pruned orphaned artifacts:" in captured.out
+    assert_contains_normalized(captured.out, str(orphaned_issue))
+    assert not orphaned_issue.exists()
+    assert (output_dir / "issues" / "2.md").exists()
+    assert pages_artifact.read_text(encoding="utf-8") == "old.md"
 
 
 def test_github_metadata_cli_writes_issue_comments_when_enabled(

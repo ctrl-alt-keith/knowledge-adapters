@@ -4363,6 +4363,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             normalize_release_to_markdown,
         )
         from knowledge_adapters.github_metadata.writer import (
+            OUTPUT_SUBDIRECTORIES as GITHUB_METADATA_OUTPUT_SUBDIRECTORIES,
+        )
+        from knowledge_adapters.github_metadata.writer import (
             markdown_path as github_metadata_markdown_path,
         )
         from knowledge_adapters.github_metadata.writer import (
@@ -4689,6 +4692,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         orphaned_artifact_records = find_orphaned_artifacts(
             github_metadata_config.output_dir,
             current_output_paths=orphan_reference_paths,
+            output_subdirectories=GITHUB_METADATA_OUTPUT_SUBDIRECTORIES,
         )
         orphaned_artifacts = [artifact.output_path for artifact in orphaned_artifact_records]
         stale_manifest_entries: list[dict[str, object]] = []
@@ -4721,6 +4725,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     github_metadata_config.output_dir,
                     orphaned_artifact_records,
                     current_output_paths=orphan_reference_paths,
+                    output_subdirectories=GITHUB_METADATA_OUTPUT_SUBDIRECTORIES,
                 )
             except RuntimeError as exc:
                 exit_with_cli_error(str(exc), command="github_metadata")
@@ -4824,6 +4829,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     github_metadata_config.output_dir,
                     orphaned_artifact_records,
                     current_output_paths=orphan_reference_paths,
+                    output_subdirectories=GITHUB_METADATA_OUTPUT_SUBDIRECTORIES,
                 )
             except RuntimeError as exc:
                 exit_with_cli_error(str(exc), command="github_metadata")
