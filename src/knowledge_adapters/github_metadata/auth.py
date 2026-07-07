@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass
 from typing import Protocol
 
+from knowledge_adapters.strategy_registry import select_strategy
+
 GITHUB_API_VERSION = "2022-11-28"
 DEFAULT_AUTH_STRATEGY = "token-env"
 
@@ -56,13 +58,11 @@ SUPPORTED_AUTH_STRATEGIES = tuple(_AUTH_STRATEGIES)
 
 def select_auth_strategy(auth_strategy: str) -> GitHubMetadataAuthStrategy:
     """Select a supported GitHub metadata auth strategy by stable config name."""
-    try:
-        return _AUTH_STRATEGIES[auth_strategy]
-    except KeyError as exc:
-        supported_values = " or ".join(repr(strategy) for strategy in SUPPORTED_AUTH_STRATEGIES)
-        raise ValueError(
-            f"Unsupported GitHub metadata auth strategy {auth_strategy!r}. Use {supported_values}."
-        ) from exc
+    return select_strategy(
+        _AUTH_STRATEGIES,
+        auth_strategy,
+        label="GitHub metadata auth strategy",
+    )
 
 
 def build_request_auth(
