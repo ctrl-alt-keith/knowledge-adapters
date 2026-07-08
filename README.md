@@ -638,6 +638,10 @@ This repository contains only generic tooling, abstractions, and documentation.
 4. Add tests and automation around the contract
 5. Expand only after shared patterns become clear
 
+For the product boundary around acquisition artifacts, manifests, diagnostics,
+and downstream handoff, see
+[`docs/chain-of-custody.md`](docs/chain-of-custody.md).
+
 ---
 
 ## Repository Layout
@@ -650,6 +654,7 @@ knowledge-adapters/
 ├── docs/
 │   ├── vision.md
 │   ├── adapter-spec.md
+│   ├── chain-of-custody.md
 │   └── codex-workflow.md
 ├── adapters/
 │   └── confluence/
