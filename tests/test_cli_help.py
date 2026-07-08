@@ -110,6 +110,7 @@ def test_github_metadata_cli_help_includes_resource_type_guidance(tmp_path: Path
     assert "--include-issue-comments" in stdout
     assert "--include-pr-comments" in stdout
     assert "--include-pr-review-comments" in stdout
+    assert "the adapter's generated artifact directories" in stdout
     assert "--dry-run" in stdout
     assert "token value is read from the environment only and is never printed" in stdout
     assert "knowledge-adapters github_metadata" in stdout
