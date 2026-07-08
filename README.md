@@ -66,17 +66,19 @@ artifact cleanup: `local_files`, `public_webpage`, `public_pdf`, `confluence`,
 - A stale artifact was listed in the prior `manifest.json` but is absent from
   the current run plan. `--prune-stale-artifacts` deletes only those stale
   regular files under the selected `--output-dir`.
-- An orphaned artifact is a regular generated markdown file under
-  `--output-dir/pages/**/*.md` that is not referenced by the current run plan.
-  `--prune-orphaned-artifacts` reports these candidates and deletes only
+- An orphaned artifact is a regular generated markdown file under the adapter's
+  generated artifact directories that is not referenced by the current run
+  plan. `--prune-orphaned-artifacts` reports these candidates and deletes only
   validated orphan candidates during write mode.
 
 In `--dry-run`, stale pruning reports `would_prune_stale_artifacts`, orphan
 pruning reports `orphaned_artifacts` and `would_prune_orphaned_artifacts`, and
 nothing is deleted.
 Orphan cleanup is intentionally limited to generated markdown artifacts under
-`pages/**/*.md`; it never deletes `manifest.json`, directories, non-markdown
-files, or files outside `pages/`.
+the adapter's artifact directories, such as `pages/**/*.md` for page-oriented
+adapters and `issues/**/*.md`, `pull_requests/**/*.md`, or `releases/**/*.md`
+for `github_metadata`; it never deletes `manifest.json`, directories,
+non-markdown files, or files outside those artifact directories.
 
 Minimal local file first run:
 
@@ -413,9 +415,10 @@ runs:
     prune_orphaned_artifacts: true
 ```
 
-Use `prune_orphaned_artifacts: true` to report orphaned `pages/**/*.md`
-candidates and delete validated orphan candidates during write mode. Top-level
-`knowledge-adapters run --dry-run` previews that cleanup as
+Use `prune_orphaned_artifacts: true` to report orphaned generated markdown
+candidates in the adapter's artifact directories and delete validated orphan
+candidates during write mode. Top-level `knowledge-adapters run --dry-run`
+previews that cleanup as
 `would_prune_orphaned_artifacts` reporting and deletes nothing.
 
 To keep a lightweight human-readable record of a config-driven execution, pass

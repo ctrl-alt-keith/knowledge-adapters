@@ -553,8 +553,9 @@ def build_parser() -> argparse.ArgumentParser:
             action="store_true",
             help=(
                 "Opt in to deleting unreferenced generated markdown files under "
-                "--output-dir/pages after a successful write. Always reports candidates; "
-                "in --dry-run, validate and report candidates without deleting files."
+                "the adapter's generated artifact directories after a successful write. "
+                "Always reports candidates; in --dry-run, validate and report candidates "
+                "without deleting files."
             ),
         )
 
