@@ -73,7 +73,7 @@ interface are deliberately unspecified. The request contains:
 | `output_location` | required | Local package destination; not a retained-content destination. |
 | `credential_reference` | optional | Opaque runtime reference. Secret values never enter the package. |
 | `selection` | optional | Time, item-count, language, media, or update filters with explicit semantics. |
-| `checkpoint_reference` | optional | Compatible prior run or checkpoint from which to resume. |
+| `checkpoint_reference` | optional | Compatible prior run or adapter-local checkpoint from which to resume. |
 | `retry_policy` | optional | Operator limits; the effective policy is recorded in the receipt. |
 | `expected_contract` | optional | Consumer-supported contract range used for fail-fast compatibility checks. |
 
@@ -97,8 +97,7 @@ source-package/
 │       └── normalized.md
 ├── diagnostics/
 │   └── <item-id>.json
-└── checkpoints/
-    └── latest.json
+└── run-receipt.json (optional)
 ```
 
 All manifest paths are package-relative, use `/` separators, and cannot escape
@@ -116,7 +115,11 @@ are optional, quarantined artifacts rather than required package content.
 - effective non-secret request reference;
 - ordered item-record references;
 - ordered artifact inventory with byte size, media type, and SHA-256 digest;
-- checkpoint reference and resume lineage when applicable;
+- immutable resume or supersession lineage when applicable, including prior
+  package or run identifiers, a reconciliation summary, and final attempt
+  counts;
+- optional sealed `run-receipt.json` reference for additional immutable run
+  history;
 - deterministic/live boundary statement;
 - package-level diagnostics and limitations; and
 - optional namespaced extensions.
@@ -138,10 +141,15 @@ Each item record contains:
   as a retention decision.
 
 Required item outcomes are `completed`, `unchanged`, `skipped`, `failed`, and
-`cancelled`. A package run is `completed` only when every item is terminal and
-none failed; `completed_with_errors` when every item is terminal and at least
-one failed or was cancelled; `failed` when the run could not produce a valid
-inventory; and `in_progress` only for a checkpoint, never a sealed handoff.
+`cancelled`. A sealed package has status `completed` only when every item is
+terminal and none failed or was cancelled, or `completed_with_errors` when
+every item is terminal and at least one failed or was cancelled. Both statuses
+are conforming sealed consumer handoffs when terminal accounting and package
+integrity are complete. `in_progress` exists only in adapter-local runtime
+state and is never a sealed consumer handoff. When a run cannot produce a valid
+inventory, its package-level `failed` result is emitted as a run receipt or
+diagnostic result rather than as a conforming source package. Item-level
+failures remain valid inside a `completed_with_errors` sealed package.
 
 ### Package Integrity
 
@@ -158,7 +166,7 @@ requested -> resolving -> acquiring -> normalizing -> sealing
     |            |            |             |            |
     +---------- checkpointable in-progress states -------+
                                                          v
-                          completed | completed_with_errors | failed
+                          completed | completed_with_errors
 ```
 
 Item state proceeds independently:
@@ -171,15 +179,18 @@ discovered -> skipped
 any in-progress state -> cancelled
 ```
 
-Transitions are append-only observations in runtime state. The sealed package
-contains terminal item state plus enough lineage to explain retries and resume;
-it need not expose an unbounded event log.
+Transitions are adapter-local runtime observations. A run that fails before it
+can seal a valid inventory ends in a separate failed run receipt or diagnostic
+result. The sealed package contains terminal item state plus enough immutable
+lineage to explain retries and resume; it need not expose an unbounded event
+log or mutable execution state.
 
 ## Checkpoint And Resume Semantics
 
-A checkpoint is mutable local execution state, not a consumer handoff and not
-durable knowledge. It records the request fingerprint, adapter and contract
-versions, source cursor or continuation token, completed item identities and
+A checkpoint is mutable adapter-local runtime state. It is not part of a sealed
+source package, is not a consumer handoff artifact, and is not durable
+knowledge. It may record the request fingerprint, adapter and contract
+versions, provider cursor or continuation token, completed item identities and
 digests, pending work, retry counters, and last successful boundary.
 
 Resume must:
@@ -191,9 +202,15 @@ Resume must:
 - continue from a provider cursor only when the provider documents it as safe;
 - otherwise restart discovery and deterministically reconcile by canonical
   identity;
-- assign a new `run_id` while retaining `resumes_run_id` and checkpoint
-  lineage; and
+- assign a new `run_id` while retaining immutable resume lineage; and
 - never convert a prior failure into success without a recorded new attempt.
+
+The sealed handoff records resume history without depending on checkpoint
+state. At minimum this includes `resumes_run_id` when applicable, prior package
+or run identifiers, a reconciliation summary, and final attempt counts. An
+optional sealed `run-receipt.json` may carry additional immutable history. The
+package remains self-contained and verifiable after adapter-local checkpoints
+and provider cursors are deleted.
 
 Exactly-once provider acquisition is not promised. The contract promises
 idempotent package assembly: duplicate observations reconcile by stable item
@@ -235,10 +252,18 @@ The contract uses semantic versions:
 
 - patch: clarification or validation tightening that does not change valid
   package meaning;
-- minor: backward-compatible optional fields, outcomes, artifact roles, or
-  namespaced extensions;
-- major: a required-field, semantic, identity, hashing, or lifecycle change
-  that older consumers cannot safely interpret.
+- minor: backward-compatible optional additive fields and namespaced
+  extensions. A new artifact role is minor only when older consumers can safely
+  ignore it;
+- major: required-field changes and semantic changes to terminal accounting,
+  identity, integrity, lifecycle, or review-relevant meaning. Non-ignorable
+  artifact roles require a major version unless they declare a required
+  capability that causes older consumers to reject the package safely.
+
+New package or item outcomes are major-version changes by default. A new
+outcome may be minor only when it is explicitly defined as a
+backward-compatible subtype or alias of an existing outcome and declares a safe
+legacy mapping.
 
 Consumers declare a supported version range. Producers must not emit a version
 outside an explicitly supplied range. Consumers must reject unsupported major
@@ -268,11 +293,12 @@ Provider tests use recorded, sanitized fixtures or deterministic stubs. Small
 live-provider canaries are optional, credentialed, separately reported, and do
 not establish contract conformance.
 
-## Complete Example Package
+## Illustrative Example Package
 
-This abbreviated but complete package represents a two-episode podcast feed in
-which one episode was captured and one failed after bounded retries. JSON files
-are shown inline; the artifact content is intentionally short.
+This illustrative package represents a two-episode podcast feed in which one
+episode was captured and one failed after bounded retries. JSON files are shown
+inline; the artifact content is intentionally short. Placeholder sizes and
+digests are non-normative and must not be used as a conformance fixture.
 
 ```text
 source-package/
@@ -282,7 +308,7 @@ source-package/
 ├── items/episode-002.json
 ├── artifacts/episode-001/normalized.md
 ├── diagnostics/episode-002.json
-└── checkpoints/latest.json
+└── run-receipt.json
 ```
 
 `request.json`:
@@ -301,6 +327,9 @@ source-package/
   "request_id": "podcast-sample-2026-07-10",
   "run_id": "run-002",
   "resumes_run_id": "run-001",
+  "prior_run_ids": ["run-001"],
+  "reconciliation_summary": {"reused":1,"retried":1},
+  "final_attempt_counts": {"episode-001":1,"episode-002":3},
   "created_at": "2026-07-10T18:00:00Z",
   "adapter": {"name":"example-feed-adapter","version":"1.2.0"},
   "status": "completed_with_errors",
@@ -308,10 +337,11 @@ source-package/
   "request_path": "request.json",
   "items": ["items/episode-001.json","items/episode-002.json"],
   "artifacts": [
-    {"path":"artifacts/episode-001/normalized.md","role":"normalized-content","media_type":"text/markdown","bytes":70,"sha256":"<sha256-of-exact-example-bytes>"},
-    {"path":"diagnostics/episode-002.json","role":"diagnostic","media_type":"application/json","bytes":167,"sha256":"<sha256-of-exact-example-bytes>"}
+    {"path":"artifacts/episode-001/normalized.md","role":"normalized-content","media_type":"text/markdown","bytes":"<non-normative-size>","sha256":"<non-normative-sha256>"},
+    {"path":"diagnostics/episode-002.json","role":"diagnostic","media_type":"application/json","bytes":"<non-normative-size>","sha256":"<non-normative-sha256>"},
+    {"path":"run-receipt.json","role":"run-receipt","media_type":"application/json","bytes":"<non-normative-size>","sha256":"<non-normative-sha256>"}
   ],
-  "checkpoint": "checkpoints/latest.json",
+  "run_receipt": "run-receipt.json",
   "boundary": {"live":"feed discovery and media retrieval","deterministic":"transcript normalization and package assembly"},
   "required_capabilities": []
 }
@@ -368,14 +398,14 @@ Candidate transcript for review.
 {"item_id":"episode-002","attempts":[{"ordinal":1,"category":"provider-unavailable"},{"ordinal":2,"category":"provider-unavailable"},{"ordinal":3,"category":"provider-unavailable"}]}
 ```
 
-`checkpoints/latest.json`:
+`run-receipt.json`:
 
 ```json
-{"checkpoint_version":"1.0.0","run_id":"run-002","request_fingerprint":"<sha256-of-canonical-request>","completed_items":["episode-001"],"terminal_items":["episode-001","episode-002"],"pending_items":[]}
+{"receipt_version":"1.0.0","run_id":"run-002","resumes_run_id":"run-001","prior_run_ids":["run-001"],"reconciliation_summary":{"reused":1,"retried":1},"final_attempt_counts":{"episode-001":1,"episode-002":3}}
 ```
 
-Placeholders stand for digests that a conforming producer computes over exact
-serialized bytes; they are not wildcard values in a real package.
+The placeholder sizes and digests are illustrative only. A conforming producer
+must calculate exact values over exact serialized bytes.
 
 ## Future Extensibility
 
@@ -400,8 +430,8 @@ is approved.
    provider precision?
 4. Is SHA-256 sufficient as the only required digest, or should the inventory
    allow a required algorithm profile?
-5. Should a sealed package retain the final checkpoint, or only resume lineage
-   copied into `package.json`?
+5. Which resume details belong directly in `package.json` versus an optional
+   sealed `run-receipt.json`?
 
 ## Recommended Defaults
 
