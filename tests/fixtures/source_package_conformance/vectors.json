@@ -1,0 +1,31 @@
+{
+  "contract_source": "docs/source-package-contract.md",
+  "contract_version": "1.0.0",
+  "vectors": [
+    {"id":"minimal-valid-completed","expected":"accept","stage":"complete","mutation":"minimal_completed"},
+    {"id":"valid-completed-with-errors","expected":"accept","stage":"complete","mutation":"completed_with_errors"},
+    {"id":"optional-sealed-run-receipt","expected":"accept","stage":"complete","mutation":"sealed_receipt"},
+    {"id":"malformed-package-sha256","expected":"reject","stage":"sidecar-format","mutation":"sidecar_malformed"},
+    {"id":"uppercase-digest","expected":"reject","stage":"sidecar-format","mutation":"sidecar_uppercase"},
+    {"id":"missing-trailing-newline","expected":"reject","stage":"sidecar-format","mutation":"sidecar_no_newline"},
+    {"id":"manifest-digest-mismatch","expected":"reject","stage":"manifest-digest","mutation":"sidecar_mismatch"},
+    {"id":"manifest-modified-without-sidecar-update","expected":"reject","stage":"manifest-digest","mutation":"manifest_modified"},
+    {"id":"artifact-digest-mismatch","expected":"reject","stage":"artifact-integrity","mutation":"artifact_digest_mismatch"},
+    {"id":"artifact-size-mismatch","expected":"reject","stage":"artifact-integrity","mutation":"artifact_size_mismatch"},
+    {"id":"missing-inventoried-artifact","expected":"reject","stage":"artifact-integrity","mutation":"artifact_missing"},
+    {"id":"undeclared-handoff-artifact","expected":"reject","stage":"inventory-coverage","mutation":"artifact_undeclared"},
+    {"id":"duplicate-path-identity","expected":"reject","stage":"path-safety","mutation":"path_duplicate"},
+    {"id":"absolute-path","expected":"reject","stage":"path-safety","mutation":"path_absolute"},
+    {"id":"dot-dot-path-escape","expected":"reject","stage":"path-safety","mutation":"path_escape"},
+    {"id":"malformed-utf8","expected":"reject","stage":"manifest-parse","mutation":"manifest_invalid_utf8"},
+    {"id":"malformed-json","expected":"reject","stage":"manifest-parse","mutation":"manifest_invalid_json"},
+    {"id":"unsupported-contract-major-version","expected":"reject","stage":"compatibility","mutation":"version_unsupported_major"},
+    {"id":"unknown-required-capability","expected":"reject","stage":"compatibility","mutation":"capability_unknown_required"},
+    {"id":"inconsistent-item-counts","expected":"reject","stage":"terminal-accounting","mutation":"counts_inconsistent"},
+    {"id":"incomplete-terminal-accounting","expected":"reject","stage":"terminal-accounting","mutation":"item_nonterminal"},
+    {"id":"invalid-outcome-error-combination","expected":"reject","stage":"item-semantics","mutation":"completed_with_error"},
+    {"id":"receipt-overrides-manifest-lineage","expected":"reject","stage":"lineage","mutation":"receipt_override"},
+    {"id":"oversized-manifest","expected":"reject","stage":"consumer-limit","mutation":"manifest_oversized","consumer_limit":{"manifest_bytes":4096}},
+    {"id":"excessive-nesting","expected":"reject","stage":"consumer-limit","mutation":"manifest_excessive_nesting","consumer_limit":{"json_depth":16}}
+  ]
+}
