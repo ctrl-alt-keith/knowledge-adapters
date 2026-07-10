@@ -24,6 +24,36 @@ package is eligible to enter review; it is never approval to retain, trust, or
 publish its content. This extends the boundary in
 [`chain-of-custody.md`](chain-of-custody.md) without replacing it.
 
+## Normative Ownership
+
+`knowledge-adapters` owns this normative Source Package Contract. This document
+is the canonical source for shared interchange vocabulary, package structure,
+package semantics, compatibility rules, lifecycle definitions, integrity
+requirements, and producer/consumer handoff behavior.
+
+Consumers such as `knowledge-vault` may document derived summaries and
+consumer-specific review policy, but they do not independently redefine this
+contract. If a consumer summary conflicts with this document, this document
+governs. The companion vault expectations are documented in
+[`knowledge-vault`](https://github.com/ctrl-alt-keith/knowledge-vault/blob/main/docs/source-package-consumer-contract.md).
+
+## Participants
+
+The interchange has three roles:
+
+- the adapter is the producer and owns the acquisition transaction and sealed
+  package;
+- the vault is the consumer and owns validation for review, editorial review,
+  and retention decisions; and
+- the operator or orchestrator invokes adapters, supplies runtime credential
+  references, selects supported compatibility ranges, transfers sealed
+  packages, manages quarantine, preserves package bytes during transfer and
+  review, and initiates review.
+
+The operator does not make editorial or retention decisions. A person or
+system may perform more than one role operationally, but the responsibilities
+remain distinct.
+
 ## Adapter Responsibilities
 
 An adapter must:
@@ -153,11 +183,24 @@ failures remain valid inside a `completed_with_errors` sealed package.
 
 ### Package Integrity
 
-A sealed package is immutable. Its inventory must cover every handoff file
-except explicitly ephemeral lock files, and every inventoried file must match
-its recorded digest and size. Consumers may copy or quarantine a package but
-must not edit it in place. Corrections produce a new package with lineage to
-the superseded package.
+A sealed package is immutable. `package.json` is the authoritative package
+manifest and the root of the v1 integrity model. Its inventory must cover every
+handoff artifact, and every inventoried artifact must match its recorded byte
+size and required SHA-256 digest. The manifest supplies the package identity,
+contract version, terminal accounting, and minimum review lineage needed to
+interpret that inventory. A package is self-contained without external runtime
+state.
+
+These digests provide package integrity: they allow a consumer to detect
+changes to inventoried bytes. The adapter identity recorded in the manifest is
+provenance. Neither matching digests nor a claimed adapter identity establishes
+producer authenticity or trust. Authenticated producer identity is outside the
+v1 contract. A future authenticated-package capability may build on the
+manifest integrity root without changing package semantics; this document does
+not define signatures or cryptographic authentication.
+
+Consumers may copy or quarantine a package but must not edit it in place.
+Corrections produce a new package with lineage to the superseded package.
 
 ## Lifecycle And State Machine
 
@@ -206,11 +249,14 @@ Resume must:
 - never convert a prior failure into success without a recorded new attempt.
 
 The sealed handoff records resume history without depending on checkpoint
-state. At minimum this includes `resumes_run_id` when applicable, prior package
-or run identifiers, a reconciliation summary, and final attempt counts. An
-optional sealed `run-receipt.json` may carry additional immutable history. The
-package remains self-contained and verifiable after adapter-local checkpoints
-and provider cursors are deleted.
+state. `package.json` is authoritative and must contain the minimum lineage
+required by every consumer: `resumes_run_id` when applicable, prior package or
+run identifiers, a reconciliation summary, and final attempt counts. An
+optional sealed `run-receipt.json` may carry supplemental execution history but
+cannot override the manifest. Consumers must not require the optional receipt
+to understand package identity, compatibility, or review lineage. The package
+remains self-contained and verifiable after adapter-local checkpoints and
+provider cursors are deleted.
 
 Exactly-once provider acquisition is not promised. The contract promises
 idempotent package assembly: duplicate observations reconcile by stable item
@@ -245,6 +291,9 @@ converted to a documented stable order or preserved as explicit source order.
 
 Replay tests begin at the captured-byte boundary. Live-provider checks are
 separate evidence and are never part of deterministic contract validation.
+
+SHA-256 is the required package digest algorithm for v1. Future algorithm
+agility may be introduced only through a later contract revision.
 
 ## Schema Versioning And Compatibility
 
@@ -416,6 +465,10 @@ chapter data, feed metadata, document page maps, or site crawl evidence under a
 reverse-domain namespace. Multiple artifacts can describe one item, but every
 artifact needs a declared role and content type.
 
+Authenticated producer identity and authenticated packages remain an explicit
+future capability. Any later capability should build on the existing manifest
+integrity root without changing the meaning of package contents or lifecycle.
+
 The vault should not change when a new provider appears. It changes only when a
 new common semantic capability is deliberately adopted or a new major contract
 is approved.
@@ -428,9 +481,7 @@ is approved.
    only by explicit request and sensitivity policy?
 3. Should timestamps require whole-second UTC normalization, or preserve
    provider precision?
-4. Is SHA-256 sufficient as the only required digest, or should the inventory
-   allow a required algorithm profile?
-5. Which resume details belong directly in `package.json` versus an optional
+4. Which supplemental execution details, if any, are useful in the optional
    sealed `run-receipt.json`?
 
 ## Recommended Defaults
