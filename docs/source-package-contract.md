@@ -119,6 +119,7 @@ baseline provenance and outcomes.
 ```text
 source-package/
 ├── package.json
+├── package.sha256
 ├── request.json
 ├── items/
 │   └── <item-id>.json
@@ -135,7 +136,9 @@ the package root. Files are UTF-8 JSON or UTF-8 markdown unless an artifact
 entry declares another media type. Raw provider responses and large binaries
 are optional, quarantined artifacts rather than required package content.
 
-`package.json` is the authoritative inventory and contains:
+`package.json` is the authoritative inventory of every other handoff artifact
+except `package.sha256`, which is excluded to avoid circular self-reference.
+The manifest contains:
 
 - `contract_name`: `knowledge-source-package`;
 - `contract_version`: semantic version of this interchange contract;
@@ -183,24 +186,58 @@ failures remain valid inside a `completed_with_errors` sealed package.
 
 ### Package Integrity
 
-A sealed package is immutable. `package.json` is the authoritative package
-manifest and the root of the v1 integrity model. Its inventory must cover every
-handoff artifact, and every inventoried artifact must match its recorded byte
-size and required SHA-256 digest. The manifest supplies the package identity,
-contract version, terminal accounting, and minimum review lineage needed to
-interpret that inventory. A package is self-contained without external runtime
-state.
+A sealed package is immutable. `package.json` is the authoritative manifest and
+inventories every other handoff artifact except `package.sha256`.
+`package.sha256` is the external manifest digest: it contains exactly 64
+lowercase hexadecimal characters representing the SHA-256 digest of the exact
+stored bytes of `package.json`, followed by one newline. No other sidecar format
+is valid. The package content address is the SHA-256 digest recorded in
+`package.sha256`.
 
-These digests provide package integrity: they allow a consumer to detect
-changes to inventoried bytes. The adapter identity recorded in the manifest is
-provenance. Neither matching digests nor a claimed adapter identity establishes
-producer authenticity or trust. Authenticated producer identity is outside the
-v1 contract. A future authenticated-package capability may build on the
-manifest integrity root without changing package semantics; this document does
-not define signatures or cryptographic authentication.
+The digest applies to the exact stored `package.json` bytes. Encoding, line
+endings, whitespace, key order, and every other byte-level choice are therefore
+significant. Verification must not hash a reparsed, reformatted, reserialized,
+or otherwise canonicalized JSON representation.
+
+After the external manifest digest is verified, the manifest inventory must
+cover every other handoff artifact, and every inventoried artifact must match
+its recorded byte size and required SHA-256 digest. The manifest supplies the
+package identity, contract version, terminal accounting, and minimum review
+lineage needed to interpret that inventory. A package is self-contained without
+external runtime state.
+
+These digests provide package integrity and content addressing: they allow a
+consumer to detect changes to the manifest and its inventoried bytes. Replacing
+both `package.json` and `package.sha256` remains possible without an
+authenticated external channel or signature. The adapter identity recorded in
+the manifest is provenance. Neither matching digests nor a claimed adapter
+identity establishes producer authenticity or trust. Authenticated producer
+identity is outside the v1 contract. A future authenticated-package capability
+may build on the verified manifest digest without changing package semantics;
+this document does not define signatures or cryptographic authentication.
 
 Consumers may copy or quarantine a package but must not edit it in place.
 Corrections produce a new package with lineage to the superseded package.
+
+### Consumer Verification Order
+
+A consumer must verify a package in this order:
+
+1. Confirm `package.json` and `package.sha256` exist and meet consumer-defined
+   size limits, and confirm `package.sha256` has the required format.
+2. Compute SHA-256 over the exact stored bytes of `package.json`.
+3. Compare the computed digest with the lowercase hexadecimal digest in
+   `package.sha256`.
+4. Parse and validate `package.json`.
+5. Verify contract name, version, required capabilities, identities, terminal
+   accounting, and path safety.
+6. Verify the exact byte size and SHA-256 digest of every artifact inventoried
+   by the manifest.
+7. Only then allow the package to proceed to content review.
+
+A missing, malformed, or mismatched `package.sha256` causes structural
+rejection before content inspection. A consumer must not rely on any field in
+`package.json` until the external manifest digest matches.
 
 ## Lifecycle And State Machine
 
@@ -331,7 +368,8 @@ Contract approval should lead to tests at four boundaries:
 - schema fixtures: minimal valid, complete valid, and one invalid fixture per
   invariant;
 - producer conformance: deterministic output, ordering, hashing, path safety,
-  terminal accounting, redaction, and partial failure;
+  external manifest digest, terminal accounting, redaction, and partial
+  failure;
 - checkpoint/retry tests: interruption at each state, resume lineage,
   corrupted checkpoint rejection, transient recovery, and exhausted retry;
 - consumer compatibility: current and previous supported minor versions,
@@ -352,6 +390,7 @@ digests are non-normative and must not be used as a conformance fixture.
 ```text
 source-package/
 ├── package.json
+├── package.sha256
 ├── request.json
 ├── items/episode-001.json
 ├── items/episode-002.json
@@ -365,6 +404,15 @@ source-package/
 ```json
 {"request_id":"podcast-sample-2026-07-10","adapter_type":"feed","targets":["https://example.org/show/feed.xml"],"scope":{"kind":"collection","max_items":2},"selection":{}}
 ```
+
+`package.sha256`:
+
+```text
+<64-lowercase-hex-sha256-of-exact-package.json-bytes>
+```
+
+This placeholder is non-normative. A conforming package contains the actual
+64-character lowercase hexadecimal digest followed by one newline.
 
 `package.json`:
 
@@ -467,7 +515,7 @@ artifact needs a declared role and content type.
 
 Authenticated producer identity and authenticated packages remain an explicit
 future capability. Any later capability should build on the existing manifest
-integrity root without changing the meaning of package contents or lifecycle.
+digest without changing the meaning of package contents or lifecycle.
 
 The vault should not change when a new provider appears. It changes only when a
 new common semantic capability is deliberately adopted or a new major contract
@@ -513,8 +561,8 @@ is approved.
 
 ## Proposed Implementation Phases After Contract Approval
 
-1. Ratify vocabulary, JSON Schemas, fixtures, and compatibility policy in both
-   repositories.
+1. Ratify the canonical Source Package Contract in `knowledge-adapters` and
+   validate the `knowledge-vault` consumer profile against it.
 2. Add producer conformance validation and package sealing in
    `knowledge-adapters`, without a provider migration.
 3. Add vault-side quarantine validation and review-record linkage against
