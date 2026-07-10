@@ -147,8 +147,8 @@ every item is terminal and at least one failed or was cancelled. Both statuses
 are conforming sealed consumer handoffs when terminal accounting and package
 integrity are complete. `in_progress` exists only in adapter-local runtime
 state and is never a sealed consumer handoff. When a run cannot produce a valid
-inventory, its package-level `failed` result is emitted as a run receipt or
-diagnostic result rather than as a conforming source package. Item-level
+inventory, the failed run outcome produces a run receipt or diagnostic result
+rather than a conforming source package. Item-level
 failures remain valid inside a `completed_with_errors` sealed package.
 
 ### Package Integrity
