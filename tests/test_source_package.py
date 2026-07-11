@@ -15,9 +15,9 @@ from knowledge_adapters.source_package import (
     AcquisitionRequest,
     AdapterIdentity,
     Artifact,
-    ConsumerProfile,
     CollectionProgress,
     CollectionProgressState,
+    ConsumerProfile,
     ItemOutcome,
     PackageBuilder,
     PackageItem,
@@ -114,16 +114,24 @@ def test_builder_seals_typed_collection_progress_and_resume_lineage(tmp_path: Pa
 
     result = verify_package(
         destination,
-        supported_capabilities=(COLLECTION_PROGRESS_CAPABILITY,),
+        profile=ConsumerProfile(
+            identifier="progress-profile",
+            supported_capabilities=(COLLECTION_PROGRESS_CAPABILITY,),
+            max_item_records=1,
+        ),
     )
     assert result.ok
-    assert result.schema_version == "2.1.0"
+    assert result.consumer_profile == "progress-profile"
+    assert result.schema_version == "2.3.0"
     assert result.verified_claims is not None
-    assert result.verified_claims.schema_version == "1.1.0"
+    assert result.verified_claims.schema_version == "1.3.0"
     assert result.verified_claims.collection_progress == CollectionProgress(
         CollectionProgressState.CONTINUATION_REMAINING
     )
     assert result.verified_claims.resumes_run_id == "run-1"
+    assert result.verified_claims.totals is not None
+    assert result.verified_claims.totals.item_records == 1
+    assert len(result.verified_claims.item_dispositions) == 1
 
 
 def test_collection_progress_requires_consumer_capability(tmp_path: Path) -> None:
@@ -140,9 +148,14 @@ def test_collection_progress_requires_consumer_capability(tmp_path: Path) -> Non
     )
     value.add_item(PackageItem("one", "document", ItemOutcome.COMPLETED))
     assert value.seal(destination).ok
-    result = verify_package(destination)
+    result = verify_package(
+        destination,
+        profile=ConsumerProfile(identifier="no-progress-profile"),
+    )
     assert result.state == "rejected"
+    assert result.consumer_profile == "no-progress-profile"
     assert result.findings[0].code == "unknown-required-capability"
+    assert result.verified_claims is None
 
 
 def test_builder_preserves_v1_0_default_and_requires_v1_1_for_progress(
