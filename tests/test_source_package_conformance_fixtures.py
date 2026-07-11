@@ -16,7 +16,7 @@ VECTORS = MATRIX["vectors"]
 
 def test_matrix_has_unique_cases_and_all_requested_boundaries() -> None:
     ids = [vector["id"] for vector in VECTORS]
-    assert len(ids) == len(set(ids)) == 26
+    assert len(ids) == len(set(ids)) == 29
     assert {vector["expected"] for vector in VECTORS} == {"accept", "reject"}
     assert sum(vector["expected"] == "accept" for vector in VECTORS) == 3
 
@@ -75,3 +75,35 @@ def test_public_verifier_matches_conformance_vector(
         assert result.findings[0].stage == vector["stage"]
     if "code" in vector:
         assert vector["code"] in {finding.code for finding in result.findings}
+
+
+def test_public_result_exposes_only_curated_claims(tmp_path: Path) -> None:
+    package = materialize_vector(tmp_path, "minimal_completed")
+    manifest_path = package / "package.json"
+    manifest = json.loads(manifest_path.read_bytes())
+    manifest["extensions"] = {"org.example.provider": {"private": "not-a-claim"}}
+    manifest["arbitrary"] = "not-a-claim"
+    manifest_bytes = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode()
+    manifest_path.write_bytes(manifest_bytes)
+    (package / "package.sha256").write_bytes(
+        (hashlib.sha256(manifest_bytes).hexdigest() + "\n").encode()
+    )
+
+    result = verify_package(package)
+    assert result.ok and result.schema_version == "2.0.0"
+    assert result.verified_claims is not None
+    assert result.verified_claims.package_id == "package-001"
+    assert not hasattr(result.verified_claims, "extensions")
+    assert not hasattr(result.verified_claims, "arbitrary")
+    assert not hasattr(result, "manifest")
+    assert not hasattr(result, "manifest_claims")
+
+
+def test_rejected_result_claims_follow_completed_stage(tmp_path: Path) -> None:
+    package = materialize_vector(tmp_path, "counts_inconsistent")
+    result = verify_package(package)
+    assert result.findings[0].stage == "terminal-accounting"
+    assert result.verified_claims is not None
+    assert result.verified_claims.package_id == "package-001"
+    assert result.verified_claims.status is None
+    assert result.verified_claims.counts is None

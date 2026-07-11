@@ -79,8 +79,12 @@ def materialize_vector(root: Path, mutation: str) -> Path:
         manifest["status"] = "completed_with_errors"
         manifest["counts"]["completed"] = 0
         manifest["counts"]["failed"] = 1
-    elif mutation == "sealed_receipt" or mutation == "receipt_override":
-        receipt_run = "run-other" if mutation == "receipt_override" else "run-001"
+    elif mutation in {"sealed_receipt", "receipt_override", "compound_lineage_artifact"}:
+        receipt_run = (
+            "run-other"
+            if mutation in {"receipt_override", "compound_lineage_artifact"}
+            else "run-001"
+        )
         files["run-receipt.json"] = _json_bytes({"receipt_version": "1.0.0", "run_id": receipt_run})
         manifest["run_receipt"] = "run-receipt.json"
     elif mutation == "path_duplicate":
@@ -103,6 +107,12 @@ def materialize_vector(root: Path, mutation: str) -> Path:
         item = json.loads(files["items/item-001.json"])
         item["error"] = {"attempts": 1, "category": "contradiction", "retryable": False}
         files["items/item-001.json"] = _json_bytes(item)
+    elif mutation == "compound_accounting_artifact":
+        manifest["counts"]["completed"] = 2
+    elif mutation == "compound_semantics_artifact":
+        item = json.loads(files["items/item-001.json"])
+        item["error"] = {"attempts": 1, "category": "contradiction", "retryable": False}
+        files["items/item-001.json"] = _json_bytes(item)
     elif mutation == "manifest_oversized":
         manifest["extensions"] = {"example.test/padding": "x" * 5000}
     elif mutation == "manifest_excessive_nesting":
@@ -116,7 +126,7 @@ def materialize_vector(root: Path, mutation: str) -> Path:
         if path in files:
             entry["bytes"] = len(files[path])
             entry["sha256"] = _digest(files[path])
-    if mutation in {"sealed_receipt", "receipt_override"}:
+    if mutation in {"sealed_receipt", "receipt_override", "compound_lineage_artifact"}:
         content = files["run-receipt.json"]
         manifest["artifacts"].append(
             {
@@ -127,6 +137,12 @@ def materialize_vector(root: Path, mutation: str) -> Path:
                 "sha256": _digest(content),
             }
         )
+    if mutation in {
+        "compound_accounting_artifact",
+        "compound_semantics_artifact",
+        "compound_lineage_artifact",
+    }:
+        manifest["artifacts"][0]["sha256"] = "0" * 64
 
     manifest_bytes = _json_bytes(manifest)
     sidecar = (_digest(manifest_bytes) + "\n").encode()

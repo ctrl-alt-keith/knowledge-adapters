@@ -14,6 +14,7 @@ source is `tests/fixtures/source_package_conformance/vectors.json`.
 | Reject during terminal/item validation | inconsistent counts; nonterminal item in sealed package; completed item carrying an error |
 | Reject during lineage validation | optional receipt contradicts authoritative manifest lineage |
 | Reject at consumer-defined resource limits | manifest over 4096 fixture bytes; JSON deeper than 16 fixture levels |
+| Reject compound failures by earliest stage | terminal accounting before artifact integrity; item semantics before artifact integrity; lineage before artifact integrity |
 
 The resource-limit values are test parameters, not contract constants. The
 contract requires consumers to check their own manifest size limits before
@@ -27,3 +28,7 @@ Every vector is materialized and passed only to the public `verify_package`
 boundary from PR #316. Tests assert the result state, earliest stable rejection
 stage, and specified stable finding code. The fixture materializer remains
 contract-derived and does not import implementation helpers.
+
+Public-result safety tests also confirm schema version `2.0.0`, curated claims,
+exclusion of arbitrary extensions and fields, absence of raw-manifest access,
+and stage-bounded claims on rejection.

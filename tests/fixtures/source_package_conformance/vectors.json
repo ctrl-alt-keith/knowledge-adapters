@@ -27,6 +27,9 @@
     {"id":"invalid-outcome-error-combination","expected":"reject","stage":"item-semantics","code":"contradictory-item-error","mutation":"completed_with_error"},
     {"id":"receipt-overrides-manifest-lineage","expected":"reject","stage":"lineage","code":"receipt-lineage-conflict","mutation":"receipt_override"},
     {"id":"oversized-manifest","expected":"reject","stage":"envelope","code":"consumer-size-limit","mutation":"manifest_oversized","consumer_limit":{"manifest_bytes":4096}},
-    {"id":"excessive-nesting","expected":"reject","stage":"manifest-parse","code":"consumer-depth-limit","mutation":"manifest_excessive_nesting","consumer_limit":{"json_depth":16}}
+    {"id":"excessive-nesting","expected":"reject","stage":"manifest-parse","code":"consumer-depth-limit","mutation":"manifest_excessive_nesting","consumer_limit":{"json_depth":16}},
+    {"id":"accounting-precedes-artifact-corruption","expected":"reject","stage":"terminal-accounting","code":"terminal-count-mismatch","mutation":"compound_accounting_artifact"},
+    {"id":"item-semantics-precedes-artifact-corruption","expected":"reject","stage":"item-semantics","code":"contradictory-item-error","mutation":"compound_semantics_artifact"},
+    {"id":"lineage-precedes-artifact-corruption","expected":"reject","stage":"lineage","code":"receipt-lineage-conflict","mutation":"compound_lineage_artifact"}
   ]
 }
