@@ -24,7 +24,7 @@ from .models import (
 )
 
 CONTRACT_NAME = "knowledge-source-package"
-RESULT_SCHEMA_VERSION = "1.0.0"
+RESULT_SCHEMA_VERSION = "2.0.0"
 SIDECAR_RE = re.compile(rb"[0-9a-f]{64}\n\Z")
 SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
 RESERVED_MANIFEST_FIELDS = frozenset(
@@ -101,10 +101,10 @@ class VerificationStage(StrEnum):
     COMPATIBILITY = "compatibility"
     PATH_SAFETY = "path-safety"
     INVENTORY_COVERAGE = "inventory-coverage"
-    ARTIFACT_INTEGRITY = "artifact-integrity"
     TERMINAL_ACCOUNTING = "terminal-accounting"
     ITEM_SEMANTICS = "item-semantics"
     LINEAGE = "lineage"
+    ARTIFACT_INTEGRITY = "artifact-integrity"
     COMPLETE = "complete"
 
 
@@ -144,6 +144,36 @@ VerificationIssue = VerificationFinding
 
 
 @dataclass(frozen=True)
+class VerifiedAdapterClaims:
+    name: str | None = None
+    version: str | None = None
+    revision: str | None = None
+
+
+@dataclass(frozen=True)
+class VerifiedManifestClaims:
+    """Bounded, curated claims from verification stages that completed."""
+
+    schema_version: str = "1.0.0"
+    contract_name: str | None = None
+    contract_version: str | None = None
+    package_id: str | None = None
+    request_id: str | None = None
+    run_id: str | None = None
+    created_at: str | None = None
+    adapter: VerifiedAdapterClaims | None = None
+    status: str | None = None
+    counts: Mapping[str, int] | None = None
+    required_capabilities: tuple[str, ...] = ()
+    item_references: tuple[str, ...] = ()
+    request_reference: str | None = None
+    resumes_run_id: str | None = None
+    prior_run_ids: tuple[str, ...] = ()
+    prior_package_ids: tuple[str, ...] = ()
+    content_address: str | None = None
+
+
+@dataclass(frozen=True)
 class VerificationResult:
     schema_version: str
     verifier_version: str | None
@@ -151,7 +181,7 @@ class VerificationResult:
     last_completed_stage: VerificationStage
     findings: tuple[VerificationFinding, ...]
     content_address: str | None = None
-    manifest_claims: Mapping[str, Any] | None = None
+    verified_claims: VerifiedManifestClaims | None = None
 
     @property
     def ok(self) -> bool:
@@ -160,11 +190,6 @@ class VerificationResult:
     @property
     def issues(self) -> tuple[VerificationFinding, ...]:
         return self.findings
-
-    @property
-    def manifest(self) -> Mapping[str, Any] | None:
-        return self.manifest_claims
-
 
 def _bounded(value: object, limit: int = 200) -> str:
     text = str(value).replace("\n", "\\n").replace("\r", "\\r")
@@ -195,7 +220,7 @@ def _result(
     stage: VerificationStage,
     findings: Sequence[VerificationFinding] = (),
     content_address: str | None = None,
-    manifest: Mapping[str, Any] | None = None,
+    claims: VerifiedManifestClaims | None = None,
 ) -> VerificationResult:
     completed_stage = stage
     if state is not VerificationState.VERIFIED:
@@ -208,7 +233,70 @@ def _result(
         completed_stage,
         tuple(findings),
         content_address,
-        manifest,
+        claims,
+    )
+
+
+def _bounded_claim(value: object, limit: int = 200) -> str | None:
+    return value if isinstance(value, str) and len(value) <= limit else None
+
+
+def _bounded_string_tuple(value: object, *, limit: int = 256) -> tuple[str, ...]:
+    if not isinstance(value, list) or len(value) > limit:
+        return ()
+    if any(not isinstance(item, str) or len(item) > 200 for item in value):
+        return ()
+    return tuple(value)
+
+
+def _curated_claims(
+    manifest: Mapping[str, Any],
+    content_address: str,
+    *,
+    accounting: bool = False,
+    lineage: bool = False,
+) -> VerifiedManifestClaims:
+    adapter_value = manifest.get("adapter")
+    adapter = None
+    if isinstance(adapter_value, dict):
+        adapter = VerifiedAdapterClaims(
+            _bounded_claim(adapter_value.get("name")),
+            _bounded_claim(adapter_value.get("version")),
+            _bounded_claim(adapter_value.get("revision")),
+        )
+    counts_value = manifest.get("counts")
+    counts = None
+    if accounting and isinstance(counts_value, dict):
+        counts = {
+            key: value
+            for key, value in counts_value.items()
+            if isinstance(key, str) and type(value) is int
+        }
+    return VerifiedManifestClaims(
+        contract_name=_bounded_claim(manifest.get("contract_name")),
+        contract_version=_bounded_claim(manifest.get("contract_version")),
+        package_id=_bounded_claim(manifest.get("package_id")),
+        request_id=_bounded_claim(manifest.get("request_id")),
+        run_id=_bounded_claim(manifest.get("run_id")),
+        created_at=_bounded_claim(manifest.get("created_at")),
+        adapter=adapter,
+        status=_bounded_claim(manifest.get("status")) if accounting else None,
+        counts=counts,
+        required_capabilities=_bounded_string_tuple(manifest.get("required_capabilities")),
+        item_references=(
+            _bounded_string_tuple(manifest.get("items"), limit=10_000) if accounting else ()
+        ),
+        request_reference=_bounded_claim(manifest.get("request_path")),
+        resumes_run_id=(
+            _bounded_claim(manifest.get("resumes_run_id")) if lineage else None
+        ),
+        prior_run_ids=(
+            _bounded_string_tuple(manifest.get("prior_run_ids")) if lineage else ()
+        ),
+        prior_package_ids=(
+            _bounded_string_tuple(manifest.get("prior_package_ids")) if lineage else ()
+        ),
+        content_address=content_address,
     )
 
 
@@ -553,8 +641,9 @@ def verify_package(
             )
     if issues:
         return _result(
-            VerificationState.REJECTED, VerificationStage.COMPATIBILITY, issues, actual, manifest
+            VerificationState.REJECTED, VerificationStage.COMPATIBILITY, issues, actual
         )
+    compatibility_claims = _curated_claims(manifest, actual)
 
     inventory = manifest.get("artifacts")
     if not isinstance(inventory, list):
@@ -570,7 +659,7 @@ def verify_package(
                 ),
             ),
             actual,
-            manifest,
+            compatibility_claims,
         )
     expected_paths: set[str] = set()
     entries: dict[str, Mapping[str, Any]] = {}
@@ -604,7 +693,11 @@ def verify_package(
         entries[relative] = entry
     if issues:
         return _result(
-            VerificationState.REJECTED, VerificationStage.PATH_SAFETY, issues, actual, manifest
+            VerificationState.REJECTED,
+            VerificationStage.PATH_SAFETY,
+            issues,
+            actual,
+            compatibility_claims,
         )
 
     actual_paths: set[str] = set()
@@ -634,7 +727,7 @@ def verify_package(
                 ),
             ),
             actual,
-            manifest,
+            compatibility_claims,
         )
     if actual_paths - {"package.json", "package.sha256"} != expected_paths:
         issues.append(
@@ -650,62 +743,7 @@ def verify_package(
             VerificationStage.INVENTORY_COVERAGE,
             issues,
             actual,
-            manifest,
-        )
-
-    artifact_data: dict[str, bytes] = {}
-    for relative in sorted(expected_paths):
-        try:
-            data = package.joinpath(*PurePosixPath(relative).parts).read_bytes()
-        except OSError:
-            return _result(
-                VerificationState.INDETERMINATE_IO,
-                VerificationStage.INVENTORY_COVERAGE,
-                (
-                    _finding(
-                        "io-artifact-read-failure",
-                        VerificationStage.ARTIFACT_INTEGRITY,
-                        "could not read inventoried artifact",
-                        relative,
-                    ),
-                ),
-                actual,
-                manifest,
-            )
-        artifact_data[relative] = data
-        entry = entries[relative]
-        if type(entry.get("bytes")) is not int or entry["bytes"] != len(data):
-            issues.append(
-                _finding(
-                    "artifact-size-mismatch",
-                    VerificationStage.ARTIFACT_INTEGRITY,
-                    "artifact byte size mismatch",
-                    relative,
-                    len(data),
-                    entry.get("bytes"),
-                )
-            )
-        digest = entry.get("sha256")
-        if (
-            not isinstance(digest, str)
-            or not SHA256_RE.fullmatch(digest)
-            or digest != _digest(data)
-        ):
-            issues.append(
-                _finding(
-                    "artifact-digest-mismatch",
-                    VerificationStage.ARTIFACT_INTEGRITY,
-                    "artifact SHA-256 mismatch",
-                    relative,
-                )
-            )
-    if issues:
-        return _result(
-            VerificationState.REJECTED,
-            VerificationStage.ARTIFACT_INTEGRITY,
-            issues,
-            actual,
-            manifest,
+            compatibility_claims,
         )
 
     counts = manifest.get("counts")
@@ -741,15 +779,19 @@ def verify_package(
             VerificationStage.TERMINAL_ACCOUNTING,
             issues,
             actual,
-            manifest,
+            compatibility_claims,
         )
 
+    structural_data: dict[str, bytes] = {}
     observed = {value.value: 0 for value in ItemOutcome}
     parsed_items: list[tuple[str, Mapping[str, Any]]] = []
     assert isinstance(item_paths, list)
     for relative in item_paths:
         try:
-            item = json.loads(artifact_data[relative], object_pairs_hook=_unique_object)
+            structural_data[relative] = package.joinpath(
+                *PurePosixPath(relative).parts
+            ).read_bytes()
+            item = json.loads(structural_data[relative], object_pairs_hook=_unique_object)
             if not isinstance(item, dict):
                 raise ValueError
         except (
@@ -808,8 +850,10 @@ def verify_package(
             VerificationStage.TERMINAL_ACCOUNTING,
             issues,
             actual,
-            manifest,
+            compatibility_claims,
         )
+
+    accounting_claims = _curated_claims(manifest, actual, accounting=True)
 
     for relative, item in parsed_items:
         outcome = ItemOutcome(item["outcome"])
@@ -843,12 +887,16 @@ def verify_package(
             )
     if issues:
         return _result(
-            VerificationState.REJECTED, VerificationStage.ITEM_SEMANTICS, issues, actual, manifest
+            VerificationState.REJECTED,
+            VerificationStage.ITEM_SEMANTICS,
+            issues,
+            actual,
+            accounting_claims,
         )
 
     receipt_path = manifest.get("run_receipt")
     if receipt_path is not None:
-        if not isinstance(receipt_path, str) or receipt_path not in artifact_data:
+        if not isinstance(receipt_path, str) or receipt_path not in expected_paths:
             issues.append(
                 _finding(
                     "invalid-run-receipt-reference",
@@ -859,8 +907,13 @@ def verify_package(
             )
         else:
             try:
-                receipt = json.loads(artifact_data[receipt_path], object_pairs_hook=_unique_object)
-            except (UnicodeDecodeError, json.JSONDecodeError, _DuplicateKey):
+                structural_data[receipt_path] = package.joinpath(
+                    *PurePosixPath(receipt_path).parts
+                ).read_bytes()
+                receipt = json.loads(
+                    structural_data[receipt_path], object_pairs_hook=_unique_object
+                )
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError, _DuplicateKey):
                 receipt = None
                 issues.append(
                     _finding(
@@ -891,6 +944,72 @@ def verify_package(
                         )
     if issues:
         return _result(
-            VerificationState.REJECTED, VerificationStage.LINEAGE, issues, actual, manifest
+            VerificationState.REJECTED,
+            VerificationStage.LINEAGE,
+            issues,
+            actual,
+            accounting_claims,
         )
-    return _result(VerificationState.VERIFIED, VerificationStage.COMPLETE, (), actual, manifest)
+
+    lineage_claims = _curated_claims(manifest, actual, accounting=True, lineage=True)
+    for relative in sorted(expected_paths):
+        try:
+            data = structural_data.get(relative)
+            if data is None:
+                data = package.joinpath(*PurePosixPath(relative).parts).read_bytes()
+        except OSError:
+            return _result(
+                VerificationState.INDETERMINATE_IO,
+                VerificationStage.LINEAGE,
+                (
+                    _finding(
+                        "io-artifact-read-failure",
+                        VerificationStage.ARTIFACT_INTEGRITY,
+                        "could not read inventoried artifact",
+                        relative,
+                    ),
+                ),
+                actual,
+                lineage_claims,
+            )
+        entry = entries[relative]
+        if type(entry.get("bytes")) is not int or entry["bytes"] != len(data):
+            issues.append(
+                _finding(
+                    "artifact-size-mismatch",
+                    VerificationStage.ARTIFACT_INTEGRITY,
+                    "artifact byte size mismatch",
+                    relative,
+                    len(data),
+                    entry.get("bytes"),
+                )
+            )
+        digest = entry.get("sha256")
+        if (
+            not isinstance(digest, str)
+            or not SHA256_RE.fullmatch(digest)
+            or digest != _digest(data)
+        ):
+            issues.append(
+                _finding(
+                    "artifact-digest-mismatch",
+                    VerificationStage.ARTIFACT_INTEGRITY,
+                    "artifact SHA-256 mismatch",
+                    relative,
+                )
+            )
+    if issues:
+        return _result(
+            VerificationState.REJECTED,
+            VerificationStage.ARTIFACT_INTEGRITY,
+            issues,
+            actual,
+            lineage_claims,
+        )
+    return _result(
+        VerificationState.VERIFIED,
+        VerificationStage.COMPLETE,
+        (),
+        actual,
+        lineage_claims,
+    )

@@ -8,6 +8,8 @@ from .core import (
     VerificationResult,
     VerificationStage,
     VerificationState,
+    VerifiedAdapterClaims,
+    VerifiedManifestClaims,
     canonical_json_bytes,
     verify_package,
 )
@@ -31,6 +33,8 @@ __all__ = [
     "PackageItem",
     "SealResult",
     "VerificationIssue",
+    "VerifiedAdapterClaims",
+    "VerifiedManifestClaims",
     "VerificationResult",
     "VerificationStage",
     "VerificationState",

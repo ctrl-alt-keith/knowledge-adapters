@@ -1,5 +1,8 @@
+import hashlib
 import json
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import patch
 
 from knowledge_adapters.source_package import (
@@ -38,6 +41,21 @@ def builder() -> PackageBuilder:
     return value
 
 
+def rewrite_manifest(
+    destination: Path, mutate: Callable[[dict[str, Any]], None]
+) -> dict[str, Any]:
+    manifest = cast(dict[str, Any], json.loads((destination / "package.json").read_bytes()))
+    mutate(manifest)
+    manifest_bytes = (
+        json.dumps(manifest, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
+    ).encode()
+    (destination / "package.json").write_bytes(manifest_bytes)
+    (destination / "package.sha256").write_text(
+        hashlib.sha256(manifest_bytes).hexdigest() + "\n"
+    )
+    return manifest
+
+
 def test_seal_is_deterministic_and_verifiable(tmp_path: Path) -> None:
     first, second = tmp_path / "first", tmp_path / "second"
     one, two = builder().seal(first), builder().seal(second)
@@ -64,7 +82,7 @@ def test_verifier_rejects_manifest_before_parsing(tmp_path: Path) -> None:
     assert result.issues[0].code == "manifest-digest-mismatch"
     assert result.last_completed_stage == "sidecar-format"
     assert result.findings[0].stage == "manifest-digest"
-    assert result.manifest_claims is None
+    assert result.verified_claims is None
 
 
 def test_builder_rejects_unsafe_paths() -> None:
@@ -117,8 +135,6 @@ def test_verifier_rejects_duplicate_manifest_keys_after_digest(tmp_path: Path) -
     assert builder().seal(destination).ok
     manifest = (destination / "package.json").read_bytes()
     duplicate = manifest.replace(b'{"adapter":', b'{"run_id":"other","adapter":', 1)
-    import hashlib
-
     (destination / "package.json").write_bytes(duplicate)
     (destination / "package.sha256").write_text(hashlib.sha256(duplicate).hexdigest() + "\n")
     result = verify_package(destination)
@@ -134,3 +150,91 @@ def test_verifier_applies_consumer_json_depth_limit(tmp_path: Path) -> None:
     result = verify_package(destination, max_json_depth=2)
     assert result.state == "rejected"
     assert result.findings[0].code == "consumer-depth-limit"
+
+
+def test_accounting_precedes_candidate_artifact_integrity(tmp_path: Path) -> None:
+    destination = tmp_path / "package"
+    value = builder()
+    value.add_artifact(
+        Artifact("artifacts/one.md", b"original\n", "normalized-content", "text/markdown")
+    )
+    assert value.seal(destination).ok
+    rewrite_manifest(destination, lambda manifest: manifest["counts"].update(completed=2))
+    (destination / "artifacts/one.md").write_bytes(b"corrupt\n")
+    result = verify_package(destination)
+    assert result.findings[0].stage == "terminal-accounting"
+    assert result.last_completed_stage == "inventory-coverage"
+
+
+def test_item_semantics_precedes_candidate_artifact_integrity(tmp_path: Path) -> None:
+    destination = tmp_path / "package"
+    value = builder()
+    value.add_artifact(
+        Artifact("artifacts/one.md", b"original\n", "normalized-content", "text/markdown")
+    )
+    assert value.seal(destination).ok
+    item_path = destination / "items/one.json"
+    item = json.loads(item_path.read_bytes())
+    item["error"] = {"category": "contradiction"}
+    item_path.write_bytes((json.dumps(item, sort_keys=True, separators=(",", ":")) + "\n").encode())
+    (destination / "artifacts/one.md").write_bytes(b"corrupt\n")
+    result = verify_package(destination)
+    assert result.findings[0].stage == "item-semantics"
+    assert result.last_completed_stage == "terminal-accounting"
+
+
+def test_lineage_precedes_candidate_artifact_integrity(tmp_path: Path) -> None:
+    destination = tmp_path / "package"
+    value = builder()
+    value.add_artifact(
+        Artifact("artifacts/one.md", b"original\n", "normalized-content", "text/markdown")
+    )
+    value.add_artifact(
+        Artifact(
+            "run-receipt.json",
+            b'{"run_id":"other"}\n',
+            "run-receipt",
+            "application/json",
+        )
+    )
+    assert value.seal(destination).ok
+    rewrite_manifest(destination, lambda manifest: manifest.update(run_receipt="run-receipt.json"))
+    (destination / "artifacts/one.md").write_bytes(b"corrupt\n")
+    result = verify_package(destination)
+    assert result.findings[0].stage == "lineage"
+    assert result.last_completed_stage == "item-semantics"
+
+
+def test_verified_claims_are_curated_bounded_and_not_raw_manifest(tmp_path: Path) -> None:
+    destination = tmp_path / "package"
+    value = PackageBuilder(
+        package_id="x" * 201,
+        request=request(),
+        run_id="run-1",
+        created_at="2026-07-10T00:00:00Z",
+        adapter=AdapterIdentity("fixture", "1.0.0"),
+        boundary={"live": "fixture", "deterministic": "assembly"},
+        extensions={"org.example.provider": {"secretish": "not-a-claim"}},
+    )
+    value.add_item(PackageItem("one", "document", ItemOutcome.COMPLETED))
+    assert value.seal(destination).ok
+    rewrite_manifest(destination, lambda manifest: manifest.update(arbitrary="not-a-claim"))
+    result = verify_package(destination)
+    assert result.ok and result.schema_version == "2.0.0"
+    assert result.verified_claims is not None
+    assert result.verified_claims.package_id is None
+    assert not hasattr(result.verified_claims, "extensions")
+    assert not hasattr(result.verified_claims, "arbitrary")
+    assert not hasattr(result, "manifest")
+    assert not hasattr(result, "manifest_claims")
+
+
+def test_rejected_result_only_exposes_claims_from_completed_stages(tmp_path: Path) -> None:
+    destination = tmp_path / "package"
+    assert builder().seal(destination).ok
+    rewrite_manifest(destination, lambda manifest: manifest["counts"].update(completed=2))
+    result = verify_package(destination)
+    assert result.verified_claims is not None
+    assert result.verified_claims.package_id == "pkg-1"
+    assert result.verified_claims.status is None
+    assert result.verified_claims.counts is None
