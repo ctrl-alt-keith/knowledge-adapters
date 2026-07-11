@@ -92,6 +92,15 @@ def creator_track(language: str = "en") -> CaptionTrack:
     )
 
 
+def observed_automatic_track() -> CaptionTrack:
+    return CaptionTrack(
+        "en",
+        CaptionKind.AUTOMATIC,
+        "vtt",
+        (FIXTURES / "automatic-timing-blank-text.vtt").read_bytes(),
+    )
+
+
 def video(video_id: str, *tracks: CaptionTrack) -> VideoObservation:
     return VideoObservation(
         video_id,
@@ -196,6 +205,36 @@ def test_automatic_rolling_cues_are_collapsed() -> None:
     assert result.data == b"Rolling captions settle.\n"
 
 
+def test_automatic_timing_blank_text_shape_is_normalized_deterministically() -> None:
+    data = (FIXTURES / "automatic-timing-blank-text.vtt").read_bytes()
+
+    first = normalize_webvtt(data, automatic=True)
+    second = normalize_webvtt(data, automatic=True)
+
+    assert first.data == b"Synthetic words extend\n\nFinal synthetic cue.\n"
+    assert second.data == first.data
+
+
+def test_timing_blank_text_shape_remains_invalid_for_creator_captions() -> None:
+    with pytest.raises(CaptionNormalizationError, match="malformed WebVTT cue"):
+        normalize_webvtt(
+            (FIXTURES / "automatic-timing-blank-text.vtt").read_bytes(), automatic=False
+        )
+
+
+def test_standalone_text_without_timing_context_is_rejected() -> None:
+    with pytest.raises(CaptionNormalizationError, match="malformed WebVTT cue"):
+        normalize_webvtt(b"WEBVTT\n\nstandalone text\n", automatic=True)
+
+
+def test_multiple_blanks_after_timing_remain_malformed() -> None:
+    with pytest.raises(CaptionNormalizationError, match="malformed WebVTT cue"):
+        normalize_webvtt(
+            b"WEBVTT\n\n00:00:00.000 --> 00:00:01.000\n\n\nstandalone text\n",
+            automatic=True,
+        )
+
+
 def test_malformed_webvtt_is_rejected() -> None:
     with pytest.raises(CaptionNormalizationError):
         normalize_webvtt((FIXTURES / "malformed.vtt").read_bytes(), automatic=False)
@@ -217,6 +256,18 @@ def test_single_video_produces_publicly_verified_package_without_raw_caption(
     assert not any(path.endswith("captured.vtt") for path in files)
     all_bytes = b"".join(path.read_bytes() for path in package.rglob("*") if path.is_file())
     assert b"signature=" not in all_bytes and b"secret" not in all_bytes
+
+
+def test_observed_automatic_shape_produces_verified_normalized_artifact(
+    tmp_path: Path,
+) -> None:
+    package = produce(tmp_path, single_client(observed_automatic_track()))
+    result = verify_package(package)
+    normalized = package / "artifacts/youtube-video-video_001/normalized.md"
+
+    assert result.ok
+    assert normalized.read_bytes() == b"Synthetic words extend\n\nFinal synthetic cue.\n"
+    assert not any(path.suffix == ".vtt" for path in package.rglob("*"))
 
 
 def test_raw_caption_is_retained_only_by_opt_in(tmp_path: Path) -> None:
