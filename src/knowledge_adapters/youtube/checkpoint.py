@@ -14,7 +14,7 @@ from knowledge_adapters.source_package import canonical_json_bytes
 
 from .config import MAX_CAPTION_BYTES, MAX_COLLECTION_ITEMS, VIDEO_ID_RE
 
-CHECKPOINT_SCHEMA_VERSION = "1.2.0"
+CHECKPOINT_SCHEMA_VERSION = "1.3.0"
 MAX_CHECKPOINT_BYTES = 1024 * 1024
 MAX_CHECKPOINT_JSON_DEPTH = 8
 DIGEST_RE = re.compile(r"[0-9a-f]{64}\Z")
@@ -32,7 +32,7 @@ class CompletedCheckpointItem:
     normalized_sha256: str
     outcome: str
     attempts: int
-    captured_path: str
+    captured_path: str | None
     normalized_path: str
     resolved_locator: str
     title: str | None
@@ -82,6 +82,7 @@ class YouTubeCheckpoint:
     last_successful_boundary: str
     run_id: str
     package_id: str
+    retain_raw_captions: bool = False
     prior_run_ids: tuple[str, ...] = ()
     prior_package_ids: tuple[str, ...] = ()
     schema_version: str = CHECKPOINT_SCHEMA_VERSION
@@ -102,6 +103,7 @@ class YouTubeCheckpoint:
             "last_successful_boundary": self.last_successful_boundary,
             "run_id": self.run_id,
             "package_id": self.package_id,
+            "retain_raw_captions": self.retain_raw_captions,
             "prior_run_ids": list(self.prior_run_ids),
             "prior_package_ids": list(self.prior_package_ids),
         }
@@ -164,21 +166,25 @@ def save_checkpoint_artifacts(
     checkpoint_path: Path,
     *,
     video_id: str,
-    captured: bytes,
+    captured: bytes | None,
     normalized: bytes,
-) -> tuple[str, str]:
+) -> tuple[str | None, str]:
     if not VIDEO_ID_RE.fullmatch(video_id):
         raise ValueError("unsafe checkpoint video ID")
-    if len(captured) > MAX_CAPTION_BYTES or len(normalized) > MAX_CAPTION_BYTES:
+    if (captured is not None and len(captured) > MAX_CAPTION_BYTES) or len(
+        normalized
+    ) > MAX_CAPTION_BYTES:
         raise ValueError("checkpoint artifact byte limit exceeded")
     root_name = f"{checkpoint_path.stem}.data"
     relative_root = PurePosixPath(root_name, f"youtube-video-{video_id}")
-    captured_relative = (relative_root / "captured.vtt").as_posix()
+    captured_relative = (
+        (relative_root / "captured.vtt").as_posix() if captured is not None else None
+    )
     normalized_relative = (relative_root / "normalized.md").as_posix()
-    for relative, data in (
-        (captured_relative, captured),
-        (normalized_relative, normalized),
-    ):
+    artifacts = [(normalized_relative, normalized)]
+    if captured_relative is not None and captured is not None:
+        artifacts.append((captured_relative, captured))
+    for relative, data in artifacts:
         destination = _artifact_path(checkpoint_path, relative)
         destination.parent.mkdir(parents=True, exist_ok=True)
         temporary = destination.with_name(f".{destination.name}.tmp-{os.getpid()}")
@@ -189,12 +195,18 @@ def save_checkpoint_artifacts(
 
 def read_completed_artifacts(
     checkpoint_path: Path, item: CompletedCheckpointItem
-) -> tuple[bytes, bytes]:
-    captured = _read_bounded(_artifact_path(checkpoint_path, item.captured_path), MAX_CAPTION_BYTES)
+) -> tuple[bytes | None, bytes]:
+    captured = (
+        _read_bounded(_artifact_path(checkpoint_path, item.captured_path), MAX_CAPTION_BYTES)
+        if item.captured_path is not None
+        else None
+    )
     normalized = _read_bounded(
         _artifact_path(checkpoint_path, item.normalized_path), MAX_CAPTION_BYTES
     )
-    if _digest(captured) != item.captured_sha256 or _digest(normalized) != item.normalized_sha256:
+    if (
+        captured is not None and _digest(captured) != item.captured_sha256
+    ) or _digest(normalized) != item.normalized_sha256:
         raise ValueError("checkpoint artifact digest mismatch")
     return captured, normalized
 
@@ -238,6 +250,7 @@ def load_checkpoint(
     expected_fingerprint: str,
     expected_adapter_version: str | None = None,
     expected_contract_version: str | None = None,
+    expected_retain_raw_captions: bool | None = None,
 ) -> YouTubeCheckpoint:
     try:
         raw: Any = json.loads(_read_bounded(path, MAX_CHECKPOINT_BYTES))
@@ -272,6 +285,7 @@ def load_checkpoint(
             last_successful_boundary=raw["last_successful_boundary"],
             run_id=raw["run_id"],
             package_id=raw["package_id"],
+            retain_raw_captions=raw["retain_raw_captions"],
             prior_run_ids=tuple(raw["prior_run_ids"]),
             prior_package_ids=tuple(raw["prior_package_ids"]),
         )
@@ -344,6 +358,11 @@ def load_checkpoint(
         or not checkpoint.package_id
         or len(checkpoint.run_id) > 200
         or len(checkpoint.package_id) > 200
+        or type(checkpoint.retain_raw_captions) is not bool
+        or any(
+            (item.captured_path is None) == checkpoint.retain_raw_captions
+            for item in checkpoint.completed
+        )
         or len(set(checkpoint.prior_run_ids)) != len(checkpoint.prior_run_ids)
         or len(set(checkpoint.prior_package_ids)) != len(checkpoint.prior_package_ids)
         or any(
@@ -366,6 +385,11 @@ def load_checkpoint(
         and checkpoint.contract_version != expected_contract_version
     ):
         raise ValueError("checkpoint contract version mismatch")
+    if (
+        expected_retain_raw_captions is not None
+        and checkpoint.retain_raw_captions != expected_retain_raw_captions
+    ):
+        raise ValueError("checkpoint raw-caption retention mismatch")
     for item in checkpoint.completed:
         read_completed_artifacts(path, item)
     return checkpoint

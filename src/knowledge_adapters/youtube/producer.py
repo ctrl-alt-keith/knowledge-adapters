@@ -48,6 +48,7 @@ from .models import (
 from .normalize import (
     NORMALIZER_NAME,
     NORMALIZER_VERSION,
+    TRANSFORMS,
     CaptionNormalizationError,
     normalize_webvtt,
 )
@@ -332,6 +333,69 @@ def _checkpointed_item(
     options: YouTubeOptions,
 ) -> tuple[PackageItem, tuple[Artifact, ...]]:
     captured, normalized = read_completed_artifacts(checkpoint_path, cached)
+    if captured is None:
+        item_id = f"youtube-video-{cached.video_id}"
+        normalized_path = f"artifacts/{item_id}/normalized.md"
+        artifact = Artifact(
+            normalized_path, normalized, "normalized-content", "text/markdown"
+        )
+        fields: dict[str, object] = {
+            "requested_locator": options.locator,
+            "resolved_locator": cached.resolved_locator,
+            "canonical_locator": f"https://www.youtube.com/watch?v={cached.video_id}",
+            "provenance": {"provider": "youtube", "provider_resource_id": cached.video_id},
+            "language": cached.language,
+            "artifacts": [normalized_path],
+            "captured_sha256": cached.captured_sha256,
+            "normalized_sha256": cached.normalized_sha256,
+            "normalization": {
+                "name": NORMALIZER_NAME,
+                "version": NORMALIZER_VERSION,
+                "transforms": list(TRANSFORMS),
+            },
+            "extensions": {
+                YOUTUBE_EXTENSION: {
+                    **({"playlist_id": cached.playlist_id} if cached.playlist_id else {}),
+                    **(
+                        {"source_position": cached.source_position}
+                        if cached.source_position is not None
+                        else {}
+                    ),
+                    "caption_kind": cached.caption_kind,
+                    "selected_track": {
+                        "language": cached.language,
+                        "format": cached.caption_format,
+                        **({"name": cached.caption_name} if cached.caption_name else {}),
+                    },
+                    "selection_reason": "checkpoint-preserved-normalized-content",
+                    "available_candidates": [
+                        {
+                            "language": cached.language,
+                            "kind": cached.caption_kind,
+                            "format": cached.caption_format,
+                            **({"name": cached.caption_name} if cached.caption_name else {}),
+                        }
+                    ],
+                }
+            },
+        }
+        for key, value in (
+            ("title", cached.title),
+            ("creator", cached.channel),
+            ("published_at", cached.published_at),
+        ):
+            if value is not None:
+                fields[key] = value
+        if cached.playlist_id:
+            fields["parents"] = [
+                {
+                    "resource_kind": "collection",
+                    "canonical_locator": (
+                        f"https://www.youtube.com/playlist?list={cached.playlist_id}"
+                    ),
+                }
+            ]
+        return PackageItem(item_id, "video", ItemOutcome.UNCHANGED, fields), (artifact,)
     kind = CaptionKind(cached.caption_kind)
     observation = VideoObservation(
         cached.video_id,
@@ -392,7 +456,7 @@ def _cache_completed(
     captured_path, normalized_path = save_checkpoint_artifacts(
         checkpoint_path,
         video_id=entry.video_id,
-        captured=selection.track.data,
+        captured=selection.track.data if options.retain_raw_captions else None,
         normalized=normalized,
     )
     return CompletedCheckpointItem(
@@ -511,6 +575,7 @@ def produce_package(
             expected_fingerprint=fingerprint,
             expected_adapter_version=ADAPTER_VERSION,
             expected_contract_version="1.1.0",
+            expected_retain_raw_captions=options.retain_raw_captions,
         )
         rediscovered = tuple(entry.video_id for entry in entries)
         preserved_ids, _ = reconcile_video_ids(checkpoint, rediscovered)
@@ -698,6 +763,7 @@ def produce_package(
                 "package-verified",
                 run_id,
                 package_id,
+                options.retain_raw_captions,
                 tuple((*checkpoint.prior_run_ids, checkpoint.run_id)) if checkpoint else (),
                 (
                     tuple((*checkpoint.prior_package_ids, checkpoint.package_id))

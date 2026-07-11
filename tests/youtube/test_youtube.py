@@ -404,7 +404,24 @@ def test_partial_batch_seals_continuation_and_checkpoints_completed_bytes(
         "video_002",
     ]
     assert checkpoint_json["pending_video_ids"] == ["video_003"]
+    assert checkpoint_json["schema_version"] == "1.3.0"
+    assert checkpoint_json["retain_raw_captions"] is False
     assert all(len(item["normalized_sha256"]) == 64 for item in checkpoint_json["completed"])
+    assert all(item["captured_path"] is None for item in checkpoint_json["completed"])
+    checkpoint_files = [path for path in tmp_path.rglob("*") if path.is_file()]
+    checkpoint_bytes = b"".join(
+        path.read_bytes()
+        for path in checkpoint_files
+        if path == checkpoint_path or ".data" in path.as_posix()
+    )
+    assert b"WEBVTT" not in checkpoint_bytes
+    assert b"00:00:00.000 -->" not in checkpoint_bytes
+    assert creator_track().data not in checkpoint_bytes
+    assert not any(path.suffix == ".vtt" for path in checkpoint_files)
+    assert not any(
+        token in checkpoint_bytes.lower()
+        for token in (b"signature=", b"cookie=", b"authorization=", b"credential=", b"token=")
+    )
     resumed = replace(
         opts,
         checkpoint_input=checkpoint_path,
@@ -452,10 +469,71 @@ def test_partial_batch_seals_continuation_and_checkpoints_completed_bytes(
     ]
     assert next_json["pending_video_ids"] == []
     completed = next_json["completed"][0]
-    assert (tmp_path / completed["captured_path"]).read_bytes() == creator_track().data
+    assert completed["captured_path"] is None
     assert (tmp_path / completed["normalized_path"]).read_bytes() == (
         b"Hello from the creator.\n\n**Ada:** Welcome aboard.\n"
     )
+
+
+def test_raw_retention_opt_in_applies_to_package_and_checkpoint(tmp_path: Path) -> None:
+    checkpoint_path = tmp_path / "checkpoint.json"
+    result = produce_package(
+        YouTubeOptions(
+            PLAYLIST,
+            ScopeKind.COLLECTION,
+            1,
+            retain_raw_captions=True,
+            checkpoint_output=checkpoint_path,
+        ),
+        single_client(creator_track()),
+        request_id="request",
+        run_id="run",
+        package_id="package",
+        created_at="2026-07-10T00:00:00Z",
+        destination=tmp_path / "package",
+    )
+    assert result.verification.verified_claims is not None
+    checkpoint = json.loads(checkpoint_path.read_bytes())
+    assert checkpoint["retain_raw_captions"] is True
+    completed = checkpoint["completed"][0]
+    assert (tmp_path / completed["captured_path"]).read_bytes() == creator_track().data
+    assert (tmp_path / "package/artifacts/youtube-video-video_001/captured.vtt").is_file()
+
+
+def test_legacy_raw_checkpoint_and_retention_mode_change_fail_closed(tmp_path: Path) -> None:
+    checkpoint_path = tmp_path / "checkpoint.json"
+    opts = YouTubeOptions(
+        PLAYLIST,
+        ScopeKind.COLLECTION,
+        1,
+        checkpoint_output=checkpoint_path,
+    )
+    produce_package(
+        opts,
+        single_client(creator_track()),
+        request_id="request",
+        run_id="run",
+        package_id="package",
+        created_at="2026-07-10T00:00:00Z",
+        destination=tmp_path / "package",
+    )
+    fingerprint = request_fingerprint(opts.acquisition_request("ignored", tmp_path).as_dict())
+    current = json.loads(checkpoint_path.read_bytes())
+    current["schema_version"] = "1.2.0"
+    current["completed"][0]["captured_path"] = "checkpoint.data/video/captured.vtt"
+    checkpoint_path.write_text(json.dumps(current))
+    with pytest.raises(ValueError, match="unsupported checkpoint schema"):
+        load_checkpoint(checkpoint_path, expected_fingerprint=fingerprint)
+
+    current["schema_version"] = "1.3.0"
+    current["completed"][0]["captured_path"] = None
+    checkpoint_path.write_text(json.dumps(current))
+    with pytest.raises(ValueError, match="raw-caption retention mismatch"):
+        load_checkpoint(
+            checkpoint_path,
+            expected_fingerprint=current["request_fingerprint"],
+            expected_retain_raw_captions=True,
+        )
 
 
 def test_fully_processed_bounded_collection_claims_exhausted(tmp_path: Path) -> None:
@@ -629,6 +707,7 @@ def test_checkpoint_validation_and_changed_playlist_reconciliation(tmp_path: Pat
         "item:video_001",
         "run-fixture",
         "package-fixture",
+        True,
     )
     save_checkpoint(checkpoint, path)
     loaded = load_checkpoint(path, expected_fingerprint=fingerprint)
@@ -677,7 +756,7 @@ def test_checkpoint_read_and_depth_are_bounded(tmp_path: Path) -> None:
     path.write_text(
         json.dumps(
             {
-                "schema_version": "1.2.0",
+                "schema_version": "1.3.0",
                 "request_fingerprint": "0" * 64,
                 "bounded_discovery": nested,
             }

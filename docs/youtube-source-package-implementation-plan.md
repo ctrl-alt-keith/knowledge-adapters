@@ -124,7 +124,7 @@ curated verifier claims.
 
 ## Checkpoint, Batching, And Resume
 
-Checkpoint state is mutable and adapter-local, never inventoried. It should contain schema version, request fingerprint, contract and adapter versions, playlist ID, discovery observation, next source position/cursor when safe, completed video IDs with captured/normalized digests, terminal outcomes, attempt counts, pending IDs, and the last successful boundary.
+Checkpoint state is mutable and adapter-local, never inventoried. It should contain schema version, request fingerprint, contract and adapter versions, playlist ID, discovery observation, next source position/cursor when safe, completed video IDs with captured/normalized digests, terminal outcomes, attempt counts, pending IDs, and the last successful boundary. Raw-caption retention applies to this mutable durable state as well as the sealed package: disabled retention permits normalized bytes and bounded structural metadata but no raw caption bytes; enabled retention may preserve raw bytes needed to reproduce the opted-in package artifact.
 
 Because playlist membership and order can change, a raw yt-dlp archive is
 insufficient as the canonical checkpoint. On resume, rediscover within the
@@ -132,6 +132,9 @@ requested bound unless a documented provider cursor is proven safe, reconcile
 by video ID, verify saved artifact digests, preserve matching completed work,
 and start a new `run_id` with builder-owned manifest lineage. `batch_size`
 limits attempted items in one run; `max_items` limits total collection scope.
+Incomplete acquisition, reads, or normalization do not become completed
+checkpoint items and are reacquired. Incompatible legacy checkpoint schemas or
+retention modes fail closed instead of silently carrying raw bytes forward.
 
 The shared representation is contract 1.1 `CollectionProgress`: record the
 bounded scope and batch limit in the typed request, then record either

@@ -86,19 +86,29 @@ is limited to 1 MiB, depth 8, and the 500-item collection bound. It is versioned
 and records a request fingerprint, adapter and contract
 versions, playlist identity, discovery IDs, completed IDs and digests,
 outcomes, attempts, pending IDs, continuation evidence, and last successful
-boundary. Checkpoint schema 1.2 also stores the bounded typed identity,
+boundary. Checkpoint schema 1.3 also stores the bounded typed identity,
 locator, observed metadata, caption selection, collection relationship, run,
 package, and prior-lineage fields required to reconstruct preserved completed
-items without copying a manifest model. Resume validates schema, fingerprint,
-adapter version, and contract version, then reconciles rediscovery by video ID.
-Completed bytes live under
+items without copying a manifest model. `retain_raw_captions` governs every
+durable adapter-managed surface. When false, raw caption bytes are omitted from
+the package, checkpoint, diagnostics, receipts, and logs; completed checkpoints
+retain only normalized bytes, digests, bounded selected-track metadata,
+normalization provenance, and structural resume state. When explicitly true,
+the checkpoint may retain raw bytes so resume can preserve the opted-in package
+artifact without reacquisition.
+
+Resume validates schema, fingerprint, adapter version, contract version, and
+retention mode, then reconciles rediscovery by video ID. Completed bytes live under
 checkpoint-owned relative paths in `<checkpoint-stem>.data/`; regular-file,
 path, 8 MiB, and SHA-256 checks run on load. Resume copies only matching
 verified bytes into the next checkpoint, drops disappeared IDs, and marks new
 IDs pending. Attempt counts are cumulative across checkpoints while the retry
 limit applies independently to the new run, so failure-to-success transitions
 record the additional attempt. A raw yt-dlp archive is not a canonical
-checkpoint.
+checkpoint. Schema 1.2 checkpoints are rejected rather than silently migrated,
+preventing legacy raw-caption state from crossing a disabled-retention boundary.
+Work interrupted before successful normalization is not completed and is
+reacquired on resume.
 
 ## Canonical Collection Progress And Resume
 
