@@ -7,14 +7,13 @@ from unittest.mock import patch
 
 import pytest
 
+from knowledge_adapters.source_package import core as source_package_core
 from knowledge_adapters.source_package import verify_package
 from tests.source_package_fixtures import materialize_vector
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "source_package_conformance"
 MATRIX = json.loads((FIXTURE_ROOT / "vectors.json").read_text(encoding="utf-8"))
 VECTORS = MATRIX["vectors"]
-ORIGINAL_READ_BYTES = Path.read_bytes
-
 
 def test_matrix_has_unique_cases_and_all_requested_boundaries() -> None:
     ids = [vector["id"] for vector in VECTORS]
@@ -113,14 +112,11 @@ def test_rejected_result_claims_follow_completed_stage(tmp_path: Path) -> None:
 
 def test_public_verifier_structures_item_read_failure(tmp_path: Path) -> None:
     package = materialize_vector(tmp_path, "minimal_completed")
-    item_path = package / "items/item-001.json"
-
-    def read_bytes(path: Path) -> bytes:
-        if path == item_path:
+    def read_hook(phase: str, package_root: Path, relative: str) -> None:
+        if phase == "before_path_stat" and relative == "items/item-001.json":
             raise OSError("simulated item read failure")
-        return ORIGINAL_READ_BYTES(path)
 
-    with patch.object(Path, "read_bytes", autospec=True, side_effect=read_bytes):
+    with patch.object(source_package_core, "_PACKAGE_READ_TEST_HOOK", read_hook):
         result = verify_package(package)
     assert result.state == "indeterminate_io"
     assert result.findings[0].code == "io-item-read-failure"
@@ -130,14 +126,11 @@ def test_public_verifier_structures_item_read_failure(tmp_path: Path) -> None:
 
 def test_public_verifier_structures_receipt_read_failure(tmp_path: Path) -> None:
     package = materialize_vector(tmp_path, "sealed_receipt")
-    receipt_path = package / "run-receipt.json"
-
-    def read_bytes(path: Path) -> bytes:
-        if path == receipt_path:
+    def read_hook(phase: str, package_root: Path, relative: str) -> None:
+        if phase == "before_path_stat" and relative == "run-receipt.json":
             raise OSError("simulated receipt read failure")
-        return ORIGINAL_READ_BYTES(path)
 
-    with patch.object(Path, "read_bytes", autospec=True, side_effect=read_bytes):
+    with patch.object(source_package_core, "_PACKAGE_READ_TEST_HOOK", read_hook):
         result = verify_package(package)
     assert result.state == "indeterminate_io"
     assert result.findings[0].code == "io-run-receipt-read-failure"
@@ -147,18 +140,17 @@ def test_public_verifier_structures_receipt_read_failure(tmp_path: Path) -> None
 
 def test_public_verifier_rechecks_changed_item_at_integrity(tmp_path: Path) -> None:
     package = materialize_vector(tmp_path, "minimal_completed")
-    item_path = package / "items/item-001.json"
     calls = 0
 
-    def read_bytes(path: Path) -> bytes:
+    def read_hook(phase: str, package_root: Path, relative: str) -> None:
         nonlocal calls
-        if path == item_path:
+        if phase == "before_path_stat" and relative == "items/item-001.json":
             calls += 1
             if calls == 2:
-                return ORIGINAL_READ_BYTES(path) + b" "
-        return ORIGINAL_READ_BYTES(path)
+                item_path = package_root / relative
+                item_path.write_bytes(item_path.read_bytes() + b" ")
 
-    with patch.object(Path, "read_bytes", autospec=True, side_effect=read_bytes):
+    with patch.object(source_package_core, "_PACKAGE_READ_TEST_HOOK", read_hook):
         result = verify_package(package)
     assert calls == 2
     assert result.state == "rejected"
@@ -168,18 +160,17 @@ def test_public_verifier_rechecks_changed_item_at_integrity(tmp_path: Path) -> N
 
 def test_public_verifier_rechecks_changed_receipt_at_integrity(tmp_path: Path) -> None:
     package = materialize_vector(tmp_path, "sealed_receipt")
-    receipt_path = package / "run-receipt.json"
     calls = 0
 
-    def read_bytes(path: Path) -> bytes:
+    def read_hook(phase: str, package_root: Path, relative: str) -> None:
         nonlocal calls
-        if path == receipt_path:
+        if phase == "before_path_stat" and relative == "run-receipt.json":
             calls += 1
             if calls == 2:
-                return ORIGINAL_READ_BYTES(path) + b" "
-        return ORIGINAL_READ_BYTES(path)
+                receipt_path = package_root / relative
+                receipt_path.write_bytes(receipt_path.read_bytes() + b" ")
 
-    with patch.object(Path, "read_bytes", autospec=True, side_effect=read_bytes):
+    with patch.object(source_package_core, "_PACKAGE_READ_TEST_HOOK", read_hook):
         result = verify_package(package)
     assert calls == 2
     assert result.state == "rejected"
@@ -189,14 +180,11 @@ def test_public_verifier_rechecks_changed_receipt_at_integrity(tmp_path: Path) -
 
 def test_public_verifier_structures_final_read_disappearance(tmp_path: Path) -> None:
     package = materialize_vector(tmp_path, "minimal_completed")
-    request_path = package / "request.json"
-
-    def read_bytes(path: Path) -> bytes:
-        if path == request_path:
+    def read_hook(phase: str, package_root: Path, relative: str) -> None:
+        if phase == "before_path_stat" and relative == "request.json":
             raise OSError("simulated final read disappearance")
-        return ORIGINAL_READ_BYTES(path)
 
-    with patch.object(Path, "read_bytes", autospec=True, side_effect=read_bytes):
+    with patch.object(source_package_core, "_PACKAGE_READ_TEST_HOOK", read_hook):
         result = verify_package(package)
     assert result.state == "indeterminate_io"
     assert result.findings[0].code == "io-artifact-read-failure"

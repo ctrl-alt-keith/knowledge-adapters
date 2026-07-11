@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
 import stat
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from importlib.metadata import PackageNotFoundError, version
@@ -24,7 +25,8 @@ from .models import (
     PackageItem,
 )
 
-_ORIGINAL_PATH_READ_BYTES = Path.read_bytes
+_PackageReadTestHook = Callable[[str, Path, str], None]
+_PACKAGE_READ_TEST_HOOK: _PackageReadTestHook | None = None
 
 CONTRACT_NAME = "knowledge-source-package"
 RESULT_SCHEMA_VERSION = "2.2.0"
@@ -90,25 +92,124 @@ def _digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _bounded_stable_read(path: Path, limit: int) -> bytes:
-    before = path.stat(follow_symlinks=False)
-    if not stat.S_ISREG(before.st_mode) or before.st_size > limit:
-        raise OSError("entry is not a bounded regular file")
-    injected_read = Path.read_bytes is not _ORIGINAL_PATH_READ_BYTES
-    if injected_read:
-        # Preserve the verifier's established deterministic I/O fault-injection seam.
-        data = path.read_bytes()
-    else:
-        with path.open("rb") as stream:
-            data = stream.read(limit + 1)
-    after = path.stat(follow_symlinks=False)
-    identity_before = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
-    identity_after = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
-    if len(data) > limit or identity_before != identity_after or (
-        not injected_read and len(data) != after.st_size
+def _file_identity(value: os.stat_result) -> tuple[int, int, int, int, int, int, int]:
+    return (
+        value.st_dev,
+        value.st_ino,
+        value.st_mode,
+        value.st_nlink,
+        value.st_size,
+        value.st_mtime_ns,
+        value.st_ctime_ns,
+    )
+
+
+def _close_quietly(descriptor: int) -> None:
+    try:
+        os.close(descriptor)
+    except OSError:
+        pass
+
+
+def _run_package_read_test_hook(phase: str, package: Path, relative: str) -> None:
+    if _PACKAGE_READ_TEST_HOOK is not None:
+        _PACKAGE_READ_TEST_HOOK(phase, package, relative)
+
+
+def _bounded_package_read(package: Path, relative: str, limit: int) -> bytes:
+    """Read one safe package-relative regular file through bound descriptors."""
+    if not _safe_path(relative) or limit <= 0:
+        raise OSError("invalid package-relative read request")
+    if (
+        not hasattr(os, "O_NOFOLLOW")
+        or not hasattr(os, "O_DIRECTORY")
+        or os.open not in os.supports_dir_fd
+        or os.stat not in os.supports_dir_fd
+        or os.stat not in os.supports_follow_symlinks
     ):
-        raise OSError("entry changed during bounded read")
-    return data
+        raise OSError("safe package-relative reads are unsupported")
+
+    root_before = os.lstat(package)
+    if not stat.S_ISDIR(root_before.st_mode):
+        raise OSError("package root is not a directory")
+    root_identity = _file_identity(root_before)
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    file_flags = os.O_RDONLY | os.O_NOFOLLOW
+    if hasattr(os, "O_CLOEXEC"):
+        directory_flags |= os.O_CLOEXEC
+        file_flags |= os.O_CLOEXEC
+
+    directory_descriptors: list[int] = []
+    directory_entries: list[
+        tuple[int, str, tuple[int, int, int, int, int, int, int]]
+    ] = []
+    file_descriptor: int | None = None
+    parts = PurePosixPath(relative).parts
+    try:
+        current = os.open(package, directory_flags)
+        directory_descriptors.append(current)
+        if _file_identity(os.fstat(current)) != root_identity:
+            raise OSError("package root changed before read")
+
+        _run_package_read_test_hook("before_path_stat", package, relative)
+        for component in parts[:-1]:
+            before = os.stat(component, dir_fd=current, follow_symlinks=False)
+            if not stat.S_ISDIR(before.st_mode):
+                raise OSError("package path component is not a directory")
+            identity = _file_identity(before)
+            _run_package_read_test_hook("before_component_open", package, relative)
+            child = os.open(component, directory_flags, dir_fd=current)
+            directory_descriptors.append(child)
+            if _file_identity(os.fstat(child)) != identity:
+                raise OSError("package path component changed before read")
+            directory_entries.append((current, component, identity))
+            current = child
+
+        before = os.stat(parts[-1], dir_fd=current, follow_symlinks=False)
+        if not stat.S_ISREG(before.st_mode) or before.st_size > limit:
+            raise OSError("package entry is not a bounded regular file")
+        identity = _file_identity(before)
+        _run_package_read_test_hook("before_final_open", package, relative)
+        file_descriptor = os.open(parts[-1], file_flags, dir_fd=current)
+        if _file_identity(os.fstat(file_descriptor)) != identity:
+            raise OSError("package entry changed before read")
+
+        chunks: list[bytes] = []
+        remaining = limit + 1
+        first_read = True
+        while remaining:
+            chunk = os.read(file_descriptor, min(remaining, 64 * 1024))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+            if first_read:
+                first_read = False
+                _run_package_read_test_hook("after_first_read", package, relative)
+        _run_package_read_test_hook("after_read", package, relative)
+        data = b"".join(chunks)
+
+        after_descriptor = os.fstat(file_descriptor)
+        after_path = os.stat(parts[-1], dir_fd=current, follow_symlinks=False)
+        if (
+            len(data) > limit
+            or len(data) != identity[4]
+            or _file_identity(after_descriptor) != identity
+            or _file_identity(after_path) != identity
+        ):
+            raise OSError("package entry changed during read")
+        for parent, component, expected in directory_entries:
+            observed = os.stat(component, dir_fd=parent, follow_symlinks=False)
+            if _file_identity(observed) != expected:
+                raise OSError("package path component changed during read")
+        if _file_identity(os.lstat(package)) != root_identity:
+            raise OSError("package root changed during read")
+        return data
+    finally:
+        if file_descriptor is not None:
+            _close_quietly(file_descriptor)
+        for descriptor in reversed(directory_descriptors):
+            _close_quietly(descriptor)
 
 
 class VerificationState(StrEnum):
@@ -705,7 +806,7 @@ def verify_package(
                     ),
                 ),
             )
-        sidecar = _bounded_stable_read(sidecar_path, max_sidecar_bytes)
+        sidecar = _bounded_package_read(package, "package.sha256", max_sidecar_bytes)
         if not SIDECAR_RE.fullmatch(sidecar):
             return _result(
                 VerificationState.REJECTED,
@@ -719,7 +820,7 @@ def verify_package(
                     ),
                 ),
             )
-        manifest_bytes = _bounded_stable_read(manifest_path, max_manifest_bytes)
+        manifest_bytes = _bounded_package_read(package, "package.json", max_manifest_bytes)
     except OSError:
         return _result(
             VerificationState.INDETERMINATE_IO,
@@ -1164,8 +1265,8 @@ def verify_package(
     assert isinstance(item_paths, list)
     for relative in item_paths:
         try:
-            structural_data[relative] = _bounded_stable_read(
-                package.joinpath(*PurePosixPath(relative).parts), effective.max_file_bytes
+            structural_data[relative] = _bounded_package_read(
+                package, relative, effective.max_file_bytes
             )
         except OSError:
             return _result(
@@ -1364,9 +1465,8 @@ def verify_package(
             )
         else:
             try:
-                structural_data[receipt_path] = _bounded_stable_read(
-                    package.joinpath(*PurePosixPath(receipt_path).parts),
-                    effective.max_file_bytes,
+                structural_data[receipt_path] = _bounded_package_read(
+                    package, receipt_path, effective.max_file_bytes
                 )
             except OSError:
                 return _result(
@@ -1428,9 +1528,7 @@ def verify_package(
     lineage_claims = _curated_claims(manifest, actual, accounting=True, lineage=True)
     for relative in sorted(expected_paths):
         try:
-            data = _bounded_stable_read(
-                package.joinpath(*PurePosixPath(relative).parts), effective.max_file_bytes
-            )
+            data = _bounded_package_read(package, relative, effective.max_file_bytes)
         except OSError:
             return _result(
                 VerificationState.INDETERMINATE_IO,

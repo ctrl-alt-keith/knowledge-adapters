@@ -1,5 +1,7 @@
 import hashlib
 import json
+import os
+import shutil
 from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
@@ -18,8 +20,7 @@ from knowledge_adapters.source_package import (
     PackageItem,
     verify_package,
 )
-
-ORIGINAL_READ_BYTES = Path.read_bytes
+from knowledge_adapters.source_package import core as source_package_core
 
 
 def request() -> AcquisitionRequest:
@@ -378,17 +379,175 @@ def test_rejected_result_only_exposes_claims_from_completed_stages(tmp_path: Pat
     assert result.verified_claims.counts is None
 
 
+def test_descriptor_bound_package_read_succeeds_normally(tmp_path: Path) -> None:
+    destination = tmp_path / "package"
+    assert builder().seal(destination).ok
+    data = source_package_core._bounded_package_read(
+        destination, "items/one.json", 1024 * 1024
+    )
+    assert json.loads(data)["item_id"] == "one"
+
+
+def test_path_read_bytes_monkeypatch_cannot_bypass_production_reader(tmp_path: Path) -> None:
+    destination = tmp_path / "package"
+    assert builder().seal(destination).ok
+    with patch.object(Path, "read_bytes", side_effect=AssertionError("must not be called")):
+        result = verify_package(destination)
+    assert result.ok
+
+
+def test_descriptor_reader_fails_closed_without_required_platform_primitives(
+    tmp_path: Path,
+) -> None:
+    destination = tmp_path / "package"
+    assert builder().seal(destination).ok
+    with patch.object(os, "supports_dir_fd", set()):
+        result = verify_package(destination)
+    assert result.state == "indeterminate_io"
+    assert result.findings[0].code == "io-read-failure"
+    assert result.verified_claims is None
+
+
+def test_final_same_byte_external_symlink_is_indeterminate_without_leakage(
+    tmp_path: Path,
+) -> None:
+    destination = tmp_path / "package"
+    assert builder().seal(destination).ok
+    outside = tmp_path / "external-secret-location.json"
+    outside.write_bytes((destination / "request.json").read_bytes())
+
+    def read_hook(phase: str, package: Path, relative: str) -> None:
+        if phase == "before_final_open" and relative == "request.json":
+            target = package / relative
+            target.unlink()
+            target.symlink_to(outside)
+
+    with patch.object(source_package_core, "_PACKAGE_READ_TEST_HOOK", read_hook):
+        result = verify_package(destination)
+    serialized = json.dumps(asdict(result), default=str)
+    assert result.state == "indeterminate_io"
+    assert result.findings[0].code == "io-artifact-read-failure"
+    assert result.last_completed_stage == "lineage"
+    assert result.verified_claims is not None
+    assert "external-secret-location" not in serialized
+    assert str(tmp_path) not in serialized
+
+
+def test_intermediate_symlink_is_indeterminate(tmp_path: Path) -> None:
+    destination = tmp_path / "package"
+    assert builder().seal(destination).ok
+    outside = tmp_path / "external-secret-items"
+    outside.mkdir()
+    outside_marker = "UNIQUE_EXTERNAL_ITEM_BYTES_MUST_NOT_LEAK"
+    (outside / "one.json").write_text(outside_marker, encoding="utf-8")
+
+    def read_hook(phase: str, package: Path, relative: str) -> None:
+        if phase == "before_component_open" and relative == "items/one.json":
+            shutil.rmtree(package / "items")
+            (package / "items").symlink_to(outside, target_is_directory=True)
+
+    with patch.object(source_package_core, "_PACKAGE_READ_TEST_HOOK", read_hook):
+        result = verify_package(destination)
+    assert result.state == "indeterminate_io"
+    assert result.findings[0].code == "io-item-read-failure"
+    assert result.last_completed_stage == "inventory-coverage"
+    serialized = json.dumps(asdict(result), default=str)
+    assert "external-secret-items" not in serialized
+    assert outside_marker not in serialized
+
+
+def test_different_inode_before_open_is_indeterminate(tmp_path: Path) -> None:
+    destination = tmp_path / "package"
+    assert builder().seal(destination).ok
+
+    def read_hook(phase: str, package: Path, relative: str) -> None:
+        if phase == "before_final_open" and relative == "items/one.json":
+            target = package / relative
+            replacement = target.with_suffix(".replacement")
+            replacement.write_bytes(target.read_bytes())
+            replacement.replace(target)
+
+    with patch.object(source_package_core, "_PACKAGE_READ_TEST_HOOK", read_hook):
+        result = verify_package(destination)
+    assert result.state == "indeterminate_io"
+    assert result.findings[0].code == "io-item-read-failure"
+
+
+def test_mutation_after_first_descriptor_read_is_indeterminate(tmp_path: Path) -> None:
+    destination = tmp_path / "package"
+    assert builder().seal(destination).ok
+
+    def read_hook(phase: str, package: Path, relative: str) -> None:
+        if phase == "after_first_read" and relative == "items/one.json":
+            target = package / relative
+            target.write_bytes(target.read_bytes() + b" ")
+
+    with patch.object(source_package_core, "_PACKAGE_READ_TEST_HOOK", read_hook):
+        result = verify_package(destination)
+    assert result.state == "indeterminate_io"
+    assert result.findings[0].code == "io-item-read-failure"
+
+
+def test_disappearance_before_descriptor_open_is_indeterminate(tmp_path: Path) -> None:
+    destination = tmp_path / "package"
+    assert builder().seal(destination).ok
+
+    def read_hook(phase: str, package: Path, relative: str) -> None:
+        if phase == "before_final_open" and relative == "items/one.json":
+            (package / relative).unlink()
+
+    with patch.object(source_package_core, "_PACKAGE_READ_TEST_HOOK", read_hook):
+        result = verify_package(destination)
+    assert result.state == "indeterminate_io"
+    assert result.findings[0].code == "io-item-read-failure"
+
+
+def test_descriptor_read_attempts_to_close_every_open_fd_without_masking_failure(
+    tmp_path: Path,
+) -> None:
+    destination = tmp_path / "package"
+    assert builder().seal(destination).ok
+    opened: list[int] = []
+    closed: list[int] = []
+    original_open, original_close = os.open, os.close
+
+    def tracked_open(*args: object, **kwargs: object) -> int:
+        descriptor = original_open(*args, **kwargs)  # type: ignore[arg-type]
+        opened.append(descriptor)
+        return descriptor
+
+    def tracked_close(descriptor: int) -> None:
+        closed.append(descriptor)
+        original_close(descriptor)
+        raise OSError("simulated close failure")
+
+    def read_hook(phase: str, package: Path, relative: str) -> None:
+        if phase == "before_final_open":
+            raise OSError("primary safe-read failure")
+
+    with patch.object(os, "open", side_effect=tracked_open) as open_mock:
+        supported_dir_fd = set(os.supports_dir_fd) | {open_mock}
+        with (
+            patch.object(os, "supports_dir_fd", supported_dir_fd),
+            patch.object(os, "close", side_effect=tracked_close),
+            patch.object(source_package_core, "_PACKAGE_READ_TEST_HOOK", read_hook),
+        ):
+            with pytest.raises(OSError, match="primary safe-read failure"):
+                source_package_core._bounded_package_read(
+                    destination, "items/one.json", 1024 * 1024
+                )
+    assert opened
+    assert sorted(opened) == sorted(closed)
+
+
 def test_item_read_failure_is_structured_indeterminate_io(tmp_path: Path) -> None:
     destination = tmp_path / "package"
     assert builder().seal(destination).ok
-    item_path = destination / "items/one.json"
-
-    def read_bytes(path: Path) -> bytes:
-        if path == item_path:
+    def read_hook(phase: str, package: Path, relative: str) -> None:
+        if phase == "before_path_stat" and relative == "items/one.json":
             raise OSError("simulated disappearing item")
-        return ORIGINAL_READ_BYTES(path)
 
-    with patch.object(Path, "read_bytes", autospec=True, side_effect=read_bytes):
+    with patch.object(source_package_core, "_PACKAGE_READ_TEST_HOOK", read_hook):
         result = verify_package(destination)
     assert result.state == "indeterminate_io"
     assert result.findings[0].code == "io-item-read-failure"
@@ -405,14 +564,11 @@ def test_run_receipt_read_failure_is_structured_indeterminate_io(tmp_path: Path)
     )
     assert value.seal(destination).ok
     rewrite_manifest(destination, lambda manifest: manifest.update(run_receipt="run-receipt.json"))
-    receipt_path = destination / "run-receipt.json"
-
-    def read_bytes(path: Path) -> bytes:
-        if path == receipt_path:
+    def read_hook(phase: str, package: Path, relative: str) -> None:
+        if phase == "before_path_stat" and relative == "run-receipt.json":
             raise OSError("simulated disappearing receipt")
-        return ORIGINAL_READ_BYTES(path)
 
-    with patch.object(Path, "read_bytes", autospec=True, side_effect=read_bytes):
+    with patch.object(source_package_core, "_PACKAGE_READ_TEST_HOOK", read_hook):
         result = verify_package(destination)
     assert result.state == "indeterminate_io"
     assert result.findings[0].code == "io-run-receipt-read-failure"
@@ -423,18 +579,18 @@ def test_run_receipt_read_failure_is_structured_indeterminate_io(tmp_path: Path)
 def test_changed_item_is_freshly_read_for_final_integrity(tmp_path: Path) -> None:
     destination = tmp_path / "package"
     assert builder().seal(destination).ok
-    item_path = destination / "items/one.json"
     calls = 0
 
-    def read_bytes(path: Path) -> bytes:
+    def read_hook(phase: str, package: Path, relative: str) -> None:
         nonlocal calls
-        if path == item_path:
+        if phase == "before_path_stat" and relative == "items/one.json":
             calls += 1
             if calls == 2:
-                return ORIGINAL_READ_BYTES(path) + b" "
-        return ORIGINAL_READ_BYTES(path)
+                (package / "items/one.json").write_bytes(
+                    (package / "items/one.json").read_bytes() + b" "
+                )
 
-    with patch.object(Path, "read_bytes", autospec=True, side_effect=read_bytes):
+    with patch.object(source_package_core, "_PACKAGE_READ_TEST_HOOK", read_hook):
         result = verify_package(destination)
     assert calls == 2
     assert result.state == "rejected"
@@ -450,18 +606,18 @@ def test_changed_receipt_is_freshly_read_for_final_integrity(tmp_path: Path) -> 
     )
     assert value.seal(destination).ok
     rewrite_manifest(destination, lambda manifest: manifest.update(run_receipt="run-receipt.json"))
-    receipt_path = destination / "run-receipt.json"
     calls = 0
 
-    def read_bytes(path: Path) -> bytes:
+    def read_hook(phase: str, package: Path, relative: str) -> None:
         nonlocal calls
-        if path == receipt_path:
+        if phase == "before_path_stat" and relative == "run-receipt.json":
             calls += 1
             if calls == 2:
-                return ORIGINAL_READ_BYTES(path) + b" "
-        return ORIGINAL_READ_BYTES(path)
+                (package / "run-receipt.json").write_bytes(
+                    (package / "run-receipt.json").read_bytes() + b" "
+                )
 
-    with patch.object(Path, "read_bytes", autospec=True, side_effect=read_bytes):
+    with patch.object(source_package_core, "_PACKAGE_READ_TEST_HOOK", read_hook):
         result = verify_package(destination)
     assert calls == 2
     assert result.state == "rejected"
@@ -476,14 +632,11 @@ def test_file_disappearing_before_final_integrity_is_indeterminate(tmp_path: Pat
         Artifact("artifacts/one.md", b"candidate\n", "normalized-content", "text/markdown")
     )
     assert value.seal(destination).ok
-    candidate_path = destination / "artifacts/one.md"
-
-    def read_bytes(path: Path) -> bytes:
-        if path == candidate_path:
+    def read_hook(phase: str, package: Path, relative: str) -> None:
+        if phase == "before_path_stat" and relative == "artifacts/one.md":
             raise OSError("simulated disappearing artifact")
-        return ORIGINAL_READ_BYTES(path)
 
-    with patch.object(Path, "read_bytes", autospec=True, side_effect=read_bytes):
+    with patch.object(source_package_core, "_PACKAGE_READ_TEST_HOOK", read_hook):
         result = verify_package(destination)
     assert result.state == "indeterminate_io"
     assert result.findings[0].code == "io-artifact-read-failure"
