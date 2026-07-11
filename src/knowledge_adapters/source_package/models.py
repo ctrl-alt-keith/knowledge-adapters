@@ -15,6 +15,46 @@ class ItemOutcome(StrEnum):
     CANCELLED = "cancelled"
 
 
+class CollectionProgressState(StrEnum):
+    """Observed exhaustion of the bounded collection scope in this request."""
+
+    EXHAUSTED = "exhausted"
+    CONTINUATION_REMAINING = "continuation_remaining"
+
+
+@dataclass(frozen=True)
+class CollectionProgress:
+    state: CollectionProgressState
+
+    def as_dict(self) -> dict[str, str]:
+        return {"state": self.state.value}
+
+
+@dataclass(frozen=True)
+class PackageLineage:
+    """Provider-neutral immutable lineage emitted into a sealed manifest."""
+
+    resumes_run_id: str | None = None
+    prior_package_ids: tuple[str, ...] = ()
+    prior_run_ids: tuple[str, ...] = ()
+    reconciliation_summary: dict[str, int] = field(default_factory=dict)
+    final_attempt_counts: dict[str, int] = field(default_factory=dict)
+
+    def as_dict(self) -> dict[str, Any]:
+        values: dict[str, Any] = {}
+        if self.resumes_run_id is not None:
+            values["resumes_run_id"] = self.resumes_run_id
+        if self.prior_package_ids:
+            values["prior_package_ids"] = list(self.prior_package_ids)
+        if self.prior_run_ids:
+            values["prior_run_ids"] = list(self.prior_run_ids)
+        if self.reconciliation_summary:
+            values["reconciliation_summary"] = dict(self.reconciliation_summary)
+        if self.final_attempt_counts:
+            values["final_attempt_counts"] = dict(self.final_attempt_counts)
+        return values
+
+
 @dataclass(frozen=True)
 class AcquisitionRequest:
     request_id: str

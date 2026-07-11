@@ -133,15 +133,14 @@ by video ID, verify saved artifact digests, preserve matching completed work,
 and start a new `run_id` with builder-owned manifest lineage. `batch_size`
 limits attempted items in one run; `max_items` limits total collection scope.
 
-The recommended shared representation is: record the bounded scope and batch
-limit in the typed request; record one of `exhausted`, `continuation-remaining`,
-or `resumed` in a package-level reconciliation/limitation field; and use the
-canonical resume lineage fields for prior runs and packages. Provider
+The shared representation is contract 1.1 `CollectionProgress`: record the
+bounded scope and batch limit in the typed request, then record either
+`exhausted` or `continuation_remaining` in the package-level progress field.
+Use `PackageLineage.resumes_run_id` and the remaining canonical lineage fields
+for resumed work. The builder adds the required `collection-progress`
+capability, and producer verification must opt into that capability. Provider
 extensions may preserve YouTube cursor evidence but cannot carry the only
-meaning of collection completeness. The current core API does not yet expose a
-typed package-level progress/limitation field, so this is a canonical contract
-and builder follow-up. Until resolved, the adapter must not seal a partial
-collection package that could imply exhaustion.
+meaning of collection completeness.
 
 ## Failure Mapping
 
@@ -223,7 +222,9 @@ The pilot passes when it:
 - **Lane B:** verify provider-produced packages only through the public verifier; share package-level fixtures, not YouTube client fixtures.
 - **Consumer:** no YouTube-specific fields should be required for baseline review; the normalized artifact and common provenance must be sufficient.
 - Does the contract need an explicit collection item record, or is a parent identity in each video record plus request scope sufficient?
-- Can a sealed bounded batch describe a not-yet-exhausted collection without implying all discovered items were included, or does that require a capability/limitation field convention?
+- Collection progress is resolved by contract 1.1: a sealed bounded batch uses
+  `collection_progress.state=continuation_remaining`; exhaustion uses
+  `exhausted`; resume remains canonical lineage rather than a progress state.
 - Should no eligible captions default to `skipped` or `failed` when transcript acquisition is the request's primary intent? The effective request should choose; the contract may need clearer guidance.
 - Which caption timestamp policy best supports review while keeping normalized output stable?
 - Which yt-dlp structured exceptions and fields remain stable enough for supported error categories? Decide from implementation fixtures and official release evidence.

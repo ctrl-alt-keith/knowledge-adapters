@@ -1,6 +1,6 @@
 # Source Package Contract
 
-Status: experimental v1 contract. This document defines an
+Status: experimental v1.1 contract. This document defines an
 interchange boundary; it does not define adapter implementation, a CLI, or a
 vault ingestion pipeline.
 
@@ -157,6 +157,42 @@ The manifest contains:
 - package-level diagnostics and limitations; and
 - optional namespaced extensions.
 
+### Bounded Collection Progress
+
+Contract version 1.1 adds the optional package-level `collection_progress`
+object for collection, feed, pagination, and other bounded discovery runs. It
+contains exactly one field:
+
+```json
+{"state":"exhausted"}
+```
+
+The supported states are:
+
+- `exhausted`: the producer observed that the bounded scope expressed by the
+  request was exhausted; and
+- `continuation_remaining`: the producer stopped at a batch or execution
+  boundary while more work remained within that same bounded scope.
+
+Exhaustion is relative to the request's bound, not a claim that the provider's
+global collection has no additional members. A package with
+`collection_progress` must use contract version 1.1.0 or later and list the
+required capability `collection-progress`. Consumers that do not explicitly
+support that capability reject the package rather than risk interpreting a
+partial batch as an exhausted collection.
+
+Resume is orthogonal to collection exhaustion. A resumed acquisition is
+identified by the canonical `resumes_run_id` lineage field, with prior run and
+package identifiers and reconciliation counts when available. Producers must
+not add a second progress flag for resume or hide collection completeness only
+inside a provider extension. Thus:
+
+- `collection_progress.state` distinguishes exhausted scope from remaining
+  continuation;
+- `resumes_run_id` distinguishes a resumed run from a fresh run; and
+- item outcomes continue to describe only terminal results for the items
+  represented in the sealed package.
+
 Each item record contains:
 
 - stable package item ID and provider-neutral resource kind;
@@ -306,6 +342,11 @@ Resume must:
 - assign a new `run_id` while retaining immutable resume lineage; and
 - never convert a prior failure into success without a recorded new attempt.
 
+A resumed bounded collection package uses `resumes_run_id` for resume lineage
+and independently records `collection_progress` when collection completeness is
+review-relevant. A resumed run may therefore be either `exhausted` or
+`continuation_remaining`.
+
 The sealed handoff records resume history without depending on checkpoint
 state. `package.json` is authoritative and must contain the minimum lineage
 required by every consumer: `resumes_run_id` when applicable, prior package or
@@ -381,6 +422,12 @@ copying a package record, and reject unknown required capabilities listed in
 Provider evolution belongs in namespaced item extensions. A provider-specific
 field can enter the common contract only after multiple adapters demonstrate
 the same consumer need and portable meaning.
+
+`collection_progress` is a version 1.1 additive field guarded by the required
+`collection-progress` capability because ignoring continuation state can change
+a consumer's interpretation of the acquisition boundary. Version 1.0 packages
+remain valid and the builder continues to emit 1.0.0 by default when this field
+is not requested.
 
 ## Testing Strategy
 
@@ -555,8 +602,8 @@ is approved.
 
 ## Recommended Defaults
 
-- Start at contract `1.0.0` with JSON Schema plus normative valid and invalid
-  fixtures.
+- Preserve contract `1.0.0` for packages that do not need collection progress;
+  use `1.1.0` plus the `collection-progress` capability when they do.
 - Require normalized markdown only when meaningful; otherwise allow a typed
   metadata-only item.
 - Exclude raw bytes by default and include them only under an explicit,

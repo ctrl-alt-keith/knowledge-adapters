@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 
 import pytest
@@ -17,9 +18,9 @@ VECTORS = MATRIX["vectors"]
 
 def test_matrix_has_unique_cases_and_all_requested_boundaries() -> None:
     ids = [vector["id"] for vector in VECTORS]
-    assert len(ids) == len(set(ids)) == 29
+    assert len(ids) == len(set(ids)) == 36
     assert {vector["expected"] for vector in VECTORS} == {"accept", "reject"}
-    assert sum(vector["expected"] == "accept" for vector in VECTORS) == 3
+    assert sum(vector["expected"] == "accept" for vector in VECTORS) == 6
 
 
 @pytest.mark.parametrize("vector", VECTORS, ids=lambda vector: str(vector["id"]))
@@ -65,6 +66,9 @@ def test_public_verifier_matches_conformance_vector(
     depth_limit = int(limits["json_depth"]) if "json_depth" in limits else None
     result = verify_package(
         package,
+        supported_capabilities=tuple(
+            cast(list[str], vector.get("supported_capabilities", []))
+        ),
         max_manifest_bytes=manifest_limit,
         max_json_depth=depth_limit,
     )
@@ -91,7 +95,7 @@ def test_public_result_exposes_only_curated_claims(tmp_path: Path) -> None:
     )
 
     result = verify_package(package)
-    assert result.ok and result.schema_version == "2.2.0"
+    assert result.ok and result.schema_version == "2.3.0"
     assert result.verified_claims is not None
     assert result.verified_claims.package_id == "package-001"
     assert not hasattr(result.verified_claims, "extensions")

@@ -79,6 +79,34 @@ def materialize_vector(root: Path, mutation: str) -> Path:
         manifest["status"] = "completed_with_errors"
         manifest["counts"]["completed"] = 0
         manifest["counts"]["failed"] = 1
+    elif mutation in {
+        "progress_exhausted",
+        "progress_continuation",
+        "progress_resumed",
+        "progress_invalid",
+        "progress_invalid_resume",
+        "progress_missing_capability",
+        "progress_wrong_version",
+    }:
+        if mutation != "progress_wrong_version":
+            manifest["contract_version"] = "1.1.0"
+        if mutation != "progress_missing_capability":
+            manifest["required_capabilities"] = ["collection-progress"]
+        state = "continuation_remaining" if mutation in {
+            "progress_continuation",
+            "progress_resumed",
+        } else "exhausted"
+        manifest["collection_progress"] = {"state": state}
+        if mutation == "progress_resumed":
+            manifest["resumes_run_id"] = "run-000"
+            manifest["prior_run_ids"] = ["run-000"]
+            manifest["prior_package_ids"] = ["package-000"]
+            manifest["reconciliation_summary"] = {"reused": 1}
+            manifest["final_attempt_counts"] = {"item-001": 2}
+        elif mutation == "progress_invalid":
+            manifest["collection_progress"]["unexpected"] = True
+        elif mutation == "progress_invalid_resume":
+            manifest["resumes_run_id"] = 7
     elif mutation in {"sealed_receipt", "receipt_override", "compound_lineage_artifact"}:
         receipt_run = (
             "run-other"

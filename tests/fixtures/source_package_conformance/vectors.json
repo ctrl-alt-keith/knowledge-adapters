@@ -1,10 +1,17 @@
 {
   "contract_source": "docs/source-package-contract.md",
-  "contract_version": "1.0.0",
+  "contract_versions": ["1.0.0", "1.1.0"],
   "vectors": [
     {"id":"minimal-valid-completed","expected":"accept","stage":"complete","mutation":"minimal_completed"},
     {"id":"valid-completed-with-errors","expected":"accept","stage":"complete","mutation":"completed_with_errors"},
     {"id":"optional-sealed-run-receipt","expected":"accept","stage":"complete","mutation":"sealed_receipt"},
+    {"id":"collection-progress-exhausted","expected":"accept","stage":"complete","mutation":"progress_exhausted","supported_capabilities":["collection-progress"]},
+    {"id":"collection-progress-continuation","expected":"accept","stage":"complete","mutation":"progress_continuation","supported_capabilities":["collection-progress"]},
+    {"id":"collection-progress-resumed","expected":"accept","stage":"complete","mutation":"progress_resumed","supported_capabilities":["collection-progress"]},
+    {"id":"invalid-collection-progress","expected":"reject","stage":"lineage","code":"invalid-collection-progress","mutation":"progress_invalid","supported_capabilities":["collection-progress"]},
+    {"id":"invalid-collection-progress-resume-lineage","expected":"reject","stage":"lineage","code":"invalid-resume-lineage","mutation":"progress_invalid_resume","supported_capabilities":["collection-progress"]},
+    {"id":"collection-progress-missing-capability","expected":"reject","stage":"compatibility","code":"missing-collection-progress-capability","mutation":"progress_missing_capability"},
+    {"id":"collection-progress-requires-v1-1","expected":"reject","stage":"compatibility","code":"unsupported-collection-progress-version","mutation":"progress_wrong_version","supported_capabilities":["collection-progress"]},
     {"id":"malformed-package-sha256","expected":"reject","stage":"sidecar-format","code":"invalid-sidecar-format","mutation":"sidecar_malformed"},
     {"id":"uppercase-digest","expected":"reject","stage":"sidecar-format","code":"invalid-sidecar-format","mutation":"sidecar_uppercase"},
     {"id":"missing-trailing-newline","expected":"reject","stage":"sidecar-format","code":"invalid-sidecar-format","mutation":"sidecar_no_newline"},
