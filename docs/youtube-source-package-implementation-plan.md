@@ -111,7 +111,16 @@ identity, lifecycle, or receipt lineage itself. Provider extensions live under
 `org.ctrl-alt-keith.youtube`; the builder rejects attempts to override canonical
 fields. Package-level status derives from terminal items. After sealing, the
 producer invokes only the public verifier and hands off a package only when its
-overall state is `verified`.
+overall state is `verified`. Handoff checks use the content address and curated
+verified claims; the adapter does not depend on receiving its complete manifest
+back from verification.
+
+YouTube-specific extensions remain inventoried package content and are not
+promoted into public verification-result claims. Any provider-specific
+inspection after structural verification is a separate, explicitly bounded
+path and cannot change the verifier result. Collection-progress meaning stays
+in the canonical request/lineage/limitation model below and is never hidden in
+curated verifier claims.
 
 ## Checkpoint, Batching, And Resume
 
@@ -208,6 +217,9 @@ The pilot passes when it:
 ## Cross-PR Dependencies And Open Questions
 
 - **Lane A:** provide a public builder that accepts artifact bytes/paths, item records, namespaced extensions, diagnostics, and optional receipt data without exposing sealing internals. Structured results need stable machine-readable issue codes and field/path context.
+- **Lane A result boundary:** producer handoff consumes result state, stage,
+  findings, content address, and curated verified claims only; raw manifest and
+  provider extensions are not result fields.
 - **Lane B:** verify provider-produced packages only through the public verifier; share package-level fixtures, not YouTube client fixtures.
 - **Consumer:** no YouTube-specific fields should be required for baseline review; the normalized artifact and common provenance must be sufficient.
 - Does the contract need an explicit collection item record, or is a parent identity in each video record plus request scope sufficient?
