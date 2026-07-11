@@ -8,7 +8,7 @@ source is `tests/fixtures/source_package_conformance/vectors.json`.
 | --- | --- |
 | Accept | minimal valid `completed`; valid `completed_with_errors`; optional sealed run receipt |
 | Reject before manifest trust | malformed sidecar; uppercase digest; missing newline; digest mismatch; manifest changed without sidecar update |
-| Reject during manifest/compatibility validation | malformed UTF-8; malformed JSON; unsupported major; unknown required capability |
+| Reject during manifest/compatibility validation | malformed UTF-8; malformed JSON; duplicate object key; unsupported major; unknown required capability |
 | Reject during inventory/integrity validation | artifact digest mismatch; size mismatch; missing inventoried artifact; undeclared handoff artifact |
 | Reject during path validation | duplicate path identity; absolute path; `..` escape |
 | Reject during terminal/item validation | inconsistent counts; nonterminal item in sealed package; completed item carrying an error |
@@ -21,12 +21,9 @@ hashing, but leaves the numeric limits unspecified. It also does not prescribe
 a JSON nesting limit; the fixture records an explicit defensive consumer limit
 without claiming it is normative.
 
-## Integration status
+## Public verifier integration
 
-The baseline containing the approved contract does not expose a source-package
-validation API. These vectors therefore test their own determinism and
-contract coverage without importing or duplicating implementation internals.
-After the producer/validator API merges, integration should materialize each
-vector, invoke the public validation boundary, and compare its accept/reject
-result and rejection stage with `vectors.json`. No API name or exception shape
-is presumed here.
+Every vector is materialized and passed only to the public `verify_package`
+boundary from PR #316. Tests assert the result state, earliest stable rejection
+stage, and specified stable finding code. The fixture materializer remains
+contract-derived and does not import implementation helpers.

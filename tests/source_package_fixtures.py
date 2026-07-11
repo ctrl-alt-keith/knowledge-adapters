@@ -147,6 +147,11 @@ def materialize_vector(root: Path, mutation: str) -> Path:
     elif mutation == "manifest_invalid_json":
         manifest_bytes = b"{\n"
         sidecar = (_digest(manifest_bytes) + "\n").encode()
+    elif mutation == "manifest_duplicate_key":
+        manifest_bytes = manifest_bytes.replace(
+            b'{\n  "adapter":', b'{\n  "run_id": "duplicate",\n  "adapter":', 1
+        )
+        sidecar = (_digest(manifest_bytes) + "\n").encode()
     elif mutation == "artifact_digest_mismatch":
         manifest["artifacts"][0]["sha256"] = "0" * 64
         manifest_bytes = _json_bytes(manifest)

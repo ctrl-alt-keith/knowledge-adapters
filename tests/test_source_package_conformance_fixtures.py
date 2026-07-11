@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from knowledge_adapters.source_package import verify_package
 from tests.source_package_fixtures import materialize_vector
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "source_package_conformance"
@@ -15,7 +16,7 @@ VECTORS = MATRIX["vectors"]
 
 def test_matrix_has_unique_cases_and_all_requested_boundaries() -> None:
     ids = [vector["id"] for vector in VECTORS]
-    assert len(ids) == len(set(ids)) == 25
+    assert len(ids) == len(set(ids)) == 26
     assert {vector["expected"] for vector in VECTORS} == {"accept", "reject"}
     assert sum(vector["expected"] == "accept" for vector in VECTORS) == 3
 
@@ -47,6 +48,27 @@ def test_accepted_vectors_have_exact_manifest_sidecar(tmp_path: Path, mutation: 
 
 
 def test_limit_vectors_disclose_non_normative_consumer_limits() -> None:
-    limited = [vector for vector in VECTORS if vector["stage"] == "consumer-limit"]
+    limited = [vector for vector in VECTORS if "consumer_limit" in vector]
     assert {vector["id"] for vector in limited} == {"oversized-manifest", "excessive-nesting"}
     assert all("consumer_limit" in vector for vector in limited)
+
+
+@pytest.mark.parametrize("vector", VECTORS, ids=lambda vector: str(vector["id"]))
+def test_public_verifier_matches_conformance_vector(
+    tmp_path: Path, vector: dict[str, object]
+) -> None:
+    package = materialize_vector(tmp_path, str(vector["mutation"]))
+    limits = vector.get("consumer_limit", {})
+    assert isinstance(limits, dict)
+    manifest_limit = int(limits.get("manifest_bytes", 4 * 1024 * 1024))
+    depth_limit = int(limits["json_depth"]) if "json_depth" in limits else None
+    result = verify_package(
+        package,
+        max_manifest_bytes=manifest_limit,
+        max_json_depth=depth_limit,
+    )
+    expected_state = "verified" if vector["expected"] == "accept" else "rejected"
+    assert result.state == expected_state
+    assert result.last_completed_stage == vector["stage"]
+    if "code" in vector:
+        assert vector["code"] in {finding.code for finding in result.findings}
