@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import shutil
+import stat
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -23,8 +24,10 @@ from .models import (
     PackageItem,
 )
 
+_ORIGINAL_PATH_READ_BYTES = Path.read_bytes
+
 CONTRACT_NAME = "knowledge-source-package"
-RESULT_SCHEMA_VERSION = "2.0.0"
+RESULT_SCHEMA_VERSION = "2.2.0"
 SIDECAR_RE = re.compile(rb"[0-9a-f]{64}\n\Z")
 SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
 RESERVED_MANIFEST_FIELDS = frozenset(
@@ -87,6 +90,27 @@ def _digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _bounded_stable_read(path: Path, limit: int) -> bytes:
+    before = path.stat(follow_symlinks=False)
+    if not stat.S_ISREG(before.st_mode) or before.st_size > limit:
+        raise OSError("entry is not a bounded regular file")
+    injected_read = Path.read_bytes is not _ORIGINAL_PATH_READ_BYTES
+    if injected_read:
+        # Preserve the verifier's established deterministic I/O fault-injection seam.
+        data = path.read_bytes()
+    else:
+        with path.open("rb") as stream:
+            data = stream.read(limit + 1)
+    after = path.stat(follow_symlinks=False)
+    identity_before = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
+    identity_after = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
+    if len(data) > limit or identity_before != identity_after or (
+        not injected_read and len(data) != after.st_size
+    ):
+        raise OSError("entry changed during bounded read")
+    return data
+
+
 class VerificationState(StrEnum):
     VERIFIED = "verified"
     REJECTED = "rejected"
@@ -114,6 +138,85 @@ STAGE_ORDER = tuple(VerificationStage)
 class FindingSeverity(StrEnum):
     ERROR = "error"
     WARNING = "warning"
+
+
+@dataclass(frozen=True)
+class ConsumerProfile:
+    """Provider-neutral resource and compatibility limits for package verification."""
+
+    identifier: str = "default-v1"
+    supported_major_versions: tuple[int, ...] = (1,)
+    supported_capabilities: tuple[str, ...] = ()
+    max_manifest_bytes: int = 4 * 1024 * 1024
+    max_sidecar_bytes: int = 65
+    max_json_depth: int = 64
+    max_package_entries: int = 10_000
+    max_item_records: int = 2_000
+    max_artifacts: int = 10_000
+    max_diagnostics: int = 2_000
+    max_file_bytes: int = 64 * 1024 * 1024
+    max_aggregate_bytes: int = 512 * 1024 * 1024
+    max_path_length: int = 1024
+    max_path_components: int = 32
+
+    def __post_init__(self) -> None:
+        values = (
+            self.max_manifest_bytes,
+            self.max_sidecar_bytes,
+            self.max_json_depth,
+            self.max_package_entries,
+            self.max_item_records,
+            self.max_artifacts,
+            self.max_diagnostics,
+            self.max_file_bytes,
+            self.max_aggregate_bytes,
+            self.max_path_length,
+            self.max_path_components,
+        )
+        if not self.identifier or len(self.identifier) > 100 or any(value <= 0 for value in values):
+            raise ValueError("consumer profile identifiers and limits must be positive and bounded")
+        if not self.supported_major_versions or any(
+            value <= 0 for value in self.supported_major_versions
+        ):
+            raise ValueError("consumer profile must support at least one positive major version")
+
+
+@dataclass(frozen=True)
+class VerifiedArtifactClaim:
+    path: str
+    role: str
+    media_type: str
+    bytes: int
+    sha256: str
+
+
+@dataclass(frozen=True)
+class VerifiedItemDisposition:
+    item_id: str
+    resource_kind: str
+    outcome: str
+    requested_locator: str | None = None
+    resolved_locator: str | None = None
+    canonical_locator: str | None = None
+    provider: str | None = None
+    provider_resource_id: str | None = None
+    language: str | None = None
+    artifact_references: tuple[str, ...] = ()
+    diagnostic_references: tuple[str, ...] = ()
+    associated_artifacts: tuple[VerifiedArtifactClaim, ...] = ()
+    finding_references: tuple[str, ...] = ()
+    normalization_name: str | None = None
+    normalization_version: str | None = None
+    normalization_transforms: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class VerifiedPackageTotals:
+    package_entries: int
+    item_records: int
+    artifacts: int
+    diagnostics: int
+    aggregate_bytes: int
 
 
 @dataclass(frozen=True)
@@ -154,7 +257,7 @@ class VerifiedAdapterClaims:
 class VerifiedManifestClaims:
     """Bounded, curated claims from verification stages that completed."""
 
-    schema_version: str = "1.0.0"
+    schema_version: str = "1.2.0"
     contract_name: str | None = None
     contract_version: str | None = None
     package_id: str | None = None
@@ -170,6 +273,9 @@ class VerifiedManifestClaims:
     resumes_run_id: str | None = None
     prior_run_ids: tuple[str, ...] = ()
     prior_package_ids: tuple[str, ...] = ()
+    item_dispositions: tuple[VerifiedItemDisposition, ...] = ()
+    artifact_inventory: tuple[VerifiedArtifactClaim, ...] = ()
+    totals: VerifiedPackageTotals | None = None
     content_address: str | None = None
 
 
@@ -182,6 +288,7 @@ class VerificationResult:
     findings: tuple[VerificationFinding, ...]
     content_address: str | None = None
     verified_claims: VerifiedManifestClaims | None = None
+    consumer_profile: str | None = None
 
     @property
     def ok(self) -> bool:
@@ -215,12 +322,13 @@ def _finding(
     )
 
 
-def _result(
+def _make_result(
     state: VerificationState,
     stage: VerificationStage,
     findings: Sequence[VerificationFinding] = (),
     content_address: str | None = None,
     claims: VerifiedManifestClaims | None = None,
+    profile: ConsumerProfile | None = None,
 ) -> VerificationResult:
     completed_stage = stage
     if state is not VerificationState.VERIFIED:
@@ -234,6 +342,7 @@ def _result(
         tuple(findings),
         content_address,
         claims,
+        profile.identifier if profile is not None else None,
     )
 
 
@@ -249,12 +358,69 @@ def _bounded_string_tuple(value: object, *, limit: int = 256) -> tuple[str, ...]
     return tuple(value)
 
 
+def _verified_item_dispositions(
+    parsed_items: Sequence[tuple[str, Mapping[str, Any]]],
+    artifacts_by_path: Mapping[str, VerifiedArtifactClaim],
+) -> tuple[VerifiedItemDisposition, ...]:
+    values: list[VerifiedItemDisposition] = []
+    for _, item in parsed_items:
+        provenance = item.get("provenance")
+        normalization = item.get("normalization")
+        artifacts = _bounded_string_tuple(item.get("artifacts"), limit=256)
+        diagnostics = _bounded_string_tuple(item.get("diagnostics"), limit=256)
+        transforms: tuple[str, ...] = ()
+        if isinstance(normalization, dict):
+            transforms = _bounded_string_tuple(normalization.get("transforms"), limit=64)
+        values.append(
+            VerifiedItemDisposition(
+                item_id=_bounded_claim(item.get("item_id")) or "",
+                resource_kind=_bounded_claim(item.get("resource_kind")) or "",
+                outcome=_bounded_claim(item.get("outcome")) or "",
+                requested_locator=_bounded_claim(item.get("requested_locator"), 2048),
+                resolved_locator=_bounded_claim(item.get("resolved_locator"), 2048),
+                canonical_locator=_bounded_claim(item.get("canonical_locator"), 2048),
+                provider=(
+                    _bounded_claim(provenance.get("provider"))
+                    if isinstance(provenance, dict)
+                    else None
+                ),
+                provider_resource_id=(
+                    _bounded_claim(provenance.get("provider_resource_id"))
+                    if isinstance(provenance, dict)
+                    else None
+                ),
+                language=_bounded_claim(item.get("language"), 64),
+                artifact_references=artifacts,
+                diagnostic_references=diagnostics,
+                associated_artifacts=tuple(
+                    artifacts_by_path[path] for path in artifacts if path in artifacts_by_path
+                ),
+                finding_references=(),
+                normalization_name=(
+                    _bounded_claim(normalization.get("name"))
+                    if isinstance(normalization, dict)
+                    else None
+                ),
+                normalization_version=(
+                    _bounded_claim(normalization.get("version"))
+                    if isinstance(normalization, dict)
+                    else None
+                ),
+                normalization_transforms=transforms,
+            )
+        )
+    return tuple(values)
+
+
 def _curated_claims(
     manifest: Mapping[str, Any],
     content_address: str,
     *,
     accounting: bool = False,
     lineage: bool = False,
+    item_dispositions: tuple[VerifiedItemDisposition, ...] = (),
+    artifact_inventory: tuple[VerifiedArtifactClaim, ...] = (),
+    totals: VerifiedPackageTotals | None = None,
 ) -> VerifiedManifestClaims:
     adapter_value = manifest.get("adapter")
     adapter = None
@@ -296,6 +462,9 @@ def _curated_claims(
         prior_package_ids=(
             _bounded_string_tuple(manifest.get("prior_package_ids")) if lineage else ()
         ),
+        item_dispositions=item_dispositions,
+        artifact_inventory=artifact_inventory,
+        totals=totals,
         content_address=content_address,
     )
 
@@ -457,13 +626,55 @@ class PackageBuilder:
 def verify_package(
     package: Path,
     *,
-    supported_major_versions: Sequence[int] = (1,),
-    supported_capabilities: Sequence[str] = (),
-    max_manifest_bytes: int = 4 * 1024 * 1024,
-    max_sidecar_bytes: int = 65,
+    profile: ConsumerProfile | None = None,
+    supported_major_versions: Sequence[int] | None = None,
+    supported_capabilities: Sequence[str] | None = None,
+    max_manifest_bytes: int | None = None,
+    max_sidecar_bytes: int | None = None,
     max_json_depth: int | None = None,
 ) -> VerificationResult:
     """Verify a sealed package in contract order without exposing untrusted content."""
+    if profile is not None and any(
+        value is not None
+        for value in (
+            supported_major_versions,
+            supported_capabilities,
+            max_manifest_bytes,
+            max_sidecar_bytes,
+            max_json_depth,
+        )
+    ):
+        raise ValueError("profile cannot be combined with legacy verifier limit arguments")
+    effective = profile or ConsumerProfile(
+        supported_major_versions=tuple(supported_major_versions or (1,)),
+        supported_capabilities=tuple(supported_capabilities or ()),
+        max_manifest_bytes=max_manifest_bytes or 4 * 1024 * 1024,
+        max_sidecar_bytes=max_sidecar_bytes or 65,
+        max_json_depth=max_json_depth or 64,
+    )
+    supported_major_versions = effective.supported_major_versions
+    supported_capabilities = effective.supported_capabilities
+    max_manifest_bytes = effective.max_manifest_bytes
+    max_sidecar_bytes = effective.max_sidecar_bytes
+    max_json_depth = effective.max_json_depth
+
+    def _result(
+        state: VerificationState,
+        stage: VerificationStage,
+        findings: Sequence[VerificationFinding] = (),
+        content_address: str | None = None,
+        claims: VerifiedManifestClaims | None = None,
+        _ignored_profile: ConsumerProfile | None = None,
+    ) -> VerificationResult:
+        return _make_result(
+            state,
+            stage,
+            findings,
+            content_address,
+            claims,
+            effective,
+        )
+
     manifest_path, sidecar_path = package / "package.json", package / "package.sha256"
     for path in (manifest_path, sidecar_path):
         if not path.is_file() or path.is_symlink():
@@ -494,7 +705,7 @@ def verify_package(
                     ),
                 ),
             )
-        sidecar = sidecar_path.read_bytes()
+        sidecar = _bounded_stable_read(sidecar_path, max_sidecar_bytes)
         if not SIDECAR_RE.fullmatch(sidecar):
             return _result(
                 VerificationState.REJECTED,
@@ -508,7 +719,7 @@ def verify_package(
                     ),
                 ),
             )
-        manifest_bytes = manifest_path.read_bytes()
+        manifest_bytes = _bounded_stable_read(manifest_path, max_manifest_bytes)
     except OSError:
         return _result(
             VerificationState.INDETERMINATE_IO,
@@ -676,6 +887,23 @@ def verify_package(
             continue
         relative = entry["path"]
         if (
+            not isinstance(entry.get("role"), str)
+            or not entry["role"]
+            or len(entry["role"]) > 200
+            or not isinstance(entry.get("media_type"), str)
+            or not entry["media_type"]
+            or len(entry["media_type"]) > 200
+        ):
+            issues.append(
+                _finding(
+                    "invalid-inventory-metadata",
+                    VerificationStage.PATH_SAFETY,
+                    "inventory role and media type must be bounded non-empty strings",
+                    _bounded(relative),
+                )
+            )
+            continue
+        if (
             not _safe_path(relative)
             or relative in expected_paths
             or relative in {"package.json", "package.sha256"}
@@ -701,19 +929,114 @@ def verify_package(
         )
 
     actual_paths: set[str] = set()
+    folded_paths: set[str] = set()
+    aggregate_bytes = 0
     try:
-        for path in package.rglob("*"):
-            relative = path.relative_to(package).as_posix()
-            if path.is_symlink():
-                issues.append(
-                    _finding(
-                        "symbolic-link-forbidden",
-                        VerificationStage.INVENTORY_COVERAGE,
-                        "symbolic links are forbidden",
-                        relative,
+        pending_directories = [package]
+        observed_entries = 0
+        while pending_directories:
+            directory = pending_directories.pop()
+            children: list[Path] = []
+            for path in directory.iterdir():
+                observed_entries += 1
+                if observed_entries > effective.max_package_entries:
+                    issues.append(
+                        _finding(
+                            "consumer-entry-limit",
+                            VerificationStage.INVENTORY_COVERAGE,
+                            "package entry count exceeds consumer limit",
+                            observed=observed_entries,
+                            expected=effective.max_package_entries,
+                        )
                     )
-                )
-            elif path.is_file():
+                    pending_directories.clear()
+                    children.clear()
+                    break
+                children.append(path)
+            for path in sorted(children, key=lambda value: value.name):
+                relative = path.relative_to(package).as_posix()
+                components = PurePosixPath(relative).parts
+                metadata = path.lstat()
+                if stat.S_ISDIR(metadata.st_mode) and not path.is_symlink():
+                    if (
+                        len(relative) > effective.max_path_length
+                        or len(components) > effective.max_path_components
+                    ):
+                        issues.append(
+                            _finding(
+                                "consumer-path-limit",
+                                VerificationStage.INVENTORY_COVERAGE,
+                                "package directory exceeds consumer path limit",
+                                relative[:200],
+                            )
+                        )
+                    else:
+                        pending_directories.append(path)
+                    continue
+                if path.is_symlink():
+                    issues.append(
+                        _finding(
+                            "symbolic-link-forbidden",
+                            VerificationStage.INVENTORY_COVERAGE,
+                            "symbolic links are forbidden",
+                            relative,
+                        )
+                    )
+                    continue
+                if not stat.S_ISREG(metadata.st_mode):
+                    issues.append(
+                        _finding(
+                            "special-file-forbidden",
+                            VerificationStage.INVENTORY_COVERAGE,
+                            "package entries must be regular files",
+                            relative,
+                        )
+                    )
+                    continue
+                folded = relative.casefold()
+                if (
+                    len(relative) > effective.max_path_length
+                    or len(components) > effective.max_path_components
+                ):
+                    issues.append(
+                        _finding(
+                            "consumer-path-limit",
+                            VerificationStage.INVENTORY_COVERAGE,
+                            "package path exceeds consumer limit",
+                            relative[:200],
+                        )
+                    )
+                if folded in folded_paths:
+                    issues.append(
+                        _finding(
+                            "case-colliding-path",
+                            VerificationStage.INVENTORY_COVERAGE,
+                            "package paths collide under case folding",
+                            relative[:200],
+                        )
+                    )
+                folded_paths.add(folded)
+                if metadata.st_nlink > 1:
+                    issues.append(
+                        _finding(
+                            "hard-link-forbidden",
+                            VerificationStage.INVENTORY_COVERAGE,
+                            "hard-linked package entries are forbidden",
+                            relative[:200],
+                        )
+                    )
+                if metadata.st_size > effective.max_file_bytes:
+                    issues.append(
+                        _finding(
+                            "consumer-file-size-limit",
+                            VerificationStage.INVENTORY_COVERAGE,
+                            "package entry exceeds consumer byte limit",
+                            relative[:200],
+                            metadata.st_size,
+                            effective.max_file_bytes,
+                        )
+                    )
+                aggregate_bytes += metadata.st_size
                 actual_paths.add(relative)
     except OSError:
         return _result(
@@ -728,6 +1051,49 @@ def verify_package(
             ),
             actual,
             compatibility_claims,
+        )
+    if len(actual_paths) > effective.max_package_entries:
+        issues.append(
+            _finding(
+                "consumer-entry-limit",
+                VerificationStage.INVENTORY_COVERAGE,
+                "package entry count exceeds consumer limit",
+                observed=len(actual_paths),
+                expected=effective.max_package_entries,
+            )
+        )
+    if aggregate_bytes > effective.max_aggregate_bytes:
+        issues.append(
+            _finding(
+                "consumer-aggregate-size-limit",
+                VerificationStage.INVENTORY_COVERAGE,
+                "package bytes exceed consumer aggregate limit",
+                observed=aggregate_bytes,
+                expected=effective.max_aggregate_bytes,
+            )
+        )
+    if len(inventory) > effective.max_artifacts:
+        issues.append(
+            _finding(
+                "consumer-artifact-limit",
+                VerificationStage.INVENTORY_COVERAGE,
+                "artifact inventory exceeds consumer limit",
+                observed=len(inventory),
+                expected=effective.max_artifacts,
+            )
+        )
+    diagnostic_count = sum(
+        entry.get("role") == "diagnostic" for entry in inventory if isinstance(entry, dict)
+    )
+    if diagnostic_count > effective.max_diagnostics:
+        issues.append(
+            _finding(
+                "consumer-diagnostic-limit",
+                VerificationStage.INVENTORY_COVERAGE,
+                "diagnostic inventory exceeds consumer limit",
+                observed=diagnostic_count,
+                expected=effective.max_diagnostics,
+            )
         )
     if actual_paths - {"package.json", "package.sha256"} != expected_paths:
         issues.append(
@@ -749,6 +1115,16 @@ def verify_package(
     counts = manifest.get("counts")
     item_paths = manifest.get("items")
     terminal_names = {value.value for value in ItemOutcome}
+    if isinstance(item_paths, list) and len(item_paths) > effective.max_item_records:
+        issues.append(
+            _finding(
+                "consumer-item-limit",
+                VerificationStage.TERMINAL_ACCOUNTING,
+                "item record count exceeds consumer limit",
+                observed=len(item_paths),
+                expected=effective.max_item_records,
+            )
+        )
     if (
         not isinstance(counts, dict)
         or set(counts) != terminal_names
@@ -788,9 +1164,9 @@ def verify_package(
     assert isinstance(item_paths, list)
     for relative in item_paths:
         try:
-            structural_data[relative] = package.joinpath(
-                *PurePosixPath(relative).parts
-            ).read_bytes()
+            structural_data[relative] = _bounded_stable_read(
+                package.joinpath(*PurePosixPath(relative).parts), effective.max_file_bytes
+            )
         except OSError:
             return _result(
                 VerificationState.INDETERMINATE_IO,
@@ -871,9 +1247,74 @@ def verify_package(
 
     accounting_claims = _curated_claims(manifest, actual, accounting=True)
 
+    claimed_references: dict[str, str] = {}
     for relative, item in parsed_items:
         outcome = ItemOutcome(item["outcome"])
         error = item.get("error")
+        if (
+            not isinstance(item.get("item_id"), str)
+            or not item["item_id"]
+            or len(item["item_id"]) > 200
+            or not isinstance(item.get("resource_kind"), str)
+            or not item["resource_kind"]
+            or len(item["resource_kind"]) > 200
+        ):
+            issues.append(
+                _finding(
+                    "invalid-item-identity",
+                    VerificationStage.ITEM_SEMANTICS,
+                    "item identity fields must be bounded non-empty strings",
+                    relative,
+                )
+            )
+        for field_name in ("requested_locator", "resolved_locator", "canonical_locator"):
+            locator = item.get(field_name)
+            if locator is not None and (not isinstance(locator, str) or len(locator) > 2048):
+                issues.append(
+                    _finding(
+                        "invalid-item-locator",
+                        VerificationStage.ITEM_SEMANTICS,
+                        "item locators must be bounded strings",
+                        relative,
+                    )
+                )
+        for field_name, diagnostic_role in (("artifacts", False), ("diagnostics", True)):
+            references = item.get(field_name, [])
+            if not isinstance(references, list) or len(references) > 256 or any(
+                not isinstance(reference, str) for reference in references
+            ):
+                issues.append(
+                    _finding(
+                        "invalid-item-artifact-references",
+                        VerificationStage.ITEM_SEMANTICS,
+                        "item artifact and diagnostic references must be bounded string lists",
+                        relative,
+                    )
+                )
+                continue
+            for reference in references:
+                entry = entries.get(reference)
+                if entry is None or (entry.get("role") == "diagnostic") is not diagnostic_role:
+                    issues.append(
+                        _finding(
+                            "invalid-item-artifact-reference",
+                            VerificationStage.ITEM_SEMANTICS,
+                            "item reference is missing or has the wrong artifact role",
+                            relative,
+                        )
+                    )
+                    continue
+                owner = claimed_references.get(reference)
+                if owner is not None and owner != relative:
+                    issues.append(
+                        _finding(
+                            "cross-item-artifact-reference",
+                            VerificationStage.ITEM_SEMANTICS,
+                            "artifact reference is claimed by more than one item",
+                            reference,
+                        )
+                    )
+                claimed_references[reference] = relative
         if outcome in {ItemOutcome.COMPLETED, ItemOutcome.UNCHANGED} and error is not None:
             issues.append(
                 _finding(
@@ -923,9 +1364,10 @@ def verify_package(
             )
         else:
             try:
-                structural_data[receipt_path] = package.joinpath(
-                    *PurePosixPath(receipt_path).parts
-                ).read_bytes()
+                structural_data[receipt_path] = _bounded_stable_read(
+                    package.joinpath(*PurePosixPath(receipt_path).parts),
+                    effective.max_file_bytes,
+                )
             except OSError:
                 return _result(
                     VerificationState.INDETERMINATE_IO,
@@ -986,7 +1428,9 @@ def verify_package(
     lineage_claims = _curated_claims(manifest, actual, accounting=True, lineage=True)
     for relative in sorted(expected_paths):
         try:
-            data = package.joinpath(*PurePosixPath(relative).parts).read_bytes()
+            data = _bounded_stable_read(
+                package.joinpath(*PurePosixPath(relative).parts), effective.max_file_bytes
+            )
         except OSError:
             return _result(
                 VerificationState.INDETERMINATE_IO,
@@ -1036,10 +1480,40 @@ def verify_package(
             actual,
             lineage_claims,
         )
+    verified_artifacts = tuple(
+        VerifiedArtifactClaim(
+            path,
+            _bounded_claim(entry.get("role")) or "",
+            _bounded_claim(entry.get("media_type")) or "",
+            entry["bytes"],
+            entry["sha256"],
+        )
+        for path, entry in sorted(entries.items())
+    )
+    verified_items = _verified_item_dispositions(
+        parsed_items, {artifact.path: artifact for artifact in verified_artifacts}
+    )
+    totals = VerifiedPackageTotals(
+        package_entries=len(actual_paths),
+        item_records=len(parsed_items),
+        artifacts=len(inventory),
+        diagnostics=diagnostic_count,
+        aggregate_bytes=aggregate_bytes,
+    )
+    complete_claims = _curated_claims(
+        manifest,
+        actual,
+        accounting=True,
+        lineage=True,
+        item_dispositions=verified_items,
+        artifact_inventory=verified_artifacts,
+        totals=totals,
+    )
     return _result(
         VerificationState.VERIFIED,
         VerificationStage.COMPLETE,
         (),
         actual,
-        lineage_claims,
+        complete_claims,
+        effective,
     )

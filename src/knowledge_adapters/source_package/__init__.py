@@ -1,6 +1,7 @@
 """Provider-neutral Source Package construction and verification."""
 
 from .core import (
+    ConsumerProfile,
     FindingSeverity,
     PackageBuilder,
     SealResult,
@@ -9,7 +10,10 @@ from .core import (
     VerificationStage,
     VerificationState,
     VerifiedAdapterClaims,
+    VerifiedArtifactClaim,
+    VerifiedItemDisposition,
     VerifiedManifestClaims,
+    VerifiedPackageTotals,
     canonical_json_bytes,
     verify_package,
 )
@@ -27,6 +31,7 @@ __all__ = [
     "AdapterIdentity",
     "Artifact",
     "ArtifactInventoryEntry",
+    "ConsumerProfile",
     "FindingSeverity",
     "ItemOutcome",
     "PackageBuilder",
@@ -34,7 +39,10 @@ __all__ = [
     "SealResult",
     "VerificationIssue",
     "VerifiedAdapterClaims",
+    "VerifiedArtifactClaim",
+    "VerifiedItemDisposition",
     "VerifiedManifestClaims",
+    "VerifiedPackageTotals",
     "VerificationResult",
     "VerificationStage",
     "VerificationState",

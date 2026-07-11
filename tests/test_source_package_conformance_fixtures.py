@@ -92,7 +92,7 @@ def test_public_result_exposes_only_curated_claims(tmp_path: Path) -> None:
     )
 
     result = verify_package(package)
-    assert result.ok and result.schema_version == "2.0.0"
+    assert result.ok and result.schema_version == "2.2.0"
     assert result.verified_claims is not None
     assert result.verified_claims.package_id == "package-001"
     assert not hasattr(result.verified_claims, "extensions")

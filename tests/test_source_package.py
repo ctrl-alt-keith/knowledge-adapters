@@ -1,14 +1,18 @@
 import hashlib
 import json
 from collections.abc import Callable
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, cast
 from unittest.mock import patch
+
+import pytest
 
 from knowledge_adapters.source_package import (
     AcquisitionRequest,
     AdapterIdentity,
     Artifact,
+    ConsumerProfile,
     ItemOutcome,
     PackageBuilder,
     PackageItem,
@@ -222,13 +226,145 @@ def test_verified_claims_are_curated_bounded_and_not_raw_manifest(tmp_path: Path
     assert value.seal(destination).ok
     rewrite_manifest(destination, lambda manifest: manifest.update(arbitrary="not-a-claim"))
     result = verify_package(destination)
-    assert result.ok and result.schema_version == "2.0.0"
+    assert result.ok and result.schema_version == "2.2.0"
     assert result.verified_claims is not None
     assert result.verified_claims.package_id is None
     assert not hasattr(result.verified_claims, "extensions")
     assert not hasattr(result.verified_claims, "arbitrary")
     assert not hasattr(result, "manifest")
     assert not hasattr(result, "manifest_claims")
+
+
+def test_consumer_profile_returns_bounded_item_artifact_and_package_claims(
+    tmp_path: Path,
+) -> None:
+    destination = tmp_path / "package"
+    value = PackageBuilder(
+        package_id="pkg-profile",
+        request=request(),
+        run_id="run-profile",
+        created_at="2026-07-10T00:00:00Z",
+        adapter=AdapterIdentity("fixture", "1.0.0", "revision-1"),
+        boundary={"live": "fixture", "deterministic": "assembly"},
+        extensions={"org.example.provider": {"secretish": "excluded"}},
+    )
+    value.add_item(
+        PackageItem(
+            "one",
+            "document",
+            ItemOutcome.COMPLETED,
+            {
+                "requested_locator": "https://example.test/requested",
+                "resolved_locator": "https://example.test/resolved",
+                "canonical_locator": "https://example.test/canonical",
+                "language": "en",
+                "provenance": {"provider": "fixture", "provider_resource_id": "one"},
+                "artifacts": ["artifacts/one/normalized.md"],
+                "normalization": {
+                    "name": "fixture-normalizer",
+                    "version": "1.0.0",
+                    "transforms": ["one-trailing-newline"],
+                },
+                "extensions": {"org.example.provider": {"opaque": "excluded"}},
+            },
+        )
+    )
+    value.add_artifact(
+        Artifact(
+            "artifacts/one/normalized.md",
+            b"candidate\n",
+            "normalized-content",
+            "text/markdown",
+        )
+    )
+    assert value.seal(destination).ok
+    profile = ConsumerProfile(identifier="vault-fixture-v1")
+    result = verify_package(destination, profile=profile)
+    assert result.ok and result.consumer_profile == "vault-fixture-v1"
+    claims = result.verified_claims
+    assert claims is not None and claims.totals is not None
+    assert claims.totals.item_records == 1
+    assert claims.totals.aggregate_bytes == sum(
+        path.stat().st_size for path in destination.rglob("*") if path.is_file()
+    )
+    assert claims.item_dispositions[0].canonical_locator == "https://example.test/canonical"
+    assert claims.item_dispositions[0].artifact_references == (
+        "artifacts/one/normalized.md",
+    )
+    assert claims.item_dispositions[0].associated_artifacts[0].role == "normalized-content"
+    assert claims.item_dispositions[0].finding_references == ()
+    artifact = next(
+        item for item in claims.artifact_inventory if item.path.endswith("normalized.md")
+    )
+    assert artifact.role == "normalized-content" and len(artifact.sha256) == 64
+    serialized = json.dumps(asdict(result), default=str, sort_keys=True)
+    assert "secretish" not in serialized and '"opaque"' not in serialized
+    assert "candidate\\n" not in serialized
+
+
+def test_consumer_profile_resource_limits_fail_closed(tmp_path: Path) -> None:
+    destination = tmp_path / "package"
+    assert builder().seal(destination).ok
+    result = verify_package(
+        destination,
+        profile=ConsumerProfile(identifier="entry-limit", max_package_entries=1),
+    )
+    assert result.state == "rejected"
+    assert result.consumer_profile == "entry-limit"
+    assert {finding.code for finding in result.findings} >= {"consumer-entry-limit"}
+
+    result = verify_package(
+        destination,
+        profile=ConsumerProfile(identifier="aggregate-limit", max_aggregate_bytes=1),
+    )
+    assert result.state == "rejected"
+    assert result.consumer_profile == "aggregate-limit"
+    assert {finding.code for finding in result.findings} >= {
+        "consumer-aggregate-size-limit"
+    }
+
+
+def test_consumer_profile_rejects_legacy_argument_mixing(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="cannot be combined"):
+        verify_package(
+            tmp_path,
+            profile=ConsumerProfile(),
+            max_manifest_bytes=1024,
+        )
+
+
+def test_verifier_rejects_unbounded_inventory_metadata_and_unknown_item_refs(
+    tmp_path: Path,
+) -> None:
+    destination = tmp_path / "metadata"
+    assert builder().seal(destination).ok
+    rewrite_manifest(
+        destination,
+        lambda manifest: manifest["artifacts"][0].update(role="x" * 201),
+    )
+    result = verify_package(destination)
+    assert result.state == "rejected"
+    assert result.findings[0].code == "invalid-inventory-metadata"
+
+    destination = tmp_path / "references"
+    assert builder().seal(destination).ok
+    item_path = destination / "items/one.json"
+    item = json.loads(item_path.read_bytes())
+    item["artifacts"] = ["artifacts/missing.md"]
+    item_bytes = (
+        json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
+    ).encode()
+    item_path.write_bytes(item_bytes)
+
+    def update_item_digest(manifest: dict[str, Any]) -> None:
+        entry = next(value for value in manifest["artifacts"] if value["path"] == "items/one.json")
+        entry["bytes"] = len(item_bytes)
+        entry["sha256"] = hashlib.sha256(item_bytes).hexdigest()
+
+    rewrite_manifest(destination, update_item_digest)
+    result = verify_package(destination)
+    assert result.state == "rejected"
+    assert result.findings[0].code == "invalid-item-artifact-reference"
 
 
 def test_rejected_result_only_exposes_claims_from_completed_stages(tmp_path: Path) -> None:

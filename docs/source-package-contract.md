@@ -235,6 +235,27 @@ A consumer must verify a package in this order:
    by the manifest.
 7. Only then allow the package to proceed to content review.
 
+The public verifier accepts a typed consumer profile containing supported
+contract majors and required capabilities plus explicit positive limits for
+manifest and sidecar bytes, JSON depth, filesystem entries, item records,
+artifact and diagnostic inventory entries, individual and aggregate file
+bytes, and path length and component count. Enumeration stops when the entry or
+path-depth bound is reached. It rejects symbolic links, hard links,
+non-regular files, case-colliding portable paths, changed files during bounded
+reads, and any resource total outside the profile.
+
+After complete artifact-integrity verification, the public result may expose a
+bounded provider-neutral summary of package identity, terminal item
+dispositions, common locators and provenance identifiers, language,
+normalization identity, candidate artifact references and their verified
+role/media type/byte count/digest, and package totals. Package totals count all
+regular files including `package.json` and `package.sha256`; artifact totals
+count manifest inventory entries, and aggregate bytes count exact filesystem
+bytes for all regular package files. Arbitrary manifest fields, provider
+extensions, content bytes, and raw diagnostic payloads are never curated
+claims. Consumers requiring those inputs inspect them only after successful
+verification under their own review-policy bounds.
+
 A missing, malformed, or mismatched `package.sha256` causes structural
 rejection before content inspection. A consumer must not rely on any field in
 `package.json` until the external manifest digest matches.
