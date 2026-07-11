@@ -4,14 +4,18 @@ import hashlib
 import io
 import json
 import shutil
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
 
-from knowledge_adapters.source_package import verify_package
+from knowledge_adapters.source_package import (
+    CollectionProgress,
+    CollectionProgressState,
+    verify_package,
+)
 from knowledge_adapters.youtube import (
     BaseLanguageFallback,
     CaptionPolicy,
@@ -56,7 +60,10 @@ class FakeClient:
     def __init__(
         self,
         discovery: Discovery,
-        videos: dict[str, VideoObservation | list[VideoObservation | ProviderFailure]],
+        videos: dict[
+            str,
+            VideoObservation | ProviderFailure | list[VideoObservation | ProviderFailure],
+        ],
     ) -> None:
         self.discovery = discovery
         self.videos = videos
@@ -303,7 +310,9 @@ def test_playlist_order_duplicate_missing_position_and_unavailable_member(
     assert first["extensions"]["org.ctrl-alt-keith.youtube"]["source_position"] == 1
 
 
-def test_partial_batch_writes_checkpoint_but_does_not_seal(tmp_path: Path) -> None:
+def test_partial_batch_seals_continuation_and_checkpoints_completed_bytes(
+    tmp_path: Path,
+) -> None:
     discovery = Discovery(
         PLAYLIST,
         PLAYLIST,
@@ -324,17 +333,20 @@ def test_partial_batch_writes_checkpoint_but_does_not_seal(tmp_path: Path) -> No
         "video_001": video("video_001", creator_track()),
         "video_002": video("video_002", creator_track()),
     }
-    with pytest.raises(CollectionProgressBlocked, match="canonical collection progress"):
-        produce_package(
-            opts,
-            FakeClient(discovery, dict(partial_videos)),
-            request_id="request",
-            run_id="run",
-            package_id="package",
-            created_at="2026-07-10T00:00:00Z",
-            destination=tmp_path / "package",
-        )
-    assert checkpoint_path.is_file() and not (tmp_path / "package").exists()
+    initial = produce_package(
+        opts,
+        FakeClient(discovery, dict(partial_videos)),
+        request_id="request",
+        run_id="run",
+        package_id="package",
+        created_at="2026-07-10T00:00:00Z",
+        destination=tmp_path / "package",
+    )
+    assert initial.verification.verified_claims is not None
+    assert initial.verification.verified_claims.collection_progress == CollectionProgress(
+        CollectionProgressState.CONTINUATION_REMAINING
+    )
+    assert checkpoint_path.is_file() and (tmp_path / "package").is_dir()
     checkpoint_json = json.loads(checkpoint_path.read_bytes())
     assert [item["video_id"] for item in checkpoint_json["completed"]] == [
         "video_001",
@@ -355,27 +367,170 @@ def test_partial_batch_writes_checkpoint_but_does_not_seal(tmp_path: Path) -> No
             PlaylistEntry("video_004", 3),
         ),
     )
-    resume_client = FakeClient(changed_discovery, {})
-    with pytest.raises(CollectionProgressBlocked, match="resume lineage"):
-        produce_package(
-            resumed,
-            resume_client,
-            request_id="request-next",
-            run_id="run-next",
-            package_id="package-next",
-            created_at="2026-07-10T00:01:00Z",
-            destination=tmp_path / "package-next",
-        )
-    assert resume_client.calls == []
+    resume_client = FakeClient(
+        changed_discovery,
+        {
+            "video_003": video("video_003", creator_track()),
+            "video_004": video("video_004", creator_track()),
+        },
+    )
+    resumed_result = produce_package(
+        resumed,
+        resume_client,
+        request_id="request-next",
+        run_id="run-next",
+        package_id="package-next",
+        created_at="2026-07-10T00:01:00Z",
+        destination=tmp_path / "package-next",
+    )
+    assert resume_client.calls == ["video_003", "video_004"]
+    claims = resumed_result.verification.verified_claims
+    assert claims is not None
+    assert claims.collection_progress == CollectionProgress(CollectionProgressState.EXHAUSTED)
+    assert claims.resumes_run_id == "run"
+    assert claims.prior_run_ids == ("run",)
+    dispositions = {item.item_id: item.outcome for item in claims.item_dispositions}
+    assert dispositions["youtube-video-video_001"] == "unchanged"
+    assert "youtube-video-video_002" not in dispositions
     next_path = tmp_path / "checkpoint-next.json"
     next_json = json.loads(next_path.read_bytes())
-    assert [item["video_id"] for item in next_json["completed"]] == ["video_001"]
-    assert next_json["pending_video_ids"] == ["video_003", "video_004"]
+    assert [item["video_id"] for item in next_json["completed"]] == [
+        "video_001",
+        "video_003",
+        "video_004",
+    ]
+    assert next_json["pending_video_ids"] == []
     completed = next_json["completed"][0]
     assert (tmp_path / completed["captured_path"]).read_bytes() == creator_track().data
     assert (tmp_path / completed["normalized_path"]).read_bytes() == (
         b"Hello from the creator.\n\n**Ada:** Welcome aboard.\n"
     )
+
+
+def test_fully_processed_bounded_collection_claims_exhausted(tmp_path: Path) -> None:
+    discovery = Discovery(
+        PLAYLIST,
+        PLAYLIST,
+        "playlist_001",
+        (PlaylistEntry("video_001", 1), PlaylistEntry("video_002", 2)),
+        True,
+    )
+    result = produce_package(
+        YouTubeOptions(PLAYLIST, ScopeKind.COLLECTION, 2),
+        FakeClient(
+            discovery,
+            {
+                "video_001": video("video_001", creator_track()),
+                "video_002": video("video_002", creator_track()),
+            },
+        ),
+        request_id="request-exhausted",
+        run_id="run-exhausted",
+        package_id="package-exhausted",
+        created_at="2026-07-10T00:00:00Z",
+        destination=tmp_path / "package",
+    )
+    claims = result.verification.verified_claims
+    assert claims is not None
+    assert claims.collection_progress == CollectionProgress(CollectionProgressState.EXHAUSTED)
+    assert len(claims.item_dispositions) == 2
+
+
+def test_verification_summary_excludes_provider_extensions_and_content(tmp_path: Path) -> None:
+    result = produce_package(
+        options(),
+        single_client(creator_track()),
+        request_id="request-summary",
+        run_id="run-summary",
+        package_id="package-summary",
+        created_at="2026-07-10T00:00:00Z",
+        destination=tmp_path / "package",
+    )
+    serialized = json.dumps(asdict(result.verification), default=str, sort_keys=True)
+    assert "org.ctrl-alt-keith.youtube" not in serialized
+    assert "selection_reason" not in serialized
+    assert "Hello from the creator" not in serialized
+    claims = result.verification.verified_claims
+    assert claims is not None
+    assert claims.item_dispositions[0].provider == "youtube"
+
+
+def test_failure_resume_success_preserves_cumulative_attempt_count(tmp_path: Path) -> None:
+    discovery = Discovery(
+        PLAYLIST,
+        PLAYLIST,
+        "playlist_001",
+        (PlaylistEntry("video_001", 1), PlaylistEntry("video_002", 2)),
+        True,
+    )
+    first_checkpoint = tmp_path / "first.json"
+    first_options = YouTubeOptions(
+        PLAYLIST,
+        ScopeKind.COLLECTION,
+        2,
+        batch_size=1,
+        checkpoint_output=first_checkpoint,
+    )
+    produce_package(
+        first_options,
+        FakeClient(
+            discovery,
+            {
+                "video_001": ProviderFailure(
+                    ProviderFailureCategory.REMOVED, "fixture-removed"
+                )
+            },
+        ),
+        request_id="request-first",
+        run_id="run-first",
+        package_id="package-first",
+        created_at="2026-07-10T00:00:00Z",
+        destination=tmp_path / "package-first",
+    )
+    assert json.loads(first_checkpoint.read_bytes())["attempts"]["video_001"] == 1
+
+    next_checkpoint = tmp_path / "next.json"
+    resumed = replace(
+        first_options,
+        checkpoint_input=first_checkpoint,
+        checkpoint_output=next_checkpoint,
+    )
+    result = produce_package(
+        resumed,
+        FakeClient(discovery, {"video_001": video("video_001", creator_track())}),
+        request_id="request-next",
+        run_id="run-next",
+        package_id="package-next",
+        created_at="2026-07-10T00:01:00Z",
+        destination=tmp_path / "package-next",
+    )
+    claims = result.verification.verified_claims
+    assert claims is not None and claims.resumes_run_id == "run-first"
+    manifest = json.loads((result.package_path / "package.json").read_bytes())
+    assert manifest["final_attempt_counts"]["video_001"] == 2
+    assert json.loads(next_checkpoint.read_bytes())["attempts"]["video_001"] == 2
+
+
+def test_non_actionable_provider_continuation_is_explicitly_blocked(tmp_path: Path) -> None:
+    discovery = Discovery(
+        PLAYLIST,
+        PLAYLIST,
+        "playlist_001",
+        (PlaylistEntry("video_001", 1),),
+        False,
+        "opaque-continuation",
+    )
+    with pytest.raises(CollectionProgressBlocked, match="not actionable"):
+        produce_package(
+            YouTubeOptions(PLAYLIST, ScopeKind.COLLECTION, 1),
+            FakeClient(discovery, {"video_001": video("video_001", creator_track())}),
+            request_id="request",
+            run_id="run",
+            package_id="package",
+            created_at="2026-07-10T00:00:00Z",
+            destination=tmp_path / "package",
+        )
+    assert not (tmp_path / "package").exists()
 
 
 def test_checkpoint_validation_and_changed_playlist_reconciliation(tmp_path: Path) -> None:
@@ -404,6 +559,16 @@ def test_checkpoint_validation_and_changed_playlist_reconciliation(tmp_path: Pat
                 1,
                 captured_path,
                 normalized_path,
+                "https://www.youtube.com/watch?v=video_001",
+                "Fixture title",
+                "Fixture channel",
+                "20260710",
+                "en",
+                "creator",
+                "vtt",
+                None,
+                "playlist_001",
+                1,
             ),
         ),
         {"video_001": "completed"},
@@ -411,6 +576,8 @@ def test_checkpoint_validation_and_changed_playlist_reconciliation(tmp_path: Pat
         ("video_002",),
         None,
         "item:video_001",
+        "run-fixture",
+        "package-fixture",
     )
     save_checkpoint(checkpoint, path)
     loaded = load_checkpoint(path, expected_fingerprint=fingerprint)
@@ -459,7 +626,7 @@ def test_checkpoint_read_and_depth_are_bounded(tmp_path: Path) -> None:
     path.write_text(
         json.dumps(
             {
-                "schema_version": "1.1.0",
+                "schema_version": "1.2.0",
                 "request_fingerprint": "0" * 64,
                 "bounded_discovery": nested,
             }

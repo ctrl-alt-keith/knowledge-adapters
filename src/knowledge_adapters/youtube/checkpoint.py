@@ -14,7 +14,7 @@ from knowledge_adapters.source_package import canonical_json_bytes
 
 from .config import MAX_CAPTION_BYTES, MAX_COLLECTION_ITEMS, VIDEO_ID_RE
 
-CHECKPOINT_SCHEMA_VERSION = "1.1.0"
+CHECKPOINT_SCHEMA_VERSION = "1.2.0"
 MAX_CHECKPOINT_BYTES = 1024 * 1024
 MAX_CHECKPOINT_JSON_DEPTH = 8
 DIGEST_RE = re.compile(r"[0-9a-f]{64}\Z")
@@ -34,6 +34,16 @@ class CompletedCheckpointItem:
     attempts: int
     captured_path: str
     normalized_path: str
+    resolved_locator: str
+    title: str | None
+    channel: str | None
+    published_at: str | None
+    language: str
+    caption_kind: str
+    caption_format: str
+    caption_name: str | None
+    playlist_id: str | None
+    source_position: int | None
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -44,6 +54,16 @@ class CompletedCheckpointItem:
             "attempts": self.attempts,
             "captured_path": self.captured_path,
             "normalized_path": self.normalized_path,
+            "resolved_locator": self.resolved_locator,
+            "title": self.title,
+            "channel": self.channel,
+            "published_at": self.published_at,
+            "language": self.language,
+            "caption_kind": self.caption_kind,
+            "caption_format": self.caption_format,
+            "caption_name": self.caption_name,
+            "playlist_id": self.playlist_id,
+            "source_position": self.source_position,
         }
 
 
@@ -60,6 +80,10 @@ class YouTubeCheckpoint:
     pending_video_ids: tuple[str, ...]
     continuation: str | None
     last_successful_boundary: str
+    run_id: str
+    package_id: str
+    prior_run_ids: tuple[str, ...] = ()
+    prior_package_ids: tuple[str, ...] = ()
     schema_version: str = CHECKPOINT_SCHEMA_VERSION
 
     def as_dict(self) -> dict[str, object]:
@@ -76,6 +100,10 @@ class YouTubeCheckpoint:
             "pending_video_ids": list(self.pending_video_ids),
             "continuation": self.continuation,
             "last_successful_boundary": self.last_successful_boundary,
+            "run_id": self.run_id,
+            "package_id": self.package_id,
+            "prior_run_ids": list(self.prior_run_ids),
+            "prior_package_ids": list(self.prior_package_ids),
         }
 
 
@@ -191,6 +219,16 @@ def copy_completed_item(
         item.attempts,
         captured_path,
         normalized_path,
+        item.resolved_locator,
+        item.title,
+        item.channel,
+        item.published_at,
+        item.language,
+        item.caption_kind,
+        item.caption_format,
+        item.caption_name,
+        item.playlist_id,
+        item.source_position,
     )
 
 
@@ -232,6 +270,10 @@ def load_checkpoint(
             pending_video_ids=tuple(raw["pending_video_ids"]),
             continuation=raw.get("continuation"),
             last_successful_boundary=raw["last_successful_boundary"],
+            run_id=raw["run_id"],
+            package_id=raw["package_id"],
+            prior_run_ids=tuple(raw["prior_run_ids"]),
+            prior_package_ids=tuple(raw["prior_package_ids"]),
         )
     except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError) as exc:
         raise ValueError("corrupt checkpoint") from exc
@@ -274,7 +316,43 @@ def load_checkpoint(
             or not DIGEST_RE.fullmatch(item.captured_sha256)
             or not DIGEST_RE.fullmatch(item.normalized_sha256)
             or not VIDEO_ID_RE.fullmatch(item.video_id)
+            or not isinstance(item.resolved_locator, str)
+            or not item.resolved_locator
+            or len(item.resolved_locator) > 4096
+            or any(
+                value is not None and (not isinstance(value, str) or len(value) > 4096)
+                for value in (item.title, item.channel, item.published_at, item.caption_name)
+            )
+            or not isinstance(item.language, str)
+            or not item.language
+            or len(item.language) > 64
+            or item.caption_kind not in {"creator", "automatic"}
+            or not isinstance(item.caption_format, str)
+            or not item.caption_format
+            or len(item.caption_format) > 32
+            or (
+                item.playlist_id is not None
+                and (not isinstance(item.playlist_id, str) or len(item.playlist_id) > 200)
+            )
+            or (
+                item.source_position is not None
+                and (type(item.source_position) is not int or item.source_position <= 0)
+            )
             for item in checkpoint.completed
+        )
+        or not checkpoint.run_id
+        or not checkpoint.package_id
+        or len(checkpoint.run_id) > 200
+        or len(checkpoint.package_id) > 200
+        or len(set(checkpoint.prior_run_ids)) != len(checkpoint.prior_run_ids)
+        or len(set(checkpoint.prior_package_ids)) != len(checkpoint.prior_package_ids)
+        or any(
+            not isinstance(value, str) or not value or len(value) > 200
+            for value in checkpoint.prior_run_ids
+        )
+        or any(
+            not isinstance(value, str) or not value or len(value) > 200
+            for value in checkpoint.prior_package_ids
         )
     ):
         raise ValueError("corrupt checkpoint")

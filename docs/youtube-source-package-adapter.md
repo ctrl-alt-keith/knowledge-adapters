@@ -86,39 +86,47 @@ is limited to 1 MiB, depth 8, and the 500-item collection bound. It is versioned
 and records a request fingerprint, adapter and contract
 versions, playlist identity, discovery IDs, completed IDs and digests,
 outcomes, attempts, pending IDs, continuation evidence, and last successful
-boundary. Resume validates schema, fingerprint, adapter version, and contract
-version, then reconciles rediscovery by video ID. Completed bytes live under
+boundary. Checkpoint schema 1.2 also stores the bounded typed identity,
+locator, observed metadata, caption selection, collection relationship, run,
+package, and prior-lineage fields required to reconstruct preserved completed
+items without copying a manifest model. Resume validates schema, fingerprint,
+adapter version, and contract version, then reconciles rediscovery by video ID.
+Completed bytes live under
 checkpoint-owned relative paths in `<checkpoint-stem>.data/`; regular-file,
 path, 8 MiB, and SHA-256 checks run on load. Resume copies only matching
 verified bytes into the next checkpoint, drops disappeared IDs, and marks new
-IDs pending. A raw yt-dlp archive is not a canonical checkpoint.
+IDs pending. Attempt counts are cumulative across checkpoints while the retry
+limit applies independently to the new run, so failure-to-success transitions
+record the additional attempt. A raw yt-dlp archive is not a canonical
+checkpoint.
 
-## Collection Progress Gate
+## Canonical Collection Progress And Resume
 
-Contract/core `1.0.0` cannot unambiguously seal partial or resumed collections.
-`AcquisitionRequest.scope.max_items` records requested intent, but not whether
-the observed bounded scope was exhausted or continuation remains. The public
-`PackageBuilder` reserves resume-lineage fields but exposes no way to populate
-them, and public verified claims expose neither request scope nor a collection
-progress value.
+Collection packages use contract 1.1 and the public `CollectionProgress` and
+`PackageLineage` models. A batch that leaves entries inside the requested bound
+seals with `continuation_remaining`. A run that terminally accounts for the
+entire bounded window seals with `exhausted`; this does not claim the provider's
+global playlist has no later entries.
 
-Therefore this adapter seals only:
+On resume, the adapter rediscovers the original bounded window, reuses only
+matching video IDs with verified cached bytes, assigns `unchanged` to those
+preserved package items, acquires the next bounded batch, and records the prior
+run/package IDs, cumulative attempts, and reconciliation counts through public
+`PackageLineage`. Disappeared IDs are counted as dropped and new IDs become
+pending or acquired according to the batch boundary.
 
-- one fully processed video; or
-- a fully processed bounded playlist observation.
+The producer verifies with an explicit public `ConsumerProfile` supporting the
+collection-progress capability. Handoff assertions use only public verified
+package, item-disposition, artifact-inventory, totals, progress, and lineage
+summaries. Provider extensions and content bytes are not read back or treated
+as verifier claims.
 
-If bounded discovery reports continuation inside the requested window, or
-`batch_size` leaves selected items pending, the adapter may write a checkpoint
-but raises `CollectionProgressBlocked` before creating a package. Resume state
-is validated but cannot be sealed until the canonical core exposes
-provider-neutral progress and lineage. Progress is not hidden in the YouTube
-extension.
-
-The embedded client passes `playlistend=max_items`; therefore its `exhausted`
-observation means discovery completed the requested bounded window, not that
-the provider playlist has no later members. A smaller `batch_size` is the
-explicit continuation-within-that-bound case. Its checkpoint records completed
-item digests and leaves the rest pending, but no partial package is sealed.
+The embedded client passes `playlistend=max_items`, so normal live discovery is
+complete relative to that window. `batch_size < max_items` is the actionable
+continuation case. A provider observation that says the window is not exhausted
+after every returned entry was attempted cannot advance through this adapter's
+safe rediscovery convention; it is explicitly blocked instead of emitting an
+endlessly resumable checkpoint or using an undocumented cursor.
 
 ## Prepared Live Pilot (Not Executed)
 
