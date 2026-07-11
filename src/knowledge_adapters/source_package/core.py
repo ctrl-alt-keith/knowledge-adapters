@@ -224,6 +224,13 @@ def _supports_collection_progress(contract_version: object) -> bool:
     return bool(match and (int(match.group(1)), int(match.group(2))) >= (1, 1))
 
 
+def _supports_collection_progress(contract_version: object) -> bool:
+    if not isinstance(contract_version, str):
+        return False
+    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", contract_version)
+    return bool(match and (int(match.group(1)), int(match.group(2))) >= (1, 1))
+
+
 class VerificationState(StrEnum):
     VERIFIED = "verified"
     REJECTED = "rejected"
