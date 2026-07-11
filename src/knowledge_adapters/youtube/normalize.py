@@ -71,6 +71,14 @@ def normalize_webvtt(data: bytes, *, automatic: bool) -> NormalizedCaption:
             if index >= len(lines) or not TIMING_RE.fullmatch(lines[index].strip()):
                 raise CaptionNormalizationError("malformed WebVTT cue")
         index += 1
+        if (
+            automatic
+            and index + 1 < len(lines)
+            and not lines[index].strip()
+            and lines[index + 1].strip()
+            and not TIMING_RE.fullmatch(lines[index + 1].strip())
+        ):
+            index += 1
         body: list[str] = []
         while index < len(lines) and lines[index].strip():
             body.append(lines[index])
