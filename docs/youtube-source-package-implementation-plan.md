@@ -29,7 +29,10 @@ The module should follow the repository's proven source-specific organization, b
 
 ## Public Adapter Behavior
 
-The initial public call should accept an acquisition request plus typed YouTube options and return either a sealed package result or a failed-run diagnostic/receipt result. It should support:
+The initial public call should construct the shared typed `AcquisitionRequest`
+from common request fields plus namespaced YouTube extensions, then return
+either a sealed package result or a failed-run diagnostic/receipt result. The
+typed request, rather than provider code, owns `request.json`. It should support:
 
 - `scope.kind = resource` for one video and `scope.kind = collection` for one playlist;
 - a mandatory positive collection bound (`max_items`) and an optional per-run `batch_size`;
@@ -101,13 +104,35 @@ Given the same captured bytes, config, normalizer version, and contract version,
 | Extraction/caption failure | item error/skip and diagnostic artifact |
 | yt-dlp release | adapter build/revision identity |
 
-The producer supplies item records and artifact bytes through Lane A's public builder. It must not write `package.json`, `package.sha256`, inventory digests, counts, or receipt lineage itself. Package-level status derives from terminal items. Provider fields live under `org.ctrl-alt-keith.youtube` and cannot alter common semantics.
+The producer supplies item records, candidate artifacts, diagnostics, and
+namespaced extensions through Lane A's public builder. It must not write
+`request.json`, `package.json`, `package.sha256`, inventory digests, counts,
+identity, lifecycle, or receipt lineage itself. Provider extensions live under
+`org.ctrl-alt-keith.youtube`; the builder rejects attempts to override canonical
+fields. Package-level status derives from terminal items. After sealing, the
+producer invokes only the public verifier and hands off a package only when its
+overall state is `verified`.
 
 ## Checkpoint, Batching, And Resume
 
 Checkpoint state is mutable and adapter-local, never inventoried. It should contain schema version, request fingerprint, contract and adapter versions, playlist ID, discovery observation, next source position/cursor when safe, completed video IDs with captured/normalized digests, terminal outcomes, attempt counts, pending IDs, and the last successful boundary.
 
-Because playlist membership and order can change, a raw yt-dlp archive is insufficient as the canonical checkpoint. On resume, rediscover within the requested bound unless a documented provider cursor is proven safe, reconcile by video ID, verify saved artifact digests, preserve matching completed work, and start a new `run_id` with manifest lineage. `batch_size` limits attempted items in one run; `max_items` limits the total collection scope. A batch may seal once every item it claims is terminal, while its lineage and diagnostics make the remaining bounded scope explicit. Whether partial collection batches require a common capability is an open contract question for Lane A/human review.
+Because playlist membership and order can change, a raw yt-dlp archive is
+insufficient as the canonical checkpoint. On resume, rediscover within the
+requested bound unless a documented provider cursor is proven safe, reconcile
+by video ID, verify saved artifact digests, preserve matching completed work,
+and start a new `run_id` with builder-owned manifest lineage. `batch_size`
+limits attempted items in one run; `max_items` limits total collection scope.
+
+The recommended shared representation is: record the bounded scope and batch
+limit in the typed request; record one of `exhausted`, `continuation-remaining`,
+or `resumed` in a package-level reconciliation/limitation field; and use the
+canonical resume lineage fields for prior runs and packages. Provider
+extensions may preserve YouTube cursor evidence but cannot carry the only
+meaning of collection completeness. The current core API does not yet expose a
+typed package-level progress/limitation field, so this is a canonical contract
+and builder follow-up. Until resolved, the adapter must not seal a partial
+collection package that could imply exhaustion.
 
 ## Failure Mapping
 
@@ -144,6 +169,11 @@ Create sanitized, hand-auditable fixtures rather than captured full provider pag
 - stable package mapping assertions through Lane A's public API and Lane B conformance verification.
 
 Fixtures should assert exact normalized bytes, item order, provider-neutral outcomes, namespaced extensions, no signed URLs/secrets, and deterministic replay. They must not require network, credentials, yt-dlp, or ffmpeg during `make check`.
+
+Sealing tests must also simulate a failed write or final placement, confirm the
+collision-resistant temporary tree is removed, retry successfully without
+modifying an existing destination, and verify the result through the public
+verifier.
 
 ## Optional Live Canary
 
