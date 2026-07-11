@@ -791,6 +791,22 @@ def verify_package(
             structural_data[relative] = package.joinpath(
                 *PurePosixPath(relative).parts
             ).read_bytes()
+        except OSError:
+            return _result(
+                VerificationState.INDETERMINATE_IO,
+                VerificationStage.TERMINAL_ACCOUNTING,
+                (
+                    _finding(
+                        "io-item-read-failure",
+                        VerificationStage.TERMINAL_ACCOUNTING,
+                        "could not read inventoried item record",
+                        relative,
+                    ),
+                ),
+                actual,
+                compatibility_claims,
+            )
+        try:
             item = json.loads(structural_data[relative], object_pairs_hook=_unique_object)
             if not isinstance(item, dict):
                 raise ValueError
@@ -910,10 +926,26 @@ def verify_package(
                 structural_data[receipt_path] = package.joinpath(
                     *PurePosixPath(receipt_path).parts
                 ).read_bytes()
+            except OSError:
+                return _result(
+                    VerificationState.INDETERMINATE_IO,
+                    VerificationStage.LINEAGE,
+                    (
+                        _finding(
+                            "io-run-receipt-read-failure",
+                            VerificationStage.LINEAGE,
+                            "could not read inventoried run receipt",
+                            receipt_path,
+                        ),
+                    ),
+                    actual,
+                    accounting_claims,
+                )
+            try:
                 receipt = json.loads(
                     structural_data[receipt_path], object_pairs_hook=_unique_object
                 )
-            except (OSError, UnicodeDecodeError, json.JSONDecodeError, _DuplicateKey):
+            except (UnicodeDecodeError, json.JSONDecodeError, _DuplicateKey):
                 receipt = None
                 issues.append(
                     _finding(
@@ -954,13 +986,11 @@ def verify_package(
     lineage_claims = _curated_claims(manifest, actual, accounting=True, lineage=True)
     for relative in sorted(expected_paths):
         try:
-            data = structural_data.get(relative)
-            if data is None:
-                data = package.joinpath(*PurePosixPath(relative).parts).read_bytes()
+            data = package.joinpath(*PurePosixPath(relative).parts).read_bytes()
         except OSError:
             return _result(
                 VerificationState.INDETERMINATE_IO,
-                VerificationStage.LINEAGE,
+                VerificationStage.ARTIFACT_INTEGRITY,
                 (
                     _finding(
                         "io-artifact-read-failure",

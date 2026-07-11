@@ -15,6 +15,8 @@ from knowledge_adapters.source_package import (
     verify_package,
 )
 
+ORIGINAL_READ_BYTES = Path.read_bytes
+
 
 def request() -> AcquisitionRequest:
     return AcquisitionRequest(
@@ -238,3 +240,118 @@ def test_rejected_result_only_exposes_claims_from_completed_stages(tmp_path: Pat
     assert result.verified_claims.package_id == "pkg-1"
     assert result.verified_claims.status is None
     assert result.verified_claims.counts is None
+
+
+def test_item_read_failure_is_structured_indeterminate_io(tmp_path: Path) -> None:
+    destination = tmp_path / "package"
+    assert builder().seal(destination).ok
+    item_path = destination / "items/one.json"
+
+    def read_bytes(path: Path) -> bytes:
+        if path == item_path:
+            raise OSError("simulated disappearing item")
+        return ORIGINAL_READ_BYTES(path)
+
+    with patch.object(Path, "read_bytes", autospec=True, side_effect=read_bytes):
+        result = verify_package(destination)
+    assert result.state == "indeterminate_io"
+    assert result.findings[0].code == "io-item-read-failure"
+    assert result.findings[0].stage == "terminal-accounting"
+    assert result.findings[0].reference == "items/one.json"
+    assert result.last_completed_stage == "inventory-coverage"
+
+
+def test_run_receipt_read_failure_is_structured_indeterminate_io(tmp_path: Path) -> None:
+    destination = tmp_path / "package"
+    value = builder()
+    value.add_artifact(
+        Artifact("run-receipt.json", b'{"run_id":"run-1"}\n', "run-receipt", "application/json")
+    )
+    assert value.seal(destination).ok
+    rewrite_manifest(destination, lambda manifest: manifest.update(run_receipt="run-receipt.json"))
+    receipt_path = destination / "run-receipt.json"
+
+    def read_bytes(path: Path) -> bytes:
+        if path == receipt_path:
+            raise OSError("simulated disappearing receipt")
+        return ORIGINAL_READ_BYTES(path)
+
+    with patch.object(Path, "read_bytes", autospec=True, side_effect=read_bytes):
+        result = verify_package(destination)
+    assert result.state == "indeterminate_io"
+    assert result.findings[0].code == "io-run-receipt-read-failure"
+    assert result.findings[0].reference == "run-receipt.json"
+    assert result.last_completed_stage == "item-semantics"
+
+
+def test_changed_item_is_freshly_read_for_final_integrity(tmp_path: Path) -> None:
+    destination = tmp_path / "package"
+    assert builder().seal(destination).ok
+    item_path = destination / "items/one.json"
+    calls = 0
+
+    def read_bytes(path: Path) -> bytes:
+        nonlocal calls
+        if path == item_path:
+            calls += 1
+            if calls == 2:
+                return ORIGINAL_READ_BYTES(path) + b" "
+        return ORIGINAL_READ_BYTES(path)
+
+    with patch.object(Path, "read_bytes", autospec=True, side_effect=read_bytes):
+        result = verify_package(destination)
+    assert calls == 2
+    assert result.state == "rejected"
+    assert result.findings[0].stage == "artifact-integrity"
+    assert result.findings[0].code == "artifact-size-mismatch"
+
+
+def test_changed_receipt_is_freshly_read_for_final_integrity(tmp_path: Path) -> None:
+    destination = tmp_path / "package"
+    value = builder()
+    value.add_artifact(
+        Artifact("run-receipt.json", b'{"run_id":"run-1"}\n', "run-receipt", "application/json")
+    )
+    assert value.seal(destination).ok
+    rewrite_manifest(destination, lambda manifest: manifest.update(run_receipt="run-receipt.json"))
+    receipt_path = destination / "run-receipt.json"
+    calls = 0
+
+    def read_bytes(path: Path) -> bytes:
+        nonlocal calls
+        if path == receipt_path:
+            calls += 1
+            if calls == 2:
+                return ORIGINAL_READ_BYTES(path) + b" "
+        return ORIGINAL_READ_BYTES(path)
+
+    with patch.object(Path, "read_bytes", autospec=True, side_effect=read_bytes):
+        result = verify_package(destination)
+    assert calls == 2
+    assert result.state == "rejected"
+    assert result.findings[0].stage == "artifact-integrity"
+    assert result.findings[0].code == "artifact-size-mismatch"
+
+
+def test_file_disappearing_before_final_integrity_is_indeterminate(tmp_path: Path) -> None:
+    destination = tmp_path / "package"
+    value = builder()
+    value.add_artifact(
+        Artifact("artifacts/one.md", b"candidate\n", "normalized-content", "text/markdown")
+    )
+    assert value.seal(destination).ok
+    candidate_path = destination / "artifacts/one.md"
+
+    def read_bytes(path: Path) -> bytes:
+        if path == candidate_path:
+            raise OSError("simulated disappearing artifact")
+        return ORIGINAL_READ_BYTES(path)
+
+    with patch.object(Path, "read_bytes", autospec=True, side_effect=read_bytes):
+        result = verify_package(destination)
+    assert result.state == "indeterminate_io"
+    assert result.findings[0].code == "io-artifact-read-failure"
+    assert result.findings[0].stage == "artifact-integrity"
+    assert result.last_completed_stage == "lineage"
+    assert result.verified_claims is not None
+    assert result.verified_claims.status == "completed"
