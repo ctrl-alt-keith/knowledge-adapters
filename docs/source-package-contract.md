@@ -1,6 +1,6 @@
 # Source Package Contract
 
-Status: design draft for contract approval. This document defines an
+Status: experimental v1 contract. This document defines an
 interchange boundary; it does not define adapter implementation, a CLI, or a
 vault ingestion pipeline.
 

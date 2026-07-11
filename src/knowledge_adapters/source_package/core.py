@@ -4,18 +4,63 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
+import shutil
+import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from .models import AdapterIdentity, Artifact, ArtifactInventoryEntry, ItemOutcome, PackageItem
+from .models import (
+    AcquisitionRequest,
+    AdapterIdentity,
+    Artifact,
+    ArtifactInventoryEntry,
+    ItemOutcome,
+    PackageItem,
+)
 
 CONTRACT_NAME = "knowledge-source-package"
+RESULT_SCHEMA_VERSION = "1.0.0"
 SIDECAR_RE = re.compile(rb"[0-9a-f]{64}\n\Z")
 SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
+RESERVED_MANIFEST_FIELDS = frozenset(
+    {
+        "contract_name",
+        "contract_version",
+        "package_id",
+        "request_id",
+        "run_id",
+        "created_at",
+        "adapter",
+        "boundary",
+        "required_capabilities",
+        "status",
+        "counts",
+        "items",
+        "artifacts",
+        "request_path",
+        "run_receipt",
+        "resumes_run_id",
+        "prior_package_ids",
+        "prior_run_ids",
+        "reconciliation_summary",
+        "final_attempt_counts",
+        "lineage",
+        "integrity",
+        "content_address",
+    }
+)
+
+
+def _library_version() -> str | None:
+    try:
+        return version("knowledge-adapters")
+    except PackageNotFoundError:
+        return None
 
 
 def canonical_json_bytes(value: object) -> bytes:
@@ -27,11 +72,45 @@ def canonical_json_bytes(value: object) -> bytes:
 
 def _safe_path(value: str) -> bool:
     path = PurePosixPath(value)
-    return bool(value) and "\\" not in value and not path.is_absolute() and ".." not in path.parts
+    return (
+        bool(value)
+        and "\\" not in value
+        and not path.is_absolute()
+        and ".." not in path.parts
+        and path.as_posix() == value
+        and not value.startswith("./")
+        and "//" not in value
+    )
 
 
 def _digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+class VerificationState(StrEnum):
+    VERIFIED = "verified"
+    REJECTED = "rejected"
+    INDETERMINATE_IO = "indeterminate_io"
+
+
+class VerificationStage(StrEnum):
+    ENVELOPE = "envelope"
+    SIDECAR_FORMAT = "sidecar-format"
+    MANIFEST_DIGEST = "manifest-digest"
+    MANIFEST_PARSE = "manifest-parse"
+    COMPATIBILITY = "compatibility"
+    PATH_SAFETY = "path-safety"
+    INVENTORY_COVERAGE = "inventory-coverage"
+    ARTIFACT_INTEGRITY = "artifact-integrity"
+    TERMINAL_ACCOUNTING = "terminal-accounting"
+    ITEM_SEMANTICS = "item-semantics"
+    LINEAGE = "lineage"
+    COMPLETE = "complete"
+
+
+class FindingSeverity(StrEnum):
+    ERROR = "error"
+    WARNING = "warning"
 
 
 @dataclass(frozen=True)
@@ -43,18 +122,108 @@ class SealResult:
 
 
 @dataclass(frozen=True)
-class VerificationIssue:
+class VerificationFinding:
     code: str
+    severity: FindingSeverity
+    stage: VerificationStage
     message: str
-    path: str | None = None
+    reference: str | None = None
+    observed: str | int | None = None
+    expected: str | int | None = None
+
+    @property
+    def path(self) -> str | None:
+        """Backward-compatible alias for portable path/field references."""
+        return self.reference
+
+
+VerificationIssue = VerificationFinding
 
 
 @dataclass(frozen=True)
 class VerificationResult:
-    ok: bool
-    issues: tuple[VerificationIssue, ...]
+    schema_version: str
+    verifier_version: str | None
+    state: VerificationState
+    last_completed_stage: VerificationStage
+    findings: tuple[VerificationFinding, ...]
     content_address: str | None = None
-    manifest: Mapping[str, Any] | None = None
+    manifest_claims: Mapping[str, Any] | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.state is VerificationState.VERIFIED
+
+    @property
+    def issues(self) -> tuple[VerificationFinding, ...]:
+        return self.findings
+
+    @property
+    def manifest(self) -> Mapping[str, Any] | None:
+        return self.manifest_claims
+
+
+def _bounded(value: object, limit: int = 200) -> str:
+    text = str(value).replace("\n", "\\n").replace("\r", "\\r")
+    return text if len(text) <= limit else f"{text[:limit]}…"
+
+
+def _finding(
+    code: str,
+    stage: VerificationStage,
+    message: str,
+    reference: str | None = None,
+    observed: object | None = None,
+    expected: object | None = None,
+) -> VerificationFinding:
+    return VerificationFinding(
+        code,
+        FindingSeverity.ERROR,
+        stage,
+        _bounded(message),
+        reference,
+        None if observed is None else _bounded(observed),
+        None if expected is None else _bounded(expected),
+    )
+
+
+def _result(
+    state: VerificationState,
+    stage: VerificationStage,
+    findings: Sequence[VerificationFinding] = (),
+    content_address: str | None = None,
+    manifest: Mapping[str, Any] | None = None,
+) -> VerificationResult:
+    return VerificationResult(
+        RESULT_SCHEMA_VERSION,
+        _library_version(),
+        state,
+        stage,
+        tuple(findings),
+        content_address,
+        manifest,
+    )
+
+
+class _DuplicateKey(ValueError):
+    pass
+
+
+def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise _DuplicateKey(key)
+        value[key] = item
+    return value
+
+
+def _json_depth(value: Any, depth: int = 1) -> int:
+    if isinstance(value, dict):
+        return max((_json_depth(item, depth + 1) for item in value.values()), default=depth)
+    if isinstance(value, list):
+        return max((_json_depth(item, depth + 1) for item in value), default=depth)
+    return depth
 
 
 class PackageBuilder:
@@ -64,27 +233,41 @@ class PackageBuilder:
         self,
         *,
         package_id: str,
-        request_id: str,
+        request: AcquisitionRequest,
         run_id: str,
         created_at: str,
         adapter: AdapterIdentity,
         contract_version: str = "1.0.0",
         required_capabilities: Sequence[str] = (),
         boundary: Mapping[str, str],
+        extensions: Mapping[str, Any] | None = None,
         manifest_fields: Mapping[str, Any] | None = None,
     ) -> None:
+        if manifest_fields:
+            reserved = RESERVED_MANIFEST_FIELDS & manifest_fields.keys()
+            if reserved:
+                raise ValueError(
+                    f"manifest_fields contain reserved keys: {', '.join(sorted(reserved))}"
+                )
+            raise ValueError("manifest_fields is unsupported; use namespaced extensions")
+        if not request.request_id:
+            raise ValueError("request_id must not be empty")
+        if extensions and any("." not in key for key in extensions):
+            raise ValueError("extension keys must be namespaced")
+        self._request = request
         self._identity = {
             "contract_name": CONTRACT_NAME,
             "contract_version": contract_version,
             "package_id": package_id,
-            "request_id": request_id,
+            "request_id": request.request_id,
             "run_id": run_id,
             "created_at": created_at,
             "adapter": adapter.as_dict(),
             "boundary": dict(boundary),
             "required_capabilities": sorted(set(required_capabilities)),
+            "request_path": "request.json",
         }
-        self._extra = dict(manifest_fields or {})
+        self._extensions = dict(extensions or {})
         self._items: dict[str, PackageItem] = {}
         self._artifacts: dict[str, Artifact] = {}
         self._sealed = False
@@ -96,12 +279,17 @@ class PackageBuilder:
             raise ValueError("item_id must be a non-empty path segment")
         if item.item_id in self._items:
             raise ValueError(f"duplicate item_id: {item.item_id}")
+        item.as_dict()
         self._items[item.item_id] = item
 
     def add_artifact(self, artifact: Artifact) -> None:
         if self._sealed:
             raise RuntimeError("package builder is sealed")
-        if not _safe_path(artifact.path) or artifact.path in {"package.json", "package.sha256"}:
+        if not _safe_path(artifact.path) or artifact.path in {
+            "package.json",
+            "package.sha256",
+            "request.json",
+        }:
             raise ValueError(f"unsafe or reserved artifact path: {artifact.path}")
         if artifact.path in self._artifacts:
             raise ValueError(f"duplicate artifact path: {artifact.path}")
@@ -114,21 +302,28 @@ class PackageBuilder:
             return SealResult(False, error="destination already exists")
 
         artifacts = dict(self._artifacts)
+        artifacts["request.json"] = Artifact(
+            "request.json",
+            canonical_json_bytes(self._request.as_dict()),
+            "acquisition-request",
+            "application/json",
+        )
         item_paths: list[str] = []
-        for item_id, item in sorted(self._items.items()):
-            path = f"items/{item_id}.json"
-            item_paths.append(path)
-            artifacts[path] = Artifact(
-                path, canonical_json_bytes(item.as_dict()), "item-record", "application/json"
-            )
+        try:
+            for item_id, item in sorted(self._items.items()):
+                path = f"items/{item_id}.json"
+                item_paths.append(path)
+                artifacts[path] = Artifact(
+                    path, canonical_json_bytes(item.as_dict()), "item-record", "application/json"
+                )
+        except (TypeError, ValueError) as exc:
+            return SealResult(False, error=f"failed to build package: {_bounded(exc)}")
 
         outcomes = {outcome.value: 0 for outcome in ItemOutcome}
         for item in self._items.values():
             outcomes[item.outcome.value] += 1
         status = (
-            "completed_with_errors"
-            if outcomes[ItemOutcome.FAILED.value] or outcomes[ItemOutcome.CANCELLED.value]
-            else "completed"
+            "completed_with_errors" if outcomes["failed"] or outcomes["cancelled"] else "completed"
         )
         inventory = [
             ArtifactInventoryEntry(
@@ -136,17 +331,18 @@ class PackageBuilder:
             )
             for path, value in sorted(artifacts.items())
         ]
-        manifest = {
+        manifest: dict[str, Any] = {
             **self._identity,
-            **self._extra,
             "status": status,
             "counts": outcomes,
             "items": item_paths,
             "artifacts": [entry.as_dict() for entry in inventory],
         }
+        if self._extensions:
+            manifest["extensions"] = self._extensions
         manifest_bytes = canonical_json_bytes(manifest)
         content_address = _digest(manifest_bytes)
-        temporary = destination.with_name(f".{destination.name}.tmp-{os.getpid()}")
+        temporary = destination.with_name(f".{destination.name}.tmp-{uuid.uuid4().hex}")
         try:
             temporary.mkdir(parents=True)
             for path, artifact in sorted(artifacts.items()):
@@ -157,7 +353,8 @@ class PackageBuilder:
             (temporary / "package.sha256").write_bytes(f"{content_address}\n".encode())
             temporary.rename(destination)
         except OSError as exc:
-            return SealResult(False, error=f"failed to seal package: {exc}")
+            shutil.rmtree(temporary, ignore_errors=True)
+            return SealResult(False, error=f"failed to seal package: {_bounded(exc)}")
         self._sealed = True
         return SealResult(True, destination, content_address)
 
@@ -169,86 +366,217 @@ def verify_package(
     supported_capabilities: Sequence[str] = (),
     max_manifest_bytes: int = 4 * 1024 * 1024,
     max_sidecar_bytes: int = 65,
+    max_json_depth: int | None = None,
 ) -> VerificationResult:
-    """Verify a sealed package in the contract-mandated order without raising."""
+    """Verify a sealed package in contract order without exposing untrusted content."""
     manifest_path, sidecar_path = package / "package.json", package / "package.sha256"
     for path in (manifest_path, sidecar_path):
         if not path.is_file() or path.is_symlink():
-            return VerificationResult(
-                False, (VerificationIssue("missing", "required regular file missing", path.name),)
+            return _result(
+                VerificationState.REJECTED,
+                VerificationStage.ENVELOPE,
+                (
+                    _finding(
+                        "missing-required-file",
+                        VerificationStage.ENVELOPE,
+                        "required regular file missing",
+                        path.name,
+                    ),
+                ),
             )
     try:
-        if (
-            manifest_path.stat().st_size > max_manifest_bytes
-            or sidecar_path.stat().st_size > max_sidecar_bytes
-        ):
-            return VerificationResult(
-                False, (VerificationIssue("size-limit", "manifest or sidecar exceeds size limit"),)
+        manifest_size, sidecar_size = manifest_path.stat().st_size, sidecar_path.stat().st_size
+        if manifest_size > max_manifest_bytes or sidecar_size > max_sidecar_bytes:
+            return _result(
+                VerificationState.REJECTED,
+                VerificationStage.ENVELOPE,
+                (
+                    _finding(
+                        "consumer-size-limit",
+                        VerificationStage.ENVELOPE,
+                        "manifest or sidecar exceeds consumer limit",
+                        observed=max(manifest_size, sidecar_size),
+                    ),
+                ),
             )
         sidecar = sidecar_path.read_bytes()
         if not SIDECAR_RE.fullmatch(sidecar):
-            return VerificationResult(
-                False,
+            return _result(
+                VerificationState.REJECTED,
+                VerificationStage.SIDECAR_FORMAT,
                 (
-                    VerificationIssue(
-                        "sidecar-format", "invalid package.sha256 format", "package.sha256"
+                    _finding(
+                        "invalid-sidecar-format",
+                        VerificationStage.SIDECAR_FORMAT,
+                        "package.sha256 must be lowercase hexadecimal plus one newline",
+                        "package.sha256",
                     ),
                 ),
             )
         manifest_bytes = manifest_path.read_bytes()
-    except OSError as exc:
-        return VerificationResult(False, (VerificationIssue("read-error", str(exc)),))
+    except OSError:
+        return _result(
+            VerificationState.INDETERMINATE_IO,
+            VerificationStage.ENVELOPE,
+            (
+                _finding(
+                    "io-read-failure", VerificationStage.ENVELOPE, "could not read package envelope"
+                ),
+            ),
+        )
     actual = _digest(manifest_bytes)
     expected = sidecar[:-1].decode()
     if actual != expected:
-        return VerificationResult(
-            False,
-            (VerificationIssue("manifest-digest", "package.json digest mismatch", "package.json"),),
+        return _result(
+            VerificationState.REJECTED,
+            VerificationStage.MANIFEST_DIGEST,
+            (
+                _finding(
+                    "manifest-digest-mismatch",
+                    VerificationStage.MANIFEST_DIGEST,
+                    "package.json digest mismatch",
+                    "package.json",
+                ),
+            ),
         )
     try:
-        manifest = json.loads(manifest_bytes)
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        return VerificationResult(
-            False, (VerificationIssue("manifest-json", str(exc), "package.json"),), actual
+        manifest = json.loads(manifest_bytes, object_pairs_hook=_unique_object)
+    except _DuplicateKey:
+        return _result(
+            VerificationState.REJECTED,
+            VerificationStage.MANIFEST_PARSE,
+            (
+                _finding(
+                    "duplicate-json-key",
+                    VerificationStage.MANIFEST_PARSE,
+                    "manifest contains a duplicate object key",
+                    "package.json",
+                ),
+            ),
+            actual,
         )
-    issues: list[VerificationIssue] = []
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return _result(
+            VerificationState.REJECTED,
+            VerificationStage.MANIFEST_PARSE,
+            (
+                _finding(
+                    "invalid-manifest-json",
+                    VerificationStage.MANIFEST_PARSE,
+                    "manifest is not valid UTF-8 JSON",
+                    "package.json",
+                ),
+            ),
+            actual,
+        )
+    if max_json_depth is not None and _json_depth(manifest) > max_json_depth:
+        return _result(
+            VerificationState.REJECTED,
+            VerificationStage.MANIFEST_PARSE,
+            (
+                _finding(
+                    "consumer-depth-limit",
+                    VerificationStage.MANIFEST_PARSE,
+                    "manifest exceeds consumer nesting limit",
+                    observed=_json_depth(manifest),
+                    expected=max_json_depth,
+                ),
+            ),
+            actual,
+        )
     if not isinstance(manifest, dict):
-        return VerificationResult(
-            False, (VerificationIssue("manifest-shape", "manifest must be an object"),), actual
+        return _result(
+            VerificationState.REJECTED,
+            VerificationStage.MANIFEST_PARSE,
+            (
+                _finding(
+                    "invalid-manifest-shape",
+                    VerificationStage.MANIFEST_PARSE,
+                    "manifest must be an object",
+                    "package.json",
+                ),
+            ),
+            actual,
         )
+
+    issues: list[VerificationFinding] = []
     if manifest.get("contract_name") != CONTRACT_NAME:
-        issues.append(VerificationIssue("contract-name", "unsupported contract name"))
-    version = manifest.get("contract_version")
+        issues.append(
+            _finding(
+                "unsupported-contract-name",
+                VerificationStage.COMPATIBILITY,
+                "unsupported contract name",
+                "contract_name",
+            )
+        )
+    version_value = manifest.get("contract_version")
     try:
-        major = int(version.split(".", 1)[0]) if isinstance(version, str) else -1
+        major = int(version_value.split(".", 1)[0]) if isinstance(version_value, str) else -1
     except ValueError:
         major = -1
     if major not in supported_major_versions:
-        issues.append(VerificationIssue("contract-version", "unsupported contract major version"))
+        issues.append(
+            _finding(
+                "unsupported-contract-major",
+                VerificationStage.COMPATIBILITY,
+                "unsupported contract major version",
+                "contract_version",
+            )
+        )
     required = manifest.get("required_capabilities", [])
     if not isinstance(required, list) or any(not isinstance(value, str) for value in required):
         issues.append(
-            VerificationIssue("capabilities-shape", "required_capabilities must be strings")
+            _finding(
+                "invalid-required-capabilities",
+                VerificationStage.COMPATIBILITY,
+                "required_capabilities must be strings",
+                "required_capabilities",
+            )
         )
     else:
         unsupported = sorted(set(required) - set(supported_capabilities))
         if unsupported:
             issues.append(
-                VerificationIssue("required-capability", f"unsupported: {', '.join(unsupported)}")
+                _finding(
+                    "unknown-required-capability",
+                    VerificationStage.COMPATIBILITY,
+                    "unsupported required capability",
+                    "required_capabilities",
+                )
             )
+    if issues:
+        return _result(
+            VerificationState.REJECTED, VerificationStage.COMPATIBILITY, issues, actual, manifest
+        )
+
     inventory = manifest.get("artifacts")
     if not isinstance(inventory, list):
-        issues.append(VerificationIssue("inventory-shape", "artifacts must be a list"))
-        inventory = []
-    counts = manifest.get("counts")
-    if not isinstance(counts, dict) or set(counts) != {value.value for value in ItemOutcome}:
-        issues.append(
-            VerificationIssue("accounting", "counts must contain exactly all terminal outcomes")
+        return _result(
+            VerificationState.REJECTED,
+            VerificationStage.PATH_SAFETY,
+            (
+                _finding(
+                    "invalid-inventory-shape",
+                    VerificationStage.PATH_SAFETY,
+                    "artifacts must be a list",
+                    "artifacts",
+                ),
+            ),
+            actual,
+            manifest,
         )
     expected_paths: set[str] = set()
+    entries: dict[str, Mapping[str, Any]] = {}
     for entry in inventory:
         if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
-            issues.append(VerificationIssue("inventory-entry", "invalid inventory entry"))
+            issues.append(
+                _finding(
+                    "invalid-inventory-entry",
+                    VerificationStage.PATH_SAFETY,
+                    "inventory entry requires a string path",
+                    "artifacts",
+                )
+            )
             continue
         relative = entry["path"]
         if (
@@ -257,77 +585,294 @@ def verify_package(
             or relative in {"package.json", "package.sha256"}
         ):
             issues.append(
-                VerificationIssue("path-safety", "unsafe, duplicate, or reserved path", relative)
+                _finding(
+                    "unsafe-artifact-path",
+                    VerificationStage.PATH_SAFETY,
+                    "unsafe, duplicate, aliased, or reserved path",
+                    _bounded(relative),
+                )
             )
             continue
         expected_paths.add(relative)
+        entries[relative] = entry
     if issues:
-        return VerificationResult(False, tuple(issues), actual, manifest)
+        return _result(
+            VerificationState.REJECTED, VerificationStage.PATH_SAFETY, issues, actual, manifest
+        )
+
     actual_paths: set[str] = set()
     try:
         for path in package.rglob("*"):
+            relative = path.relative_to(package).as_posix()
             if path.is_symlink():
                 issues.append(
-                    VerificationIssue(
-                        "path-safety",
+                    _finding(
+                        "symbolic-link-forbidden",
+                        VerificationStage.INVENTORY_COVERAGE,
                         "symbolic links are forbidden",
-                        path.relative_to(package).as_posix(),
+                        relative,
                     )
                 )
             elif path.is_file():
-                actual_paths.add(path.relative_to(package).as_posix())
-    except OSError as exc:
-        issues.append(VerificationIssue("read-error", str(exc)))
+                actual_paths.add(relative)
+    except OSError:
+        return _result(
+            VerificationState.INDETERMINATE_IO,
+            VerificationStage.PATH_SAFETY,
+            (
+                _finding(
+                    "io-scan-failure",
+                    VerificationStage.INVENTORY_COVERAGE,
+                    "could not enumerate package files",
+                ),
+            ),
+            actual,
+            manifest,
+        )
     if actual_paths - {"package.json", "package.sha256"} != expected_paths:
         issues.append(
-            VerificationIssue(
-                "inventory-coverage", "inventory does not exactly cover handoff artifacts"
+            _finding(
+                "inventory-coverage-mismatch",
+                VerificationStage.INVENTORY_COVERAGE,
+                "inventory does not exactly cover handoff artifacts",
             )
         )
-    entries = {entry["path"]: entry for entry in inventory}
+    if issues:
+        return _result(
+            VerificationState.REJECTED,
+            VerificationStage.INVENTORY_COVERAGE,
+            issues,
+            actual,
+            manifest,
+        )
+
+    artifact_data: dict[str, bytes] = {}
     for relative in sorted(expected_paths):
         try:
             data = package.joinpath(*PurePosixPath(relative).parts).read_bytes()
-        except OSError as exc:
-            issues.append(VerificationIssue("artifact-read", str(exc), relative))
-            continue
+        except OSError:
+            return _result(
+                VerificationState.INDETERMINATE_IO,
+                VerificationStage.INVENTORY_COVERAGE,
+                (
+                    _finding(
+                        "io-artifact-read-failure",
+                        VerificationStage.ARTIFACT_INTEGRITY,
+                        "could not read inventoried artifact",
+                        relative,
+                    ),
+                ),
+                actual,
+                manifest,
+            )
+        artifact_data[relative] = data
         entry = entries[relative]
         if type(entry.get("bytes")) is not int or entry["bytes"] != len(data):
-            issues.append(VerificationIssue("artifact-size", "byte size mismatch", relative))
+            issues.append(
+                _finding(
+                    "artifact-size-mismatch",
+                    VerificationStage.ARTIFACT_INTEGRITY,
+                    "artifact byte size mismatch",
+                    relative,
+                    len(data),
+                    entry.get("bytes"),
+                )
+            )
         digest = entry.get("sha256")
         if (
             not isinstance(digest, str)
             or not SHA256_RE.fullmatch(digest)
             or digest != _digest(data)
         ):
-            issues.append(VerificationIssue("artifact-digest", "SHA-256 mismatch", relative))
-    item_paths = manifest.get("items")
-    if not isinstance(item_paths, list) or any(path not in expected_paths for path in item_paths):
-        issues.append(VerificationIssue("items", "item references must be inventoried paths"))
-    else:
-        observed = {value.value: 0 for value in ItemOutcome}
-        for relative in item_paths:
-            try:
-                item = json.loads(package.joinpath(*PurePosixPath(relative).parts).read_bytes())
-                observed[ItemOutcome(item["outcome"]).value] += 1
-            except (
-                OSError,
-                UnicodeDecodeError,
-                json.JSONDecodeError,
-                KeyError,
-                ValueError,
-                TypeError,
-            ):
-                issues.append(VerificationIssue("item-record", "invalid item record", relative))
-        if counts != observed:
             issues.append(
-                VerificationIssue("accounting", "manifest counts do not match item outcomes")
+                _finding(
+                    "artifact-digest-mismatch",
+                    VerificationStage.ARTIFACT_INTEGRITY,
+                    "artifact SHA-256 mismatch",
+                    relative,
+                )
             )
-        wanted = (
-            "completed_with_errors" if observed["failed"] or observed["cancelled"] else "completed"
+    if issues:
+        return _result(
+            VerificationState.REJECTED,
+            VerificationStage.ARTIFACT_INTEGRITY,
+            issues,
+            actual,
+            manifest,
         )
-        if manifest.get("status") != wanted:
-            issues.append(
-                VerificationIssue("accounting", "package status does not match item outcomes")
+
+    counts = manifest.get("counts")
+    item_paths = manifest.get("items")
+    terminal_names = {value.value for value in ItemOutcome}
+    if (
+        not isinstance(counts, dict)
+        or set(counts) != terminal_names
+        or any(type(v) is not int or v < 0 for v in counts.values())
+    ):
+        issues.append(
+            _finding(
+                "invalid-terminal-counts",
+                VerificationStage.TERMINAL_ACCOUNTING,
+                "counts must contain nonnegative integers for every terminal outcome",
+                "counts",
             )
-    return VerificationResult(not issues, tuple(issues), actual, manifest)
+        )
+    if not isinstance(item_paths, list) or any(
+        not isinstance(path, str) or path not in expected_paths for path in item_paths
+    ):
+        issues.append(
+            _finding(
+                "invalid-item-references",
+                VerificationStage.TERMINAL_ACCOUNTING,
+                "item references must be inventoried paths",
+                "items",
+            )
+        )
+    if issues:
+        return _result(
+            VerificationState.REJECTED,
+            VerificationStage.TERMINAL_ACCOUNTING,
+            issues,
+            actual,
+            manifest,
+        )
+
+    observed = {value.value: 0 for value in ItemOutcome}
+    parsed_items: list[tuple[str, Mapping[str, Any]]] = []
+    assert isinstance(item_paths, list)
+    for relative in item_paths:
+        try:
+            item = json.loads(artifact_data[relative], object_pairs_hook=_unique_object)
+            outcome = ItemOutcome(item["outcome"])
+            if not isinstance(item, dict):
+                raise ValueError
+        except (
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            _DuplicateKey,
+            KeyError,
+            ValueError,
+            TypeError,
+        ):
+            issues.append(
+                _finding(
+                    "invalid-item-record",
+                    VerificationStage.ITEM_SEMANTICS,
+                    "invalid item record",
+                    relative,
+                )
+            )
+            continue
+        observed[outcome.value] += 1
+        parsed_items.append((relative, item))
+    if counts != observed:
+        issues.append(
+            _finding(
+                "terminal-count-mismatch",
+                VerificationStage.TERMINAL_ACCOUNTING,
+                "manifest counts do not match item outcomes",
+                "counts",
+            )
+        )
+    wanted = "completed_with_errors" if observed["failed"] or observed["cancelled"] else "completed"
+    if manifest.get("status") != wanted:
+        issues.append(
+            _finding(
+                "status-outcome-mismatch",
+                VerificationStage.TERMINAL_ACCOUNTING,
+                "package status does not match terminal outcomes",
+                "status",
+            )
+        )
+    if issues:
+        return _result(
+            VerificationState.REJECTED,
+            VerificationStage.TERMINAL_ACCOUNTING,
+            issues,
+            actual,
+            manifest,
+        )
+
+    for relative, item in parsed_items:
+        outcome = ItemOutcome(item["outcome"])
+        error = item.get("error")
+        if outcome in {ItemOutcome.COMPLETED, ItemOutcome.UNCHANGED} and error is not None:
+            issues.append(
+                _finding(
+                    "contradictory-item-error",
+                    VerificationStage.ITEM_SEMANTICS,
+                    "successful item outcome cannot carry an error",
+                    relative,
+                )
+            )
+        if outcome in {ItemOutcome.FAILED, ItemOutcome.CANCELLED} and not isinstance(error, dict):
+            issues.append(
+                _finding(
+                    "missing-item-error",
+                    VerificationStage.ITEM_SEMANTICS,
+                    "failed or cancelled item requires a structured error",
+                    relative,
+                )
+            )
+        if outcome is ItemOutcome.SKIPPED and not isinstance(item.get("skip_reason"), (str, dict)):
+            issues.append(
+                _finding(
+                    "missing-skip-reason",
+                    VerificationStage.ITEM_SEMANTICS,
+                    "skipped item requires a skip_reason",
+                    relative,
+                )
+            )
+    if issues:
+        return _result(
+            VerificationState.REJECTED, VerificationStage.ITEM_SEMANTICS, issues, actual, manifest
+        )
+
+    receipt_path = manifest.get("run_receipt")
+    if receipt_path is not None:
+        if not isinstance(receipt_path, str) or receipt_path not in artifact_data:
+            issues.append(
+                _finding(
+                    "invalid-run-receipt-reference",
+                    VerificationStage.LINEAGE,
+                    "run receipt must reference an inventoried artifact",
+                    "run_receipt",
+                )
+            )
+        else:
+            try:
+                receipt = json.loads(artifact_data[receipt_path], object_pairs_hook=_unique_object)
+            except (UnicodeDecodeError, json.JSONDecodeError, _DuplicateKey):
+                receipt = None
+                issues.append(
+                    _finding(
+                        "invalid-run-receipt",
+                        VerificationStage.LINEAGE,
+                        "run receipt is not valid UTF-8 JSON",
+                        receipt_path,
+                    )
+                )
+            if isinstance(receipt, dict):
+                lineage_keys = {
+                    "run_id",
+                    "resumes_run_id",
+                    "prior_run_ids",
+                    "prior_package_ids",
+                    "reconciliation_summary",
+                    "final_attempt_counts",
+                }
+                for key in lineage_keys & receipt.keys():
+                    if key in manifest and receipt[key] != manifest[key]:
+                        issues.append(
+                            _finding(
+                                "receipt-lineage-conflict",
+                                VerificationStage.LINEAGE,
+                                "run receipt conflicts with authoritative manifest lineage",
+                                key,
+                            )
+                        )
+    if issues:
+        return _result(
+            VerificationState.REJECTED, VerificationStage.LINEAGE, issues, actual, manifest
+        )
+    return _result(VerificationState.VERIFIED, VerificationStage.COMPLETE, (), actual, manifest)
