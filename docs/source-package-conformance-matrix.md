@@ -14,7 +14,7 @@ source is `tests/fixtures/source_package_conformance/vectors.json`.
 | Reject during path validation | duplicate path identity; absolute path; `..` escape |
 | Reject during terminal/item validation | inconsistent counts; nonterminal item in sealed package; completed item carrying an error |
 | Reject during lineage validation | optional receipt contradicts authoritative manifest lineage |
-| Reject collection-progress semantics | unknown state; extra fields; malformed resume lineage |
+| Reject collection-progress semantics | unknown state; extra fields; missing prior run, reconciliation, or attempt counts; mismatched prior run; current run/package self-reference |
 | Reject at consumer-defined resource limits | manifest over 4096 fixture bytes; JSON deeper than 16 fixture levels |
 | Reject compound failures by earliest stage | terminal accounting before artifact integrity; item semantics before artifact integrity; lineage before artifact integrity |
 

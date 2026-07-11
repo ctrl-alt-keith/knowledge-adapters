@@ -193,6 +193,19 @@ inside a provider extension. Thus:
 - item outcomes continue to describe only terminal results for the items
   represented in the sealed package.
 
+When `resumes_run_id` is present, resumed lineage is complete only when:
+
+- `resumes_run_id` is different from the package's current `run_id` and also
+  appears in `prior_run_ids`;
+- neither `prior_run_ids` nor `prior_package_ids` contains the current run or
+  package identity;
+- `reconciliation_summary` is present; and
+- `final_attempt_counts` is present.
+
+The two count objects may be empty only when there is genuinely no applicable
+reconciliation or item attempt to record; absence is not equivalent to an
+empty observation. Prior identifier lists cannot contain duplicates.
+
 Each item record contains:
 
 - stable package item ID and provider-neutral resource kind;
@@ -345,7 +358,9 @@ Resume must:
 A resumed bounded collection package uses `resumes_run_id` for resume lineage
 and independently records `collection_progress` when collection completeness is
 review-relevant. A resumed run may therefore be either `exhausted` or
-`continuation_remaining`.
+`continuation_remaining`. The builder and verifier enforce the minimum resumed
+lineage above so a package cannot claim resume while omitting or contradicting
+its prior-run and reconciliation evidence.
 
 The sealed handoff records resume history without depending on checkpoint
 state. `package.json` is authoritative and must contain the minimum lineage

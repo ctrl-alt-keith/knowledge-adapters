@@ -168,6 +168,73 @@ def test_builder_preserves_v1_0_default_and_requires_v1_1_for_progress(
         raise AssertionError("v1.0 package accepted collection progress")
 
 
+@pytest.mark.parametrize(
+    ("lineage", "message"),
+    [
+        (
+            PackageLineage(
+                resumes_run_id="run-0",
+                reconciliation_summary={},
+                final_attempt_counts={},
+            ),
+            "resumes_run_id must appear in prior_run_ids",
+        ),
+        (
+            PackageLineage(
+                resumes_run_id="run-0",
+                prior_run_ids=("run-other",),
+                reconciliation_summary={},
+                final_attempt_counts={},
+            ),
+            "resumes_run_id must appear in prior_run_ids",
+        ),
+        (
+            PackageLineage(
+                resumes_run_id="run-0",
+                prior_run_ids=("run-0",),
+                final_attempt_counts={},
+            ),
+            "requires reconciliation_summary",
+        ),
+        (
+            PackageLineage(
+                resumes_run_id="run-0",
+                prior_run_ids=("run-0",),
+                reconciliation_summary={},
+            ),
+            "requires final_attempt_counts",
+        ),
+        (
+            PackageLineage(
+                resumes_run_id="run-1",
+                prior_run_ids=("run-1",),
+                reconciliation_summary={},
+                final_attempt_counts={},
+            ),
+            "must not equal the current run_id",
+        ),
+        (
+            PackageLineage(prior_package_ids=("pkg-progress",)),
+            "must not contain the current package_id",
+        ),
+    ],
+)
+def test_builder_rejects_incomplete_or_self_referential_lineage(
+    lineage: PackageLineage,
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        PackageBuilder(
+            package_id="pkg-progress",
+            request=request(),
+            run_id="run-1",
+            created_at="2026-07-10T00:00:00Z",
+            adapter=AdapterIdentity("fixture", "1.0.0"),
+            boundary={"live": "fixture", "deterministic": "assembly"},
+            lineage=lineage,
+        )
+
+
 def test_verifier_rejects_manifest_before_parsing(tmp_path: Path) -> None:
     destination = tmp_path / "package"
     assert builder().seal(destination).ok

@@ -668,32 +668,11 @@ class PackageBuilder:
             raise ValueError("collection_progress requires contract_version 1.1.0 or later")
         if lineage is not None and not isinstance(lineage, PackageLineage):
             raise TypeError("lineage must be PackageLineage")
-        lineage_fields = lineage.as_dict() if lineage is not None else {}
-        if any(
-            not isinstance(value, str) or not value
-            for value in lineage_fields.get("prior_package_ids", [])
-        ):
-            raise ValueError("prior_package_ids must contain non-empty strings")
-        if any(
-            not isinstance(value, str) or not value
-            for value in lineage_fields.get("prior_run_ids", [])
-        ):
-            raise ValueError("prior_run_ids must contain non-empty strings")
-        resumes_run_id = lineage_fields.get("resumes_run_id")
-        if resumes_run_id is not None and (
-            not isinstance(resumes_run_id, str) or not resumes_run_id
-        ):
-            raise ValueError("resumes_run_id must be a non-empty string")
-        for field_name in ("reconciliation_summary", "final_attempt_counts"):
-            values = lineage_fields.get(field_name, {})
-            if any(
-                not isinstance(key, str)
-                or not key
-                or type(value) is not int
-                or value < 0
-                for key, value in values.items()
-            ):
-                raise ValueError(f"{field_name} must contain nonnegative integer values")
+        lineage_fields = (
+            lineage.validated_dict(package_id=package_id, run_id=run_id)
+            if lineage is not None
+            else {}
+        )
         capabilities = set(required_capabilities)
         if collection_progress is not None:
             capabilities.add(COLLECTION_PROGRESS_CAPABILITY)
@@ -1575,9 +1554,10 @@ def verify_package(
                 )
             )
     resumes_run_id = manifest.get("resumes_run_id")
-    if resumes_run_id is not None and (
-        not isinstance(resumes_run_id, str) or not resumes_run_id
-    ):
+    resumes_run_id_valid = resumes_run_id is None or (
+        isinstance(resumes_run_id, str) and bool(resumes_run_id)
+    )
+    if not resumes_run_id_valid:
         issues.append(
             _finding(
                 "invalid-resume-lineage",
@@ -1586,12 +1566,14 @@ def verify_package(
                 "resumes_run_id",
             )
         )
+    prior_identifiers: dict[str, list[str]] = {}
     for field_name in ("prior_run_ids", "prior_package_ids"):
         lineage_ids = manifest.get(field_name)
-        if lineage_ids is not None and (
-            not isinstance(lineage_ids, list)
-            or any(not isinstance(value, str) or not value for value in lineage_ids)
-        ):
+        valid = lineage_ids is None or (
+            isinstance(lineage_ids, list)
+            and all(isinstance(value, str) and bool(value) for value in lineage_ids)
+        )
+        if not valid:
             issues.append(
                 _finding(
                     "invalid-lineage-identifiers",
@@ -1600,6 +1582,73 @@ def verify_package(
                     field_name,
                 )
             )
+        elif isinstance(lineage_ids, list):
+            prior_identifiers[field_name] = lineage_ids
+            if len(lineage_ids) != len(set(lineage_ids)):
+                issues.append(
+                    _finding(
+                        "invalid-lineage-identifiers",
+                        VerificationStage.LINEAGE,
+                        f"{field_name} must not contain duplicates",
+                        field_name,
+                    )
+                )
+    run_id = manifest.get("run_id")
+    package_id = manifest.get("package_id")
+    if (
+        isinstance(run_id, str)
+        and run_id
+        and (
+            resumes_run_id == run_id
+            or run_id in prior_identifiers.get("prior_run_ids", [])
+        )
+    ):
+        issues.append(
+            _finding(
+                "self-referential-lineage",
+                VerificationStage.LINEAGE,
+                "resume lineage must not reference the current run",
+                "resumes_run_id",
+            )
+        )
+    if (
+        isinstance(package_id, str)
+        and package_id
+        and package_id in prior_identifiers.get("prior_package_ids", [])
+    ):
+        issues.append(
+            _finding(
+                "self-referential-lineage",
+                VerificationStage.LINEAGE,
+                "prior_package_ids must not reference the current package",
+                "prior_package_ids",
+            )
+        )
+    if (
+        isinstance(resumes_run_id, str)
+        and resumes_run_id
+        and resumes_run_id not in prior_identifiers.get("prior_run_ids", [])
+    ):
+        issues.append(
+            _finding(
+                "inconsistent-resume-lineage",
+                VerificationStage.LINEAGE,
+                "resumes_run_id must appear in prior_run_ids",
+                "prior_run_ids",
+            )
+        )
+    if isinstance(resumes_run_id, str) and resumes_run_id and (
+        "reconciliation_summary" not in manifest
+        or "final_attempt_counts" not in manifest
+    ):
+        issues.append(
+            _finding(
+                "incomplete-resume-lineage",
+                VerificationStage.LINEAGE,
+                "resumed lineage requires reconciliation_summary and final_attempt_counts",
+                "resumes_run_id",
+            )
+        )
     for field_name in ("reconciliation_summary", "final_attempt_counts"):
         lineage_counts = manifest.get(field_name)
         if lineage_counts is not None and (

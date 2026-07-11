@@ -137,10 +137,12 @@ The shared representation is contract 1.1 `CollectionProgress`: record the
 bounded scope and batch limit in the typed request, then record either
 `exhausted` or `continuation_remaining` in the package-level progress field.
 Use `PackageLineage.resumes_run_id` and the remaining canonical lineage fields
-for resumed work. The builder adds the required `collection-progress`
-capability, and producer verification must opt into that capability. Provider
-extensions may preserve YouTube cursor evidence but cannot carry the only
-meaning of collection completeness.
+for resumed work. A resumed producer must include the resumed run in
+`prior_run_ids` plus reconciliation and final-attempt-count objects; current
+run and package identities cannot appear as prior lineage. The builder adds the
+required `collection-progress` capability, and producer verification must opt
+into that capability. Provider extensions may preserve YouTube cursor evidence
+but cannot carry the only meaning of collection completeness.
 
 ## Failure Mapping
 

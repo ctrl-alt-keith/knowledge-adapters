@@ -18,7 +18,7 @@ VECTORS = MATRIX["vectors"]
 
 def test_matrix_has_unique_cases_and_all_requested_boundaries() -> None:
     ids = [vector["id"] for vector in VECTORS]
-    assert len(ids) == len(set(ids)) == 36
+    assert len(ids) == len(set(ids)) == 42
     assert {vector["expected"] for vector in VECTORS} == {"accept", "reject"}
     assert sum(vector["expected"] == "accept" for vector in VECTORS) == 6
 
