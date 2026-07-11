@@ -29,7 +29,7 @@ boundary from PR #316. Tests assert the result state, earliest stable rejection
 stage, and specified stable finding code. The fixture materializer remains
 contract-derived and does not import implementation helpers.
 
-Public-result safety tests also confirm schema version `2.0.0`, curated claims,
+Public-result safety tests also confirm schema version `2.2.0`, curated claims,
 exclusion of arbitrary extensions and fields, absence of raw-manifest access,
 and stage-bounded claims on rejection.
 
