@@ -18,6 +18,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+youtube = [
+  "yt-dlp>=2025.6.30,<2027",
+]
 dev = [
   "fastapi>=0.115",
   "pytest>=8.0",
