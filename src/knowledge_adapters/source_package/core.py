@@ -108,6 +108,9 @@ class VerificationStage(StrEnum):
     COMPLETE = "complete"
 
 
+STAGE_ORDER = tuple(VerificationStage)
+
+
 class FindingSeverity(StrEnum):
     ERROR = "error"
     WARNING = "warning"
@@ -194,11 +197,15 @@ def _result(
     content_address: str | None = None,
     manifest: Mapping[str, Any] | None = None,
 ) -> VerificationResult:
+    completed_stage = stage
+    if state is not VerificationState.VERIFIED:
+        stage_index = STAGE_ORDER.index(stage)
+        completed_stage = STAGE_ORDER[max(0, stage_index - 1)]
     return VerificationResult(
         RESULT_SCHEMA_VERSION,
         _library_version(),
         state,
-        stage,
+        completed_stage,
         tuple(findings),
         content_address,
         manifest,

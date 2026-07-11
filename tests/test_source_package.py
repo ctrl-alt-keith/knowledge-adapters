@@ -62,7 +62,8 @@ def test_verifier_rejects_manifest_before_parsing(tmp_path: Path) -> None:
     result = verify_package(destination)
     assert not result.ok
     assert result.issues[0].code == "manifest-digest-mismatch"
-    assert result.last_completed_stage == "manifest-digest"
+    assert result.last_completed_stage == "sidecar-format"
+    assert result.findings[0].stage == "manifest-digest"
     assert result.manifest_claims is None
 
 
@@ -122,7 +123,8 @@ def test_verifier_rejects_duplicate_manifest_keys_after_digest(tmp_path: Path) -
     (destination / "package.sha256").write_text(hashlib.sha256(duplicate).hexdigest() + "\n")
     result = verify_package(destination)
     assert result.state == "rejected"
-    assert result.last_completed_stage == "manifest-parse"
+    assert result.last_completed_stage == "manifest-digest"
+    assert result.findings[0].stage == "manifest-parse"
     assert result.findings[0].code == "duplicate-json-key"
 
 
