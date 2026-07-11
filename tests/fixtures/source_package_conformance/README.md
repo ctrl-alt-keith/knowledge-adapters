@@ -14,3 +14,8 @@ normative limit value.
 These vectors do not import producer or consumer implementation code. When the
 source-package API lands, its tests should consume the materialized package
 directories and compare results with this matrix.
+
+Contract 1.1 collection-progress vectors declare the required
+`collection-progress` capability explicitly. Their verifier calls opt into the
+same capability; missing-capability and pre-1.1 vectors prove that unsafe
+fallback is rejected at compatibility validation.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -13,6 +14,85 @@ class ItemOutcome(StrEnum):
     SKIPPED = "skipped"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+class CollectionProgressState(StrEnum):
+    """Observed exhaustion of the bounded collection scope in this request."""
+
+    EXHAUSTED = "exhausted"
+    CONTINUATION_REMAINING = "continuation_remaining"
+
+
+@dataclass(frozen=True)
+class CollectionProgress:
+    state: CollectionProgressState
+
+    def as_dict(self) -> dict[str, str]:
+        return {"state": self.state.value}
+
+
+@dataclass(frozen=True)
+class PackageLineage:
+    """Provider-neutral immutable lineage emitted into a sealed manifest."""
+
+    resumes_run_id: str | None = None
+    prior_package_ids: tuple[str, ...] = ()
+    prior_run_ids: tuple[str, ...] = ()
+    reconciliation_summary: Mapping[str, int] | None = None
+    final_attempt_counts: Mapping[str, int] | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        values: dict[str, Any] = {}
+        if self.resumes_run_id is not None:
+            values["resumes_run_id"] = self.resumes_run_id
+        if self.prior_package_ids:
+            values["prior_package_ids"] = list(self.prior_package_ids)
+        if self.prior_run_ids:
+            values["prior_run_ids"] = list(self.prior_run_ids)
+        if self.reconciliation_summary is not None:
+            values["reconciliation_summary"] = dict(self.reconciliation_summary)
+        if self.final_attempt_counts is not None:
+            values["final_attempt_counts"] = dict(self.final_attempt_counts)
+        return values
+
+    def validated_dict(self, *, package_id: str, run_id: str) -> dict[str, Any]:
+        """Return manifest lineage after validating producer-owned invariants."""
+        for field_name, identifiers in (
+            ("prior_package_ids", self.prior_package_ids),
+            ("prior_run_ids", self.prior_run_ids),
+        ):
+            if any(not isinstance(value, str) or not value for value in identifiers):
+                raise ValueError(f"{field_name} must contain non-empty strings")
+            if len(identifiers) != len(set(identifiers)):
+                raise ValueError(f"{field_name} must not contain duplicates")
+        if package_id in self.prior_package_ids:
+            raise ValueError("prior_package_ids must not contain the current package_id")
+        if self.resumes_run_id is not None:
+            if not isinstance(self.resumes_run_id, str) or not self.resumes_run_id:
+                raise ValueError("resumes_run_id must be a non-empty string")
+            if self.resumes_run_id == run_id:
+                raise ValueError("resumes_run_id must not equal the current run_id")
+            if self.resumes_run_id not in self.prior_run_ids:
+                raise ValueError("resumes_run_id must appear in prior_run_ids")
+            if self.reconciliation_summary is None:
+                raise ValueError("resumed lineage requires reconciliation_summary")
+            if self.final_attempt_counts is None:
+                raise ValueError("resumed lineage requires final_attempt_counts")
+        if run_id in self.prior_run_ids:
+            raise ValueError("prior_run_ids must not contain the current run_id")
+        for field_name, values in (
+            ("reconciliation_summary", self.reconciliation_summary),
+            ("final_attempt_counts", self.final_attempt_counts),
+        ):
+            if values is not None and any(
+                not isinstance(key, str)
+                or not key
+                or type(value) is not int
+                or value < 0
+                for key, value in values.items()
+            ):
+                raise ValueError(f"{field_name} must contain nonnegative integer values")
+        return self.as_dict()
 
 
 @dataclass(frozen=True)

@@ -79,6 +79,59 @@ def materialize_vector(root: Path, mutation: str) -> Path:
         manifest["status"] = "completed_with_errors"
         manifest["counts"]["completed"] = 0
         manifest["counts"]["failed"] = 1
+    elif mutation in {
+        "progress_exhausted",
+        "progress_continuation",
+        "progress_resumed",
+        "progress_invalid",
+        "progress_invalid_resume",
+        "progress_missing_capability",
+        "progress_resume_mismatched_prior",
+        "progress_resume_missing_attempts",
+        "progress_resume_missing_prior",
+        "progress_resume_missing_summary",
+        "progress_resume_self",
+        "progress_resume_self_package",
+        "progress_wrong_version",
+    }:
+        if mutation != "progress_wrong_version":
+            manifest["contract_version"] = "1.1.0"
+        if mutation != "progress_missing_capability":
+            manifest["required_capabilities"] = ["collection-progress"]
+        state = "continuation_remaining" if mutation in {
+            "progress_continuation",
+            "progress_resumed",
+        } else "exhausted"
+        manifest["collection_progress"] = {"state": state}
+        if mutation == "progress_resumed":
+            manifest["resumes_run_id"] = "run-000"
+            manifest["prior_run_ids"] = ["run-000"]
+            manifest["prior_package_ids"] = ["package-000"]
+            manifest["reconciliation_summary"] = {"reused": 1}
+            manifest["final_attempt_counts"] = {"item-001": 2}
+        elif mutation == "progress_invalid":
+            manifest["collection_progress"]["unexpected"] = True
+        elif mutation == "progress_invalid_resume":
+            manifest["resumes_run_id"] = 7
+        elif mutation.startswith("progress_resume_"):
+            manifest["collection_progress"] = {"state": "continuation_remaining"}
+            manifest["resumes_run_id"] = "run-000"
+            manifest["prior_run_ids"] = ["run-000"]
+            manifest["reconciliation_summary"] = {"reused": 0}
+            manifest["final_attempt_counts"] = {}
+            if mutation == "progress_resume_mismatched_prior":
+                manifest["prior_run_ids"] = ["run-other"]
+            elif mutation == "progress_resume_missing_attempts":
+                manifest.pop("final_attempt_counts")
+            elif mutation == "progress_resume_missing_prior":
+                manifest.pop("prior_run_ids")
+            elif mutation == "progress_resume_missing_summary":
+                manifest.pop("reconciliation_summary")
+            elif mutation == "progress_resume_self":
+                manifest["resumes_run_id"] = "run-001"
+                manifest["prior_run_ids"] = ["run-001"]
+            elif mutation == "progress_resume_self_package":
+                manifest["prior_package_ids"] = ["package-001"]
     elif mutation in {"sealed_receipt", "receipt_override", "compound_lineage_artifact"}:
         receipt_run = (
             "run-other"

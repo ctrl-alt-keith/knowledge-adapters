@@ -11,13 +11,17 @@ from unittest.mock import patch
 import pytest
 
 from knowledge_adapters.source_package import (
+    COLLECTION_PROGRESS_CAPABILITY,
     AcquisitionRequest,
     AdapterIdentity,
     Artifact,
+    CollectionProgress,
+    CollectionProgressState,
     ConsumerProfile,
     ItemOutcome,
     PackageBuilder,
     PackageItem,
+    PackageLineage,
     verify_package,
 )
 from knowledge_adapters.source_package import core as source_package_core
@@ -78,6 +82,170 @@ def test_seal_is_deterministic_and_verifiable(tmp_path: Path) -> None:
     assert manifest["request_path"] == "request.json"
     request_entry = next(item for item in manifest["artifacts"] if item["path"] == "request.json")
     assert request_entry["role"] == "acquisition-request"
+
+
+def test_builder_seals_typed_collection_progress_and_resume_lineage(tmp_path: Path) -> None:
+    destination = tmp_path / "package"
+    value = PackageBuilder(
+        package_id="pkg-resumed",
+        request=request(),
+        run_id="run-2",
+        created_at="2026-07-10T01:00:00Z",
+        adapter=AdapterIdentity("fixture", "1.0.0"),
+        contract_version="1.1.0",
+        boundary={"live": "fixture", "deterministic": "assembly"},
+        collection_progress=CollectionProgress(
+            CollectionProgressState.CONTINUATION_REMAINING
+        ),
+        lineage=PackageLineage(
+            resumes_run_id="run-1",
+            prior_package_ids=("pkg-1",),
+            prior_run_ids=("run-1",),
+            reconciliation_summary={"reused": 1},
+            final_attempt_counts={"one": 2},
+        ),
+    )
+    value.add_item(PackageItem("one", "document", ItemOutcome.UNCHANGED))
+    assert value.seal(destination).ok
+    manifest = json.loads((destination / "package.json").read_bytes())
+    assert manifest["collection_progress"] == {"state": "continuation_remaining"}
+    assert manifest["resumes_run_id"] == "run-1"
+    assert manifest["required_capabilities"] == [COLLECTION_PROGRESS_CAPABILITY]
+
+    result = verify_package(
+        destination,
+        profile=ConsumerProfile(
+            identifier="progress-profile",
+            supported_capabilities=(COLLECTION_PROGRESS_CAPABILITY,),
+            max_item_records=1,
+        ),
+    )
+    assert result.ok
+    assert result.consumer_profile == "progress-profile"
+    assert result.schema_version == "2.3.0"
+    assert result.verified_claims is not None
+    assert result.verified_claims.schema_version == "1.3.0"
+    assert result.verified_claims.collection_progress == CollectionProgress(
+        CollectionProgressState.CONTINUATION_REMAINING
+    )
+    assert result.verified_claims.resumes_run_id == "run-1"
+    assert result.verified_claims.totals is not None
+    assert result.verified_claims.totals.item_records == 1
+    assert len(result.verified_claims.item_dispositions) == 1
+
+
+def test_collection_progress_requires_consumer_capability(tmp_path: Path) -> None:
+    destination = tmp_path / "package"
+    value = PackageBuilder(
+        package_id="pkg-progress",
+        request=request(),
+        run_id="run-1",
+        created_at="2026-07-10T00:00:00Z",
+        adapter=AdapterIdentity("fixture", "1.0.0"),
+        contract_version="1.1.0",
+        boundary={"live": "fixture", "deterministic": "assembly"},
+        collection_progress=CollectionProgress(CollectionProgressState.EXHAUSTED),
+    )
+    value.add_item(PackageItem("one", "document", ItemOutcome.COMPLETED))
+    assert value.seal(destination).ok
+    result = verify_package(
+        destination,
+        profile=ConsumerProfile(identifier="no-progress-profile"),
+    )
+    assert result.state == "rejected"
+    assert result.consumer_profile == "no-progress-profile"
+    assert result.findings[0].code == "unknown-required-capability"
+    assert result.verified_claims is None
+
+
+def test_builder_preserves_v1_0_default_and_requires_v1_1_for_progress(
+    tmp_path: Path,
+) -> None:
+    destination = tmp_path / "plain"
+    assert builder().seal(destination).ok
+    manifest = json.loads((destination / "package.json").read_bytes())
+    assert manifest["contract_version"] == "1.0.0"
+    try:
+        PackageBuilder(
+            package_id="pkg-progress",
+            request=request(),
+            run_id="run-1",
+            created_at="2026-07-10T00:00:00Z",
+            adapter=AdapterIdentity("fixture", "1.0.0"),
+            boundary={"live": "fixture", "deterministic": "assembly"},
+            collection_progress=CollectionProgress(CollectionProgressState.EXHAUSTED),
+        )
+    except ValueError as exc:
+        assert "contract_version 1.1.0" in str(exc)
+    else:
+        raise AssertionError("v1.0 package accepted collection progress")
+
+
+@pytest.mark.parametrize(
+    ("lineage", "message"),
+    [
+        (
+            PackageLineage(
+                resumes_run_id="run-0",
+                reconciliation_summary={},
+                final_attempt_counts={},
+            ),
+            "resumes_run_id must appear in prior_run_ids",
+        ),
+        (
+            PackageLineage(
+                resumes_run_id="run-0",
+                prior_run_ids=("run-other",),
+                reconciliation_summary={},
+                final_attempt_counts={},
+            ),
+            "resumes_run_id must appear in prior_run_ids",
+        ),
+        (
+            PackageLineage(
+                resumes_run_id="run-0",
+                prior_run_ids=("run-0",),
+                final_attempt_counts={},
+            ),
+            "requires reconciliation_summary",
+        ),
+        (
+            PackageLineage(
+                resumes_run_id="run-0",
+                prior_run_ids=("run-0",),
+                reconciliation_summary={},
+            ),
+            "requires final_attempt_counts",
+        ),
+        (
+            PackageLineage(
+                resumes_run_id="run-1",
+                prior_run_ids=("run-1",),
+                reconciliation_summary={},
+                final_attempt_counts={},
+            ),
+            "must not equal the current run_id",
+        ),
+        (
+            PackageLineage(prior_package_ids=("pkg-progress",)),
+            "must not contain the current package_id",
+        ),
+    ],
+)
+def test_builder_rejects_incomplete_or_self_referential_lineage(
+    lineage: PackageLineage,
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        PackageBuilder(
+            package_id="pkg-progress",
+            request=request(),
+            run_id="run-1",
+            created_at="2026-07-10T00:00:00Z",
+            adapter=AdapterIdentity("fixture", "1.0.0"),
+            boundary={"live": "fixture", "deterministic": "assembly"},
+            lineage=lineage,
+        )
 
 
 def test_verifier_rejects_manifest_before_parsing(tmp_path: Path) -> None:
@@ -227,7 +395,7 @@ def test_verified_claims_are_curated_bounded_and_not_raw_manifest(tmp_path: Path
     assert value.seal(destination).ok
     rewrite_manifest(destination, lambda manifest: manifest.update(arbitrary="not-a-claim"))
     result = verify_package(destination)
-    assert result.ok and result.schema_version == "2.2.0"
+    assert result.ok and result.schema_version == "2.3.0"
     assert result.verified_claims is not None
     assert result.verified_claims.package_id is None
     assert not hasattr(result.verified_claims, "extensions")

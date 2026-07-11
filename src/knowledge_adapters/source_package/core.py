@@ -21,15 +21,19 @@ from .models import (
     AdapterIdentity,
     Artifact,
     ArtifactInventoryEntry,
+    CollectionProgress,
+    CollectionProgressState,
     ItemOutcome,
     PackageItem,
+    PackageLineage,
 )
 
 _PackageReadTestHook = Callable[[str, Path, str], None]
 _PACKAGE_READ_TEST_HOOK: _PackageReadTestHook | None = None
 
 CONTRACT_NAME = "knowledge-source-package"
-RESULT_SCHEMA_VERSION = "2.2.0"
+RESULT_SCHEMA_VERSION = "2.3.0"
+COLLECTION_PROGRESS_CAPABILITY = "collection-progress"
 SIDECAR_RE = re.compile(rb"[0-9a-f]{64}\n\Z")
 SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
 RESERVED_MANIFEST_FIELDS = frozenset(
@@ -57,6 +61,7 @@ RESERVED_MANIFEST_FIELDS = frozenset(
         "lineage",
         "integrity",
         "content_address",
+        "collection_progress",
     }
 )
 
@@ -212,6 +217,13 @@ def _bounded_package_read(package: Path, relative: str, limit: int) -> bytes:
             _close_quietly(descriptor)
 
 
+def _supports_collection_progress(contract_version: object) -> bool:
+    if not isinstance(contract_version, str):
+        return False
+    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", contract_version)
+    return bool(match and (int(match.group(1)), int(match.group(2))) >= (1, 1))
+
+
 class VerificationState(StrEnum):
     VERIFIED = "verified"
     REJECTED = "rejected"
@@ -358,7 +370,7 @@ class VerifiedAdapterClaims:
 class VerifiedManifestClaims:
     """Bounded, curated claims from verification stages that completed."""
 
-    schema_version: str = "1.2.0"
+    schema_version: str = "1.3.0"
     contract_name: str | None = None
     contract_version: str | None = None
     package_id: str | None = None
@@ -374,6 +386,7 @@ class VerifiedManifestClaims:
     resumes_run_id: str | None = None
     prior_run_ids: tuple[str, ...] = ()
     prior_package_ids: tuple[str, ...] = ()
+    collection_progress: CollectionProgress | None = None
     item_dispositions: tuple[VerifiedItemDisposition, ...] = ()
     artifact_inventory: tuple[VerifiedArtifactClaim, ...] = ()
     totals: VerifiedPackageTotals | None = None
@@ -539,6 +552,18 @@ def _curated_claims(
             for key, value in counts_value.items()
             if isinstance(key, str) and type(value) is int
         }
+    progress = None
+    progress_value = manifest.get("collection_progress")
+    if lineage and isinstance(progress_value, dict):
+        progress_state = progress_value.get("state")
+        try:
+            progress = (
+                CollectionProgress(CollectionProgressState(progress_state))
+                if isinstance(progress_state, str)
+                else None
+            )
+        except (TypeError, ValueError):
+            progress = None
     return VerifiedManifestClaims(
         contract_name=_bounded_claim(manifest.get("contract_name")),
         contract_version=_bounded_claim(manifest.get("contract_version")),
@@ -563,6 +588,7 @@ def _curated_claims(
         prior_package_ids=(
             _bounded_string_tuple(manifest.get("prior_package_ids")) if lineage else ()
         ),
+        collection_progress=progress,
         item_dispositions=item_dispositions,
         artifact_inventory=artifact_inventory,
         totals=totals,
@@ -605,6 +631,8 @@ class PackageBuilder:
         contract_version: str = "1.0.0",
         required_capabilities: Sequence[str] = (),
         boundary: Mapping[str, str],
+        collection_progress: CollectionProgress | None = None,
+        lineage: PackageLineage | None = None,
         extensions: Mapping[str, Any] | None = None,
         manifest_fields: Mapping[str, Any] | None = None,
     ) -> None:
@@ -619,6 +647,28 @@ class PackageBuilder:
             raise ValueError("request_id must not be empty")
         if extensions and any("." not in key for key in extensions):
             raise ValueError("extension keys must be namespaced")
+        if collection_progress is not None and not isinstance(
+            collection_progress, CollectionProgress
+        ):
+            raise TypeError("collection_progress must be CollectionProgress")
+        if collection_progress is not None and not isinstance(
+            collection_progress.state, CollectionProgressState
+        ):
+            raise TypeError("collection_progress.state must be CollectionProgressState")
+        if collection_progress is not None and not _supports_collection_progress(
+            contract_version
+        ):
+            raise ValueError("collection_progress requires contract_version 1.1.0 or later")
+        if lineage is not None and not isinstance(lineage, PackageLineage):
+            raise TypeError("lineage must be PackageLineage")
+        lineage_fields = (
+            lineage.validated_dict(package_id=package_id, run_id=run_id)
+            if lineage is not None
+            else {}
+        )
+        capabilities = set(required_capabilities)
+        if collection_progress is not None:
+            capabilities.add(COLLECTION_PROGRESS_CAPABILITY)
         self._request = request
         self._identity = {
             "contract_name": CONTRACT_NAME,
@@ -629,9 +679,12 @@ class PackageBuilder:
             "created_at": created_at,
             "adapter": adapter.as_dict(),
             "boundary": dict(boundary),
-            "required_capabilities": sorted(set(required_capabilities)),
+            "required_capabilities": sorted(capabilities),
             "request_path": "request.json",
+            **lineage_fields,
         }
+        if collection_progress is not None:
+            self._identity["collection_progress"] = collection_progress.as_dict()
         self._extensions = dict(extensions or {})
         self._items: dict[str, PackageItem] = {}
         self._artifacts: dict[str, Artifact] = {}
@@ -949,6 +1002,30 @@ def verify_package(
                     VerificationStage.COMPATIBILITY,
                     "unsupported required capability",
                     "required_capabilities",
+                )
+            )
+        if (
+            "collection_progress" in manifest
+            and COLLECTION_PROGRESS_CAPABILITY not in required
+        ):
+            issues.append(
+                _finding(
+                    "missing-collection-progress-capability",
+                    VerificationStage.COMPATIBILITY,
+                    "collection_progress requires the collection-progress capability",
+                    "required_capabilities",
+                )
+            )
+        if "collection_progress" in manifest and (
+            not isinstance(version_value, str)
+            or not _supports_collection_progress(version_value)
+        ):
+            issues.append(
+                _finding(
+                    "unsupported-collection-progress-version",
+                    VerificationStage.COMPATIBILITY,
+                    "collection_progress requires contract version 1.1.0 or later",
+                    "contract_version",
                 )
             )
     if issues:
@@ -1453,6 +1530,138 @@ def verify_package(
         )
 
     receipt_path = manifest.get("run_receipt")
+    progress_value = manifest.get("collection_progress")
+    if progress_value is not None:
+        if (
+            not isinstance(progress_value, dict)
+            or set(progress_value) != {"state"}
+            or progress_value.get("state")
+            not in {state.value for state in CollectionProgressState}
+        ):
+            issues.append(
+                _finding(
+                    "invalid-collection-progress",
+                    VerificationStage.LINEAGE,
+                    "collection_progress must contain exactly one supported state",
+                    "collection_progress",
+                )
+            )
+    resumes_run_id = manifest.get("resumes_run_id")
+    resumes_run_id_valid = resumes_run_id is None or (
+        isinstance(resumes_run_id, str) and bool(resumes_run_id)
+    )
+    if not resumes_run_id_valid:
+        issues.append(
+            _finding(
+                "invalid-resume-lineage",
+                VerificationStage.LINEAGE,
+                "resumes_run_id must be a non-empty string",
+                "resumes_run_id",
+            )
+        )
+    prior_identifiers: dict[str, list[str]] = {}
+    for field_name in ("prior_run_ids", "prior_package_ids"):
+        lineage_ids = manifest.get(field_name)
+        valid = lineage_ids is None or (
+            isinstance(lineage_ids, list)
+            and all(isinstance(value, str) and bool(value) for value in lineage_ids)
+        )
+        if not valid:
+            issues.append(
+                _finding(
+                    "invalid-lineage-identifiers",
+                    VerificationStage.LINEAGE,
+                    f"{field_name} must contain non-empty strings",
+                    field_name,
+                )
+            )
+        elif isinstance(lineage_ids, list):
+            prior_identifiers[field_name] = lineage_ids
+            if len(lineage_ids) != len(set(lineage_ids)):
+                issues.append(
+                    _finding(
+                        "invalid-lineage-identifiers",
+                        VerificationStage.LINEAGE,
+                        f"{field_name} must not contain duplicates",
+                        field_name,
+                    )
+                )
+    run_id = manifest.get("run_id")
+    package_id = manifest.get("package_id")
+    if (
+        isinstance(run_id, str)
+        and run_id
+        and (
+            resumes_run_id == run_id
+            or run_id in prior_identifiers.get("prior_run_ids", [])
+        )
+    ):
+        issues.append(
+            _finding(
+                "self-referential-lineage",
+                VerificationStage.LINEAGE,
+                "resume lineage must not reference the current run",
+                "resumes_run_id",
+            )
+        )
+    if (
+        isinstance(package_id, str)
+        and package_id
+        and package_id in prior_identifiers.get("prior_package_ids", [])
+    ):
+        issues.append(
+            _finding(
+                "self-referential-lineage",
+                VerificationStage.LINEAGE,
+                "prior_package_ids must not reference the current package",
+                "prior_package_ids",
+            )
+        )
+    if (
+        isinstance(resumes_run_id, str)
+        and resumes_run_id
+        and resumes_run_id not in prior_identifiers.get("prior_run_ids", [])
+    ):
+        issues.append(
+            _finding(
+                "inconsistent-resume-lineage",
+                VerificationStage.LINEAGE,
+                "resumes_run_id must appear in prior_run_ids",
+                "prior_run_ids",
+            )
+        )
+    if isinstance(resumes_run_id, str) and resumes_run_id and (
+        "reconciliation_summary" not in manifest
+        or "final_attempt_counts" not in manifest
+    ):
+        issues.append(
+            _finding(
+                "incomplete-resume-lineage",
+                VerificationStage.LINEAGE,
+                "resumed lineage requires reconciliation_summary and final_attempt_counts",
+                "resumes_run_id",
+            )
+        )
+    for field_name in ("reconciliation_summary", "final_attempt_counts"):
+        lineage_counts = manifest.get(field_name)
+        if lineage_counts is not None and (
+            not isinstance(lineage_counts, dict)
+            or any(
+                not isinstance(key, str)
+                or not key
+                or type(value) is not int
+                or value < 0
+                for key, value in lineage_counts.items()
+            )
+        ):
+            issues.append(
+                _finding(
+                    "invalid-lineage-counts",
+                    VerificationStage.LINEAGE,
+                    f"{field_name} must contain nonnegative integer values",
+                    field_name,
+                )
+            )
     if receipt_path is not None:
         if not isinstance(receipt_path, str) or receipt_path not in expected_paths:
             issues.append(
@@ -1505,6 +1714,7 @@ def verify_package(
                     "prior_package_ids",
                     "reconciliation_summary",
                     "final_attempt_counts",
+                    "collection_progress",
                 }
                 for key in lineage_keys & receipt.keys():
                     if key in manifest and receipt[key] != manifest[key]:

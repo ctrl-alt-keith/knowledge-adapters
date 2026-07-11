@@ -1,6 +1,7 @@
 """Provider-neutral Source Package construction and verification."""
 
 from .core import (
+    COLLECTION_PROGRESS_CAPABILITY,
     ConsumerProfile,
     FindingSeverity,
     PackageBuilder,
@@ -22,8 +23,11 @@ from .models import (
     AdapterIdentity,
     Artifact,
     ArtifactInventoryEntry,
+    CollectionProgress,
+    CollectionProgressState,
     ItemOutcome,
     PackageItem,
+    PackageLineage,
 )
 
 __all__ = [
@@ -31,10 +35,14 @@ __all__ = [
     "AdapterIdentity",
     "Artifact",
     "ArtifactInventoryEntry",
+    "COLLECTION_PROGRESS_CAPABILITY",
+    "CollectionProgress",
+    "CollectionProgressState",
     "ConsumerProfile",
     "FindingSeverity",
     "ItemOutcome",
     "PackageBuilder",
+    "PackageLineage",
     "PackageItem",
     "SealResult",
     "VerificationIssue",
