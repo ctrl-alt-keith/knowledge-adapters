@@ -32,3 +32,10 @@ contract-derived and does not import implementation helpers.
 Public-result safety tests also confirm schema version `2.0.0`, curated claims,
 exclusion of arbitrary extensions and fields, absence of raw-manifest access,
 and stage-bounded claims on rejection.
+
+Deterministic public-API I/O seams additionally cover item and optional receipt
+read failures, changed item and receipt bytes between semantic and final
+integrity stages, and an inventoried file disappearing before its final read.
+All failures return structured results; the mutation cases prove final
+integrity does not trust semantic-stage byte caches. These tests supplement the
+unchanged 29-vector matrix.

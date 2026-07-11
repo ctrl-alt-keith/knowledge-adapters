@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -12,6 +13,7 @@ from tests.source_package_fixtures import materialize_vector
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "source_package_conformance"
 MATRIX = json.loads((FIXTURE_ROOT / "vectors.json").read_text(encoding="utf-8"))
 VECTORS = MATRIX["vectors"]
+ORIGINAL_READ_BYTES = Path.read_bytes
 
 
 def test_matrix_has_unique_cases_and_all_requested_boundaries() -> None:
@@ -107,3 +109,98 @@ def test_rejected_result_claims_follow_completed_stage(tmp_path: Path) -> None:
     assert result.verified_claims.package_id == "package-001"
     assert result.verified_claims.status is None
     assert result.verified_claims.counts is None
+
+
+def test_public_verifier_structures_item_read_failure(tmp_path: Path) -> None:
+    package = materialize_vector(tmp_path, "minimal_completed")
+    item_path = package / "items/item-001.json"
+
+    def read_bytes(path: Path) -> bytes:
+        if path == item_path:
+            raise OSError("simulated item read failure")
+        return ORIGINAL_READ_BYTES(path)
+
+    with patch.object(Path, "read_bytes", autospec=True, side_effect=read_bytes):
+        result = verify_package(package)
+    assert result.state == "indeterminate_io"
+    assert result.findings[0].code == "io-item-read-failure"
+    assert result.findings[0].reference == "items/item-001.json"
+    assert result.last_completed_stage == "inventory-coverage"
+
+
+def test_public_verifier_structures_receipt_read_failure(tmp_path: Path) -> None:
+    package = materialize_vector(tmp_path, "sealed_receipt")
+    receipt_path = package / "run-receipt.json"
+
+    def read_bytes(path: Path) -> bytes:
+        if path == receipt_path:
+            raise OSError("simulated receipt read failure")
+        return ORIGINAL_READ_BYTES(path)
+
+    with patch.object(Path, "read_bytes", autospec=True, side_effect=read_bytes):
+        result = verify_package(package)
+    assert result.state == "indeterminate_io"
+    assert result.findings[0].code == "io-run-receipt-read-failure"
+    assert result.findings[0].reference == "run-receipt.json"
+    assert result.last_completed_stage == "item-semantics"
+
+
+def test_public_verifier_rechecks_changed_item_at_integrity(tmp_path: Path) -> None:
+    package = materialize_vector(tmp_path, "minimal_completed")
+    item_path = package / "items/item-001.json"
+    calls = 0
+
+    def read_bytes(path: Path) -> bytes:
+        nonlocal calls
+        if path == item_path:
+            calls += 1
+            if calls == 2:
+                return ORIGINAL_READ_BYTES(path) + b" "
+        return ORIGINAL_READ_BYTES(path)
+
+    with patch.object(Path, "read_bytes", autospec=True, side_effect=read_bytes):
+        result = verify_package(package)
+    assert calls == 2
+    assert result.state == "rejected"
+    assert result.findings[0].stage == "artifact-integrity"
+    assert result.findings[0].code == "artifact-size-mismatch"
+
+
+def test_public_verifier_rechecks_changed_receipt_at_integrity(tmp_path: Path) -> None:
+    package = materialize_vector(tmp_path, "sealed_receipt")
+    receipt_path = package / "run-receipt.json"
+    calls = 0
+
+    def read_bytes(path: Path) -> bytes:
+        nonlocal calls
+        if path == receipt_path:
+            calls += 1
+            if calls == 2:
+                return ORIGINAL_READ_BYTES(path) + b" "
+        return ORIGINAL_READ_BYTES(path)
+
+    with patch.object(Path, "read_bytes", autospec=True, side_effect=read_bytes):
+        result = verify_package(package)
+    assert calls == 2
+    assert result.state == "rejected"
+    assert result.findings[0].stage == "artifact-integrity"
+    assert result.findings[0].code == "artifact-size-mismatch"
+
+
+def test_public_verifier_structures_final_read_disappearance(tmp_path: Path) -> None:
+    package = materialize_vector(tmp_path, "minimal_completed")
+    request_path = package / "request.json"
+
+    def read_bytes(path: Path) -> bytes:
+        if path == request_path:
+            raise OSError("simulated final read disappearance")
+        return ORIGINAL_READ_BYTES(path)
+
+    with patch.object(Path, "read_bytes", autospec=True, side_effect=read_bytes):
+        result = verify_package(package)
+    assert result.state == "indeterminate_io"
+    assert result.findings[0].code == "io-artifact-read-failure"
+    assert result.findings[0].reference == "request.json"
+    assert result.last_completed_stage == "lineage"
+    assert result.verified_claims is not None
+    assert result.verified_claims.status == "completed"
