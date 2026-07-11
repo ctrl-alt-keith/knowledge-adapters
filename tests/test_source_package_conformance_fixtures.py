@@ -69,6 +69,9 @@ def test_public_verifier_matches_conformance_vector(
     )
     expected_state = "verified" if vector["expected"] == "accept" else "rejected"
     assert result.state == expected_state
-    assert result.last_completed_stage == vector["stage"]
+    if vector["expected"] == "accept":
+        assert result.last_completed_stage == vector["stage"]
+    else:
+        assert result.findings[0].stage == vector["stage"]
     if "code" in vector:
         assert vector["code"] in {finding.code for finding in result.findings}
