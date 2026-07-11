@@ -750,7 +750,6 @@ def verify_package(
     for relative in item_paths:
         try:
             item = json.loads(artifact_data[relative], object_pairs_hook=_unique_object)
-            outcome = ItemOutcome(item["outcome"])
             if not isinstance(item, dict):
                 raise ValueError
         except (
@@ -766,6 +765,18 @@ def verify_package(
                     "invalid-item-record",
                     VerificationStage.ITEM_SEMANTICS,
                     "invalid item record",
+                    relative,
+                )
+            )
+            continue
+        try:
+            outcome = ItemOutcome(item["outcome"])
+        except (KeyError, ValueError, TypeError):
+            issues.append(
+                _finding(
+                    "nonterminal-item-outcome",
+                    VerificationStage.TERMINAL_ACCOUNTING,
+                    "sealed item must use a terminal outcome",
                     relative,
                 )
             )
