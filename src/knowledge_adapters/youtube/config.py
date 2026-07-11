@@ -11,6 +11,11 @@ from urllib.parse import parse_qs, urlparse
 from knowledge_adapters.source_package import AcquisitionRequest
 
 YOUTUBE_EXTENSION = "org.ctrl-alt-keith.youtube"
+MAX_COLLECTION_ITEMS = 500
+MAX_LANGUAGE_PREFERENCES = 16
+MAX_CAPTION_CANDIDATES = 64
+MAX_CAPTION_BYTES = 8 * 1024 * 1024
+MAX_PROVIDER_TEXT_BYTES = 4096
 VIDEO_ID_RE = re.compile(r"[A-Za-z0-9_-]{6,64}\Z")
 PLAYLIST_ID_RE = re.compile(r"[A-Za-z0-9_-]{6,128}\Z")
 SECRET_QUERY_KEYS = frozenset({"cookie", "cookies", "token", "key", "password", "auth"})
@@ -60,14 +65,16 @@ class YouTubeOptions:
     checkpoint_input: Path | None = None
     checkpoint_output: Path | None = None
     retry: RetryPolicy = RetryPolicy()
+    max_caption_candidates: int = MAX_CAPTION_CANDIDATES
+    max_caption_bytes: int = MAX_CAPTION_BYTES
 
     def __post_init__(self) -> None:
         kind, _ = parse_locator(self.locator)
         expected = "video" if self.scope is ScopeKind.RESOURCE else "playlist"
         if kind != expected:
             raise ValueError(f"{self.scope.value} scope requires a {expected} locator")
-        if self.max_items <= 0:
-            raise ValueError("max_items must be positive")
+        if not 1 <= self.max_items <= MAX_COLLECTION_ITEMS:
+            raise ValueError(f"max_items must be between 1 and {MAX_COLLECTION_ITEMS}")
         if self.scope is ScopeKind.RESOURCE and self.max_items != 1:
             raise ValueError("resource scope requires max_items=1")
         if self.batch_size is not None and not 1 <= self.batch_size <= self.max_items:
@@ -76,6 +83,8 @@ class YouTubeOptions:
             not language or len(language) > 64 for language in self.languages
         ):
             raise ValueError("at least one bounded language preference is required")
+        if len(self.languages) > MAX_LANGUAGE_PREFERENCES:
+            raise ValueError("too many language preferences")
         if len(set(self.languages)) != len(self.languages):
             raise ValueError("language preferences must be unique")
         if self.checkpoint_input is not None and self.scope is ScopeKind.RESOURCE:
@@ -84,6 +93,10 @@ class YouTubeOptions:
             raise ValueError("checkpoint resume requires an output checkpoint path")
         if self.checkpoint_input is not None and self.checkpoint_input == self.checkpoint_output:
             raise ValueError("checkpoint input and output paths must differ")
+        if not 1 <= self.max_caption_candidates <= MAX_CAPTION_CANDIDATES:
+            raise ValueError("max_caption_candidates exceeds the supported bound")
+        if not 1 <= self.max_caption_bytes <= MAX_CAPTION_BYTES:
+            raise ValueError("max_caption_bytes exceeds the supported bound")
 
     def acquisition_request(self, request_id: str, output: Path) -> AcquisitionRequest:
         kind, resource_id = parse_locator(self.locator)
@@ -93,6 +106,8 @@ class YouTubeOptions:
             "caption_policy": self.caption_policy.value,
             "no_caption_outcome": self.no_caption_outcome.value,
             "retain_raw_captions": self.retain_raw_captions,
+            "max_caption_candidates": self.max_caption_candidates,
+            "max_caption_bytes": self.max_caption_bytes,
         }
         if self.batch_size is not None:
             selection["batch_size"] = self.batch_size

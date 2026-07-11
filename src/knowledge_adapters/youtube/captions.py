@@ -36,12 +36,13 @@ def select_caption(
     if options.caption_policy is CaptionPolicy.CREATOR_ONLY:
         eligible = [(track, rank) for track, rank in eligible if track.kind is CaptionKind.CREATOR]
 
-    def key(value: tuple[CaptionTrack, int]) -> tuple[int, int, str, str]:
+    def key(value: tuple[CaptionTrack, int]) -> tuple[int, int, int, str, str]:
         track, rank = value
         kind_rank = 0 if track.kind is CaptionKind.CREATOR else 1
+        format_rank = 0 if track.format.lower() == "vtt" else 1
         if options.caption_policy is CaptionPolicy.CREATOR_THEN_AUTOMATIC:
-            return kind_rank, rank, track.language, track.name or ""
-        return rank, kind_rank, track.language, track.name or ""
+            return kind_rank, rank, format_rank, track.language, track.name or ""
+        return rank, kind_rank, format_rank, track.language, track.name or ""
 
     candidates = tuple(
         {

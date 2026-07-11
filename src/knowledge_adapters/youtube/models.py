@@ -33,6 +33,14 @@ class CaptionTrack:
 
 
 @dataclass(frozen=True)
+class CaptionCandidate:
+    language: str
+    kind: CaptionKind
+    format: str
+    name: str | None = None
+
+
+@dataclass(frozen=True)
 class PlaylistEntry:
     video_id: str
     position: int | None
@@ -58,6 +66,7 @@ class VideoObservation:
     channel: str | None
     published_at: str | None
     captions: tuple[CaptionTrack, ...]
+    caption_candidates: tuple[CaptionCandidate, ...] = ()
 
 
 class ProviderFailure(RuntimeError):

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import shutil
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
@@ -21,12 +24,14 @@ from knowledge_adapters.youtube import (
 )
 from knowledge_adapters.youtube.captions import select_caption
 from knowledge_adapters.youtube.checkpoint import (
+    MAX_CHECKPOINT_BYTES,
     CompletedCheckpointItem,
     YouTubeCheckpoint,
     load_checkpoint,
     reconcile_video_ids,
     request_fingerprint,
     save_checkpoint,
+    save_checkpoint_artifacts,
 )
 from knowledge_adapters.youtube.client import YtDlpClient
 from knowledge_adapters.youtube.models import (
@@ -61,7 +66,8 @@ class FakeClient:
         del options
         return self.discovery
 
-    def enrich(self, video_id: str) -> VideoObservation:
+    def enrich(self, video_id: str, options: YouTubeOptions) -> VideoObservation:
+        del options
         self.calls.append(video_id)
         value = self.videos[video_id]
         if isinstance(value, list):
@@ -110,6 +116,7 @@ def produce(tmp_path: Path, client: FakeClient, opts: YouTubeOptions | None = No
         package_id="package-fixture",
         created_at="2026-07-10T00:00:00Z",
         destination=destination,
+        adapter_revision="fixture-revision",
     )
     assert result.verification.ok
     return destination
@@ -118,7 +125,7 @@ def produce(tmp_path: Path, client: FakeClient, opts: YouTubeOptions | None = No
 @pytest.mark.parametrize(
     ("change", "message"),
     [
-        ({"max_items": 0}, "positive"),
+        ({"max_items": 0}, "between"),
         ({"max_items": 2}, "max_items=1"),
         ({"batch_size": 0}, "batch_size"),
         ({"languages": ()}, "language"),
@@ -194,7 +201,11 @@ def test_single_video_produces_publicly_verified_package_without_raw_caption(
     result = verify_package(package)
     assert result.ok and result.verified_claims is not None
     assert result.verified_claims.adapter is not None
-    assert result.verified_claims.adapter.revision == "yt-dlp/fixture-2026.07"
+    assert result.verified_claims.adapter.revision == "fixture-revision"
+    manifest = json.loads((package / "package.json").read_bytes())
+    assert manifest["extensions"]["org.ctrl-alt-keith.youtube"]["yt_dlp_version"] == (
+        "fixture-2026.07"
+    )
     files = {path.relative_to(package).as_posix() for path in package.rglob("*") if path.is_file()}
     assert not any(path.endswith("captured.vtt") for path in files)
     all_bytes = b"".join(path.read_bytes() for path in package.rglob("*") if path.is_file())
@@ -336,40 +347,82 @@ def test_partial_batch_writes_checkpoint_but_does_not_seal(tmp_path: Path) -> No
         checkpoint_input=checkpoint_path,
         checkpoint_output=tmp_path / "checkpoint-next.json",
     )
+    changed_discovery = replace(
+        discovery,
+        entries=(
+            PlaylistEntry("video_001", 1),
+            PlaylistEntry("video_003", 2),
+            PlaylistEntry("video_004", 3),
+        ),
+    )
+    resume_client = FakeClient(changed_discovery, {})
     with pytest.raises(CollectionProgressBlocked, match="resume lineage"):
         produce_package(
             resumed,
-            FakeClient(discovery, dict(partial_videos)),
+            resume_client,
             request_id="request-next",
             run_id="run-next",
             package_id="package-next",
             created_at="2026-07-10T00:01:00Z",
             destination=tmp_path / "package-next",
         )
+    assert resume_client.calls == []
+    next_path = tmp_path / "checkpoint-next.json"
+    next_json = json.loads(next_path.read_bytes())
+    assert [item["video_id"] for item in next_json["completed"]] == ["video_001"]
+    assert next_json["pending_video_ids"] == ["video_003", "video_004"]
+    completed = next_json["completed"][0]
+    assert (tmp_path / completed["captured_path"]).read_bytes() == creator_track().data
+    assert (tmp_path / completed["normalized_path"]).read_bytes() == (
+        b"Hello from the creator.\n\n**Ada:** Welcome aboard.\n"
+    )
 
 
 def test_checkpoint_validation_and_changed_playlist_reconciliation(tmp_path: Path) -> None:
     fingerprint = request_fingerprint({"request": "fixture"})
+    path = tmp_path / "checkpoint.json"
+    captured = b"captured fixture"
+    normalized = b"normalized fixture\n"
+    captured_path, normalized_path = save_checkpoint_artifacts(
+        path,
+        video_id="video_001",
+        captured=captured,
+        normalized=normalized,
+    )
     checkpoint = YouTubeCheckpoint(
         fingerprint,
         "0.1.0",
         "1.0.0",
         "playlist_001",
         ("video_001", "video_002"),
-        (CompletedCheckpointItem("video_001", "a" * 64, "b" * 64, "completed", 1),),
+        (
+            CompletedCheckpointItem(
+                "video_001",
+                hashlib.sha256(captured).hexdigest(),
+                hashlib.sha256(normalized).hexdigest(),
+                "completed",
+                1,
+                captured_path,
+                normalized_path,
+            ),
+        ),
         {"video_001": "completed"},
         {"video_001": 1},
         ("video_002",),
         None,
         "item:video_001",
     )
-    path = tmp_path / "checkpoint.json"
     save_checkpoint(checkpoint, path)
     loaded = load_checkpoint(path, expected_fingerprint=fingerprint)
     assert reconcile_video_ids(loaded, ("video_003", "video_001")) == (
         ("video_001",),
         ("video_003",),
     )
+    normalized_file = tmp_path / normalized_path
+    normalized_file.write_bytes(b"modified\n")
+    with pytest.raises(ValueError, match="digest mismatch"):
+        load_checkpoint(path, expected_fingerprint=fingerprint)
+    normalized_file.write_bytes(normalized)
     with pytest.raises(ValueError, match="fingerprint"):
         load_checkpoint(path, expected_fingerprint="0" * 64)
     with pytest.raises(ValueError, match="adapter version"):
@@ -395,6 +448,27 @@ def test_checkpoint_validation_and_changed_playlist_reconciliation(tmp_path: Pat
         load_checkpoint(path, expected_fingerprint=fingerprint)
 
 
+def test_checkpoint_read_and_depth_are_bounded(tmp_path: Path) -> None:
+    path = tmp_path / "checkpoint.json"
+    path.write_bytes(b"{" + b"x" * MAX_CHECKPOINT_BYTES + b"}")
+    with pytest.raises(ValueError, match="byte limit"):
+        load_checkpoint(path, expected_fingerprint="0" * 64)
+    nested: object = "leaf"
+    for _ in range(10):
+        nested = {"nested": nested}
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.1.0",
+                "request_fingerprint": "0" * 64,
+                "bounded_discovery": nested,
+            }
+        )
+    )
+    with pytest.raises(ValueError, match="depth limit"):
+        load_checkpoint(path, expected_fingerprint="0" * 64)
+
+
 def test_yt_dlp_exception_translation_uses_structured_evidence() -> None:
     timeout = YtDlpClient._translate_exception(TimeoutError())
     assert timeout.category is ProviderFailureCategory.TIMEOUT and timeout.retryable
@@ -406,6 +480,80 @@ def test_yt_dlp_exception_translation_uses_structured_evidence() -> None:
     assert throttled.category is ProviderFailureCategory.THROTTLED and throttled.retryable
     unknown = YtDlpClient._translate_exception(RuntimeError("private words ignored"))
     assert unknown.category is ProviderFailureCategory.UNAVAILABLE
+
+
+class StubYtDlp:
+    def __init__(self, info: dict[str, object], response: bytes = b"") -> None:
+        self.info = info
+        self.response = response
+        self.opened_urls: list[str] = []
+
+    def __enter__(self) -> StubYtDlp:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        del args
+
+    def extract_info(self, locator: str, *, download: bool) -> dict[str, object]:
+        del locator, download
+        return self.info
+
+    def urlopen(self, url: str) -> io.BytesIO:
+        self.opened_urls.append(url)
+        return io.BytesIO(self.response)
+
+
+def stub_real_client(stub: StubYtDlp) -> YtDlpClient:
+    client = object.__new__(YtDlpClient)
+    cast(Any, client)._module = SimpleNamespace(YoutubeDL=lambda params: stub)
+    cast(Any, client)._version = "fixture-real-boundary"
+    return client
+
+
+def test_real_client_rejects_excess_candidates_before_acquisition() -> None:
+    candidates = [
+        {"ext": "vtt", "url": f"https://captions.test/{index}?signature=secret"}
+        for index in range(3)
+    ]
+    stub = StubYtDlp({"subtitles": {"en": candidates}})
+    client = stub_real_client(stub)
+    with pytest.raises(ProviderFailure, match="caption-candidate-limit"):
+        client.enrich("video_001", options(max_caption_candidates=2))
+    assert stub.opened_urls == []
+
+
+def test_real_client_caption_read_is_bounded() -> None:
+    signed = "https://captions.test/track?signature=secret"
+    stub = StubYtDlp(
+        {"subtitles": {"en": [{"ext": "vtt", "url": signed}]}},
+        b"x" * 9,
+    )
+    client = stub_real_client(stub)
+    with pytest.raises(ProviderFailure, match="caption-size-limit"):
+        client.enrich("video_001", options(max_caption_bytes=8))
+    assert stub.opened_urls == [signed]
+
+
+def test_real_client_preserves_unsupported_format_evidence_without_url() -> None:
+    signed = "https://captions.test/track?signature=secret"
+    stub = StubYtDlp({"subtitles": {"en": [{"ext": "ttml", "url": signed}]}})
+    observation = stub_real_client(stub).enrich("video_001", options())
+    assert observation.captions[0].format == "ttml"
+    assert observation.caption_candidates[0].format == "ttml"
+    assert stub.opened_urls == []
+    assert "signature" not in repr(observation)
+
+
+def test_real_client_rejects_discovery_beyond_requested_bound() -> None:
+    stub = StubYtDlp(
+        {
+            "id": "playlist_001",
+            "entries": [{"id": "video_001"}, {"id": "video_002"}],
+        }
+    )
+    client = stub_real_client(stub)
+    with pytest.raises(ProviderFailure, match="provider-shape:playlist-entries"):
+        client.discover(YouTubeOptions(PLAYLIST, ScopeKind.COLLECTION, 1))
 
 
 def test_deterministic_replay_produces_identical_package_bytes(tmp_path: Path) -> None:

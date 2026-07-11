@@ -11,13 +11,21 @@ Language preference order, base-language fallback, caption policy, no-caption
 outcome, raw-caption retention, checkpoint paths, and retry attempts are typed
 and recorded in the canonical `AcquisitionRequest`.
 
+Explicit v1 bounds are at most 500 collection items, 16 language preferences,
+64 relevant caption candidates per video, 8 MiB per captured caption, and 4096
+UTF-8 bytes per consumed provider metadata string. Playlist and candidate data
+must have the expected shallow dict/list/scalar shape. The client downloads
+only the selected VTT candidate with a `limit + 1` read; excess candidates or
+bytes fail before normalization.
+
 `yt-dlp` is isolated behind `YouTubeClient` and is available only through the
 `youtube` optional dependency group. The embedded client supplies explicit
 options, requests no media download or postprocessing, permits no remote
 components, and consumes caption URLs only inside the client boundary. It does
-not require ffmpeg. Adapter identity records both the adapter version and
-observed yt-dlp version. Tests use `FakeClient`; `make check` neither imports
-yt-dlp nor accesses a provider.
+not require ffmpeg. Canonical adapter identity records the adapter version and
+caller-supplied build revision. The separate YouTube extension records the
+observed yt-dlp version; it is not represented as the adapter revision. Tests
+use `FakeClient`; `make check` neither imports yt-dlp nor accesses a provider.
 
 The live boundary follows yt-dlp's official documentation for
 [`--ignore-config`, `--flat-playlist`, `--skip-download`, and creator versus
@@ -60,23 +68,30 @@ omitted unless explicitly retained.
 
 ## Failure And Checkpoint Semantics
 
-Provider failures enter the producer as structured categories. Private,
-removed, age-restricted, geo-restricted, unavailable, timeout, throttling,
-transient, and cancellation observations map to bounded item errors. Timeout,
-HTTP 429, and HTTP 5xx evidence is retryable within `max_attempts`; other
+Provider failures enter the producer as structured categories. Fixture-backed
+contract mapping covers private, removed, age-restricted, geo-restricted,
+unavailable, timeout, throttling, transient, and cancellation outcomes. This
+does not claim yt-dlp supplies structured evidence for every category. The real
+boundary maps only explicit availability, status, or exception attributes it
+observes. Timeout, HTTP 429, and HTTP 5xx evidence is retryable within
+`max_attempts`; other
 unknown yt-dlp exceptions conservatively map to non-retryable unavailable
 without classifying from message text. Private and other access classifications
 are used only when yt-dlp exposes structured availability evidence; unsupported
 or absent evidence remains `provider-unavailable`. No captions is `skipped` or
 `failed` according to the effective request.
 
-Checkpoint JSON is mutable adapter-local state and is never inventoried. It is
-bounded and versioned and records a request fingerprint, adapter and contract
+Checkpoint JSON is mutable adapter-local state and is never inventoried. JSON
+is limited to 1 MiB, depth 8, and the 500-item collection bound. It is versioned
+and records a request fingerprint, adapter and contract
 versions, playlist identity, discovery IDs, completed IDs and digests,
 outcomes, attempts, pending IDs, continuation evidence, and last successful
 boundary. Resume validates schema, fingerprint, adapter version, and contract
-version, then reconciles rediscovery by video ID. A raw yt-dlp archive is not a
-canonical checkpoint.
+version, then reconciles rediscovery by video ID. Completed bytes live under
+checkpoint-owned relative paths in `<checkpoint-stem>.data/`; regular-file,
+path, 8 MiB, and SHA-256 checks run on load. Resume copies only matching
+verified bytes into the next checkpoint, drops disappeared IDs, and marks new
+IDs pending. A raw yt-dlp archive is not a canonical checkpoint.
 
 ## Collection Progress Gate
 

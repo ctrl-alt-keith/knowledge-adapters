@@ -1,8 +1,0 @@
-{
-  "age-restricted": "fixture-age",
-  "geo-restricted": "fixture-geo",
-  "private": "fixture-private",
-  "removed": "fixture-removed",
-  "throttled": "fixture-throttled",
-  "timeout": "fixture-timeout"
-}

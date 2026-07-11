@@ -21,9 +21,12 @@ from .captions import select_caption
 from .checkpoint import (
     CompletedCheckpointItem,
     YouTubeCheckpoint,
+    copy_completed_item,
     load_checkpoint,
+    reconcile_video_ids,
     request_fingerprint,
     save_checkpoint,
+    save_checkpoint_artifacts,
 )
 from .client import YouTubeClient
 from .config import YOUTUBE_EXTENSION, NoCaptionOutcome, ScopeKind, YouTubeOptions
@@ -183,6 +186,15 @@ def _completed_item(
         **({"playlist_id": playlist_id} if playlist_id else {}),
         **({"source_position": entry.position} if entry.position is not None else {}),
     }
+    candidate_summary = [
+        {
+            "language": candidate.language,
+            "kind": candidate.kind.value,
+            "format": candidate.format,
+            **({"name": candidate.name} if candidate.name else {}),
+        }
+        for candidate in observation.caption_candidates
+    ]
     if playlist_id:
         common["parents"] = [
             {
@@ -196,7 +208,9 @@ def _completed_item(
                 "category": "captions-unavailable",
                 "policy": options.caption_policy.value,
             }
-            common["extensions"] = {YOUTUBE_EXTENSION: {**relation, "candidates": []}}
+            common["extensions"] = {
+                YOUTUBE_EXTENSION: {**relation, "available_candidates": candidate_summary}
+            }
             return PackageItem(item_id, "video", ItemOutcome.SKIPPED, common), ()
         failure = ProviderFailure(ProviderFailureCategory.UNAVAILABLE, "captions-unavailable")
         item, diagnostic = _failure_item(
@@ -223,6 +237,24 @@ def _completed_item(
             "attempts": 1,
             "retryable": False,
         }
+        youtube_evidence: dict[str, object] = {}
+        extensions_value = fields.get("extensions")
+        if isinstance(extensions_value, dict):
+            youtube_value = extensions_value.get(YOUTUBE_EXTENSION)
+            if isinstance(youtube_value, dict):
+                youtube_evidence.update(youtube_value)
+        youtube_evidence.update(
+            {
+                "available_candidates": candidate_summary,
+                "selected_track": {
+                    "language": track.language,
+                    "kind": track.kind.value,
+                    "format": track.format,
+                    **({"name": track.name} if track.name else {}),
+                },
+            }
+        )
+        fields["extensions"] = {YOUTUBE_EXTENSION: youtube_evidence}
         diagnostic = _diagnostic(
             item.item_id, "normalization-unsupported", "unsupported-caption-format", 1, False
         )
@@ -277,7 +309,7 @@ def _completed_item(
                         **({"name": track.name} if track.name else {}),
                     },
                     "selection_reason": selection.reason,
-                    "available_candidates": list(selection.candidates),
+                    "available_candidates": candidate_summary or list(selection.candidates),
                     **({"raw_caption_path": raw_path} if raw_path else {}),
                 }
             },
@@ -295,17 +327,50 @@ def produce_package(
     package_id: str,
     created_at: str,
     destination: Path,
+    adapter_revision: str | None = None,
 ) -> ProductionResult:
     request = options.acquisition_request(request_id, destination)
     fingerprint = _request_fingerprint(request.as_dict())
     discovery = client.discover(options)
     entries = _ordered_entries(discovery.entries[: options.max_items])
     if options.checkpoint_input is not None:
-        load_checkpoint(
+        checkpoint = load_checkpoint(
             options.checkpoint_input,
             expected_fingerprint=fingerprint,
             expected_adapter_version=ADAPTER_VERSION,
             expected_contract_version=CONTRACT_VERSION,
+        )
+        rediscovered = tuple(entry.video_id for entry in entries)
+        preserved_ids, pending_ids = reconcile_video_ids(checkpoint, rediscovered)
+        completed_by_id = {item.video_id: item for item in checkpoint.completed}
+        assert options.checkpoint_output is not None
+        preserved = tuple(
+            copy_completed_item(
+                options.checkpoint_input,
+                options.checkpoint_output,
+                completed_by_id[video_id],
+            )
+            for video_id in preserved_ids
+        )
+        save_checkpoint(
+            YouTubeCheckpoint(
+                fingerprint,
+                ADAPTER_VERSION,
+                CONTRACT_VERSION,
+                discovery.playlist_id or checkpoint.playlist_id,
+                rediscovered,
+                preserved,
+                {item.video_id: item.outcome for item in preserved},
+                {
+                    video_id: checkpoint.attempts.get(video_id, 1)
+                    for video_id in rediscovered
+                    if video_id in checkpoint.attempts
+                },
+                pending_ids,
+                discovery.continuation or checkpoint.continuation,
+                "resume-reconciled",
+            ),
+            options.checkpoint_output,
         )
         raise CollectionProgressBlocked(
             "resumed sealing requires canonical builder-supported resume lineage"
@@ -322,8 +387,10 @@ def produce_package(
             for entry in entries[:batch_size]:
                 checkpoint_attempts[entry.video_id] = 1
                 try:
-                    observation = client.enrich(entry.video_id)
-                    item, _ = _completed_item(entry, observation, options, discovery.playlist_id)
+                    observation = client.enrich(entry.video_id, options)
+                    item, artifacts = _completed_item(
+                        entry, observation, options, discovery.playlist_id
+                    )
                     outcomes[entry.video_id] = item.outcome.value
                     captured = item.fields.get("captured_sha256")
                     normalized = item.fields.get("normalized_sha256")
@@ -332,9 +399,28 @@ def produce_package(
                         and isinstance(captured, str)
                         and isinstance(normalized, str)
                     ):
+                        selection = select_caption(observation.captions, options)
+                        normalized_artifact = next(
+                            artifact
+                            for artifact in artifacts
+                            if artifact.role == "normalized-content"
+                        )
+                        assert selection is not None
+                        captured_path, normalized_path = save_checkpoint_artifacts(
+                            options.checkpoint_output,
+                            video_id=entry.video_id,
+                            captured=selection.track.data,
+                            normalized=normalized_artifact.data,
+                        )
                         completed.append(
                             CompletedCheckpointItem(
-                                entry.video_id, captured, normalized, item.outcome.value, 1
+                                entry.video_id,
+                                captured,
+                                normalized,
+                                item.outcome.value,
+                                1,
+                                captured_path,
+                                normalized_path,
                             )
                         )
                 except ProviderFailure as checkpoint_failure:
@@ -364,9 +450,7 @@ def produce_package(
         request=request,
         run_id=run_id,
         created_at=created_at,
-        adapter=AdapterIdentity(
-            "youtube-source-package", ADAPTER_VERSION, f"yt-dlp/{client.version}"
-        ),
+        adapter=AdapterIdentity("youtube-source-package", ADAPTER_VERSION, adapter_revision),
         contract_version=CONTRACT_VERSION,
         boundary={
             "deterministic": (
@@ -396,7 +480,7 @@ def produce_package(
         while True:
             attempts += 1
             try:
-                observation = client.enrich(entry.video_id)
+                observation = client.enrich(entry.video_id, options)
                 item, artifacts = _completed_item(
                     entry, observation, options, discovery.playlist_id
                 )

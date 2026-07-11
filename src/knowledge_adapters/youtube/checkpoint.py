@@ -7,12 +7,16 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from knowledge_adapters.source_package import canonical_json_bytes
 
-CHECKPOINT_SCHEMA_VERSION = "1.0.0"
+from .config import MAX_CAPTION_BYTES, MAX_COLLECTION_ITEMS, VIDEO_ID_RE
+
+CHECKPOINT_SCHEMA_VERSION = "1.1.0"
+MAX_CHECKPOINT_BYTES = 1024 * 1024
+MAX_CHECKPOINT_JSON_DEPTH = 8
 DIGEST_RE = re.compile(r"[0-9a-f]{64}\Z")
 TERMINAL_OUTCOMES = frozenset({"completed", "unchanged", "skipped", "failed", "cancelled"})
 
@@ -28,6 +32,8 @@ class CompletedCheckpointItem:
     normalized_sha256: str
     outcome: str
     attempts: int
+    captured_path: str
+    normalized_path: str
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -36,6 +42,8 @@ class CompletedCheckpointItem:
             "normalized_sha256": self.normalized_sha256,
             "outcome": self.outcome,
             "attempts": self.attempts,
+            "captured_path": self.captured_path,
+            "normalized_path": self.normalized_path,
         }
 
 
@@ -74,8 +82,116 @@ class YouTubeCheckpoint:
 def save_checkpoint(checkpoint: YouTubeCheckpoint, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_name(f".{destination.name}.tmp-{os.getpid()}")
-    temporary.write_bytes(canonical_json_bytes(checkpoint.as_dict()))
+    data = canonical_json_bytes(checkpoint.as_dict())
+    if len(data) > MAX_CHECKPOINT_BYTES:
+        raise ValueError("checkpoint byte limit exceeded")
+    temporary.write_bytes(data)
     temporary.replace(destination)
+
+
+def _digest(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _json_depth(value: object, depth: int = 1) -> int:
+    if isinstance(value, dict):
+        return max((_json_depth(item, depth + 1) for item in value.values()), default=depth)
+    if isinstance(value, list):
+        return max((_json_depth(item, depth + 1) for item in value), default=depth)
+    return depth
+
+
+def _read_bounded(path: Path, limit: int) -> bytes:
+    if not path.is_file() or path.is_symlink():
+        raise ValueError("checkpoint artifact is not a regular file")
+    try:
+        if path.stat().st_size > limit:
+            raise ValueError("checkpoint byte limit exceeded")
+        with path.open("rb") as stream:
+            data = stream.read(limit + 1)
+    except OSError as exc:
+        raise ValueError("checkpoint read failure") from exc
+    if len(data) > limit:
+        raise ValueError("checkpoint byte limit exceeded")
+    return data
+
+
+def _artifact_path(checkpoint_path: Path, relative: str) -> Path:
+    pure = PurePosixPath(relative)
+    owned_root = f"{checkpoint_path.stem}.data"
+    if (
+        not relative
+        or "\\" in relative
+        or pure.is_absolute()
+        or ".." in pure.parts
+        or pure.as_posix() != relative
+        or not pure.parts
+        or pure.parts[0] != owned_root
+    ):
+        raise ValueError("unsafe checkpoint artifact path")
+    return checkpoint_path.parent.joinpath(*pure.parts)
+
+
+def save_checkpoint_artifacts(
+    checkpoint_path: Path,
+    *,
+    video_id: str,
+    captured: bytes,
+    normalized: bytes,
+) -> tuple[str, str]:
+    if not VIDEO_ID_RE.fullmatch(video_id):
+        raise ValueError("unsafe checkpoint video ID")
+    if len(captured) > MAX_CAPTION_BYTES or len(normalized) > MAX_CAPTION_BYTES:
+        raise ValueError("checkpoint artifact byte limit exceeded")
+    root_name = f"{checkpoint_path.stem}.data"
+    relative_root = PurePosixPath(root_name, f"youtube-video-{video_id}")
+    captured_relative = (relative_root / "captured.vtt").as_posix()
+    normalized_relative = (relative_root / "normalized.md").as_posix()
+    for relative, data in (
+        (captured_relative, captured),
+        (normalized_relative, normalized),
+    ):
+        destination = _artifact_path(checkpoint_path, relative)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary = destination.with_name(f".{destination.name}.tmp-{os.getpid()}")
+        temporary.write_bytes(data)
+        temporary.replace(destination)
+    return captured_relative, normalized_relative
+
+
+def read_completed_artifacts(
+    checkpoint_path: Path, item: CompletedCheckpointItem
+) -> tuple[bytes, bytes]:
+    captured = _read_bounded(_artifact_path(checkpoint_path, item.captured_path), MAX_CAPTION_BYTES)
+    normalized = _read_bounded(
+        _artifact_path(checkpoint_path, item.normalized_path), MAX_CAPTION_BYTES
+    )
+    if _digest(captured) != item.captured_sha256 or _digest(normalized) != item.normalized_sha256:
+        raise ValueError("checkpoint artifact digest mismatch")
+    return captured, normalized
+
+
+def copy_completed_item(
+    source_checkpoint: Path,
+    destination_checkpoint: Path,
+    item: CompletedCheckpointItem,
+) -> CompletedCheckpointItem:
+    captured, normalized = read_completed_artifacts(source_checkpoint, item)
+    captured_path, normalized_path = save_checkpoint_artifacts(
+        destination_checkpoint,
+        video_id=item.video_id,
+        captured=captured,
+        normalized=normalized,
+    )
+    return CompletedCheckpointItem(
+        item.video_id,
+        item.captured_sha256,
+        item.normalized_sha256,
+        item.outcome,
+        item.attempts,
+        captured_path,
+        normalized_path,
+    )
 
 
 def load_checkpoint(
@@ -86,13 +202,24 @@ def load_checkpoint(
     expected_contract_version: str | None = None,
 ) -> YouTubeCheckpoint:
     try:
-        raw: Any = json.loads(path.read_bytes())
+        raw: Any = json.loads(_read_bounded(path, MAX_CHECKPOINT_BYTES))
         if not isinstance(raw, dict) or raw.get("schema_version") != CHECKPOINT_SCHEMA_VERSION:
             raise ValueError("unsupported checkpoint schema")
         if raw.get("request_fingerprint") != expected_fingerprint:
             raise ValueError("checkpoint request fingerprint mismatch")
+        if _json_depth(raw) > MAX_CHECKPOINT_JSON_DEPTH:
+            raise ValueError("checkpoint JSON depth limit exceeded")
         discovery = raw["bounded_discovery"]
+        if not isinstance(discovery, dict) or set(discovery) != {"video_ids"}:
+            raise TypeError
+        if not isinstance(raw["completed"], list):
+            raise TypeError
         completed = tuple(CompletedCheckpointItem(**item) for item in raw["completed"])
+        if not isinstance(raw["attempts"], dict) or any(
+            not isinstance(key, str) or type(value) is not int
+            for key, value in raw["attempts"].items()
+        ):
+            raise TypeError
         checkpoint = YouTubeCheckpoint(
             request_fingerprint=raw["request_fingerprint"],
             adapter_version=raw["adapter_version"],
@@ -101,13 +228,28 @@ def load_checkpoint(
             observed_video_ids=tuple(discovery["video_ids"]),
             completed=completed,
             terminal_outcomes=dict(raw["terminal_outcomes"]),
-            attempts={key: int(value) for key, value in raw["attempts"].items()},
+            attempts=dict(raw["attempts"]),
             pending_video_ids=tuple(raw["pending_video_ids"]),
             continuation=raw.get("continuation"),
             last_successful_boundary=raw["last_successful_boundary"],
         )
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError) as exc:
+    except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError) as exc:
         raise ValueError("corrupt checkpoint") from exc
+    if (
+        any(
+            not isinstance(video_id, str) or not VIDEO_ID_RE.fullmatch(video_id)
+            for video_id in checkpoint.observed_video_ids
+        )
+        or any(not isinstance(video_id, str) for video_id in checkpoint.pending_video_ids)
+        or not isinstance(checkpoint.terminal_outcomes, dict)
+        or any(
+            not isinstance(key, str) or not isinstance(value, str)
+            for key, value in checkpoint.terminal_outcomes.items()
+        )
+        or not isinstance(checkpoint.continuation, (str, type(None)))
+        or (isinstance(checkpoint.continuation, str) and len(checkpoint.continuation) > 4096)
+    ):
+        raise ValueError("corrupt checkpoint")
     observed = set(checkpoint.observed_video_ids)
     completed_ids = {item.video_id for item in checkpoint.completed}
     pending = set(checkpoint.pending_video_ids)
@@ -115,7 +257,7 @@ def load_checkpoint(
         not checkpoint.playlist_id
         or len(checkpoint.playlist_id) > 200
         or not checkpoint.last_successful_boundary
-        or len(checkpoint.observed_video_ids) > 10_000
+        or len(checkpoint.observed_video_ids) > MAX_COLLECTION_ITEMS
         or len(observed) != len(checkpoint.observed_video_ids)
         or len(completed_ids) != len(checkpoint.completed)
         or pending - observed
@@ -131,6 +273,7 @@ def load_checkpoint(
             or item.outcome not in TERMINAL_OUTCOMES
             or not DIGEST_RE.fullmatch(item.captured_sha256)
             or not DIGEST_RE.fullmatch(item.normalized_sha256)
+            or not VIDEO_ID_RE.fullmatch(item.video_id)
             for item in checkpoint.completed
         )
     ):
@@ -145,6 +288,8 @@ def load_checkpoint(
         and checkpoint.contract_version != expected_contract_version
     ):
         raise ValueError("checkpoint contract version mismatch")
+    for item in checkpoint.completed:
+        read_completed_artifacts(path, item)
     return checkpoint
 
 
