@@ -5,6 +5,13 @@ import pytest
 from pytest import CaptureFixture
 
 from knowledge_adapters.cli import _ProgressAwareStream, _ProgressLineRenderer, main
+from knowledge_adapters.source_package import (
+    AcquisitionRequest,
+    AdapterIdentity,
+    ItemOutcome,
+    PackageBuilder,
+    PackageItem,
+)
 from tests.artifact_assertions import assert_manifest_entries, manifest_file
 from tests.cli_output_assertions import (
     assert_dry_run_summary,
@@ -16,6 +23,71 @@ from tests.cli_output_assertions import (
 class _TTYStringIO(io.StringIO):
     def isatty(self) -> bool:
         return True
+
+
+def _write_cli_source_package(tmp_path: Path) -> Path:
+    package = tmp_path / "source-package"
+    request = AcquisitionRequest(
+        request_id="cli-request",
+        adapter_type="fixture",
+        targets=("fixture:one",),
+        scope={"kind": "resource"},
+        output_location=str(package),
+    )
+    builder = PackageBuilder(
+        package_id="cli-package",
+        request=request,
+        run_id="cli-run",
+        created_at="2026-07-13T00:00:00Z",
+        adapter=AdapterIdentity("cli-fixture", "1.0.0"),
+        boundary={"deterministic": "fixture assembly", "live": "none"},
+    )
+    builder.add_item(PackageItem("one", "document", ItemOutcome.COMPLETED))
+    assert builder.seal(package).ok
+    return package
+
+
+def test_source_package_verify_cli_reports_verified_summary(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    package = _write_cli_source_package(tmp_path)
+
+    exit_code = main(["source_package", "verify", str(package)])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "Source Package verification invoked" in captured.out
+    assert f"package: {package}" in captured.out
+    assert "consumer_profile: default-v1" in captured.out
+    assert "state: verified" in captured.out
+    assert "last_completed_stage: complete" in captured.out
+    assert "content_address:" in captured.out
+    assert "contract: knowledge-source-package 1.0.0" in captured.out
+    assert "package_id: cli-package" in captured.out
+    assert "request_id: cli-request" in captured.out
+    assert "run_id: cli-run" in captured.out
+    assert "adapter: cli-fixture 1.0.0" in captured.out
+    assert "item_records: 1" in captured.out
+    assert "Verification complete. Source Package is valid." in captured.out
+
+
+def test_source_package_verify_cli_returns_nonzero_for_rejected_package(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    package = _write_cli_source_package(tmp_path)
+    (package / "package.json").write_bytes(b"not the sealed manifest\n")
+
+    exit_code = main(["source_package", "verify", str(package)])
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "state: rejected" in captured.out
+    assert "last_completed_stage: sidecar-format" in captured.out
+    assert "Findings:" in captured.out
+    assert "error [manifest-digest] manifest-digest-mismatch" in captured.out
+    assert "Verification failed. Source Package is not valid." in captured.out
 
 
 def test_progress_line_renderer_reuses_one_tty_line_until_finished() -> None:

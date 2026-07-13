@@ -44,6 +44,7 @@ knowledge-adapters local_files --help
 knowledge-adapters public_webpage --help
 knowledge-adapters public_pdf --help
 knowledge-adapters public_replay_acceptance --help
+knowledge-adapters source_package verify --help
 knowledge-adapters git_repo --help
 knowledge-adapters github_metadata --help
 knowledge-adapters confluence --help
@@ -186,6 +187,20 @@ MeaningfulTech, and DORA ROI 2026 still match expected classification,
 reviewability, cleanup, remaining-artifact, limitation, retention, and promotion
 blocker ranges. The deterministic fixture-backed contract is documented in
 `docs/public-source-replay-acceptance.md`.
+
+Source Package verification:
+
+```bash
+knowledge-adapters source_package verify ./source-package
+```
+
+This verifies a sealed Source Package directory through the canonical
+provider-neutral verifier. It checks the package envelope, `package.sha256`,
+manifest compatibility, safe package-relative paths, terminal accounting,
+lineage, and artifact integrity without printing provider extensions or
+artifact content. The command exits with status 0 only when the package is
+verified; rejected or indeterminate packages return nonzero and include bounded
+findings.
 
 Git repository first run:
 
