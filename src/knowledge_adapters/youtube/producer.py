@@ -590,7 +590,9 @@ def produce_package(
         preserved_set = set(preserved_ids)
         pending_entries = [entry for entry in entries if entry.video_id not in preserved_set]
         for entry in pending_entries:
-            attempts_by_id[entry.video_id] = checkpoint.attempts.get(entry.video_id, 0)
+            prior_attempts = checkpoint.attempts.get(entry.video_id)
+            if prior_attempts is not None:
+                attempts_by_id[entry.video_id] = prior_attempts
 
     batch_limit = options.batch_size or len(pending_entries)
     attempted_entries = pending_entries[:batch_limit]

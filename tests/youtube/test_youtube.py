@@ -404,6 +404,7 @@ def test_partial_batch_seals_continuation_and_checkpoints_completed_bytes(
         "video_002",
     ]
     assert checkpoint_json["pending_video_ids"] == ["video_003"]
+    assert checkpoint_json["attempts"] == {"video_001": 1, "video_002": 1}
     assert checkpoint_json["schema_version"] == "1.3.0"
     assert checkpoint_json["retain_raw_captions"] is False
     assert all(len(item["normalized_sha256"]) == 64 for item in checkpoint_json["completed"])
@@ -472,6 +473,110 @@ def test_partial_batch_seals_continuation_and_checkpoints_completed_bytes(
     assert completed["captured_path"] is None
     assert (tmp_path / completed["normalized_path"]).read_bytes() == (
         b"Hello from the creator.\n\n**Ada:** Welcome aboard.\n"
+    )
+
+
+def test_two_partial_batches_write_reloadable_checkpoint_without_zero_attempts(
+    tmp_path: Path,
+) -> None:
+    discovery = Discovery(
+        PLAYLIST,
+        PLAYLIST,
+        "playlist_001",
+        tuple(PlaylistEntry(f"video_00{index}", index) for index in range(1, 6)),
+        True,
+    )
+    videos = cast(
+        dict[
+            str,
+            VideoObservation | ProviderFailure | list[VideoObservation | ProviderFailure],
+        ],
+        {
+            f"video_00{index}": video(f"video_00{index}", creator_track())
+            for index in range(1, 6)
+        },
+    )
+    first_checkpoint = tmp_path / "checkpoint-1.json"
+    first_options = YouTubeOptions(
+        PLAYLIST,
+        ScopeKind.COLLECTION,
+        5,
+        batch_size=2,
+        checkpoint_output=first_checkpoint,
+    )
+    produce_package(
+        first_options,
+        FakeClient(discovery, videos),
+        request_id="request-1",
+        run_id="run-1",
+        package_id="package-1",
+        created_at="2026-07-10T00:00:00Z",
+        destination=tmp_path / "package-1",
+    )
+    first_json = json.loads(first_checkpoint.read_bytes())
+    assert first_json["attempts"] == {"video_001": 1, "video_002": 1}
+    assert first_json["pending_video_ids"] == ["video_003", "video_004", "video_005"]
+
+    second_checkpoint = tmp_path / "checkpoint-2.json"
+    second_client = FakeClient(discovery, videos)
+    second_result = produce_package(
+        replace(
+            first_options,
+            checkpoint_input=first_checkpoint,
+            checkpoint_output=second_checkpoint,
+        ),
+        second_client,
+        request_id="request-2",
+        run_id="run-2",
+        package_id="package-2",
+        created_at="2026-07-10T00:01:00Z",
+        destination=tmp_path / "package-2",
+    )
+
+    assert second_client.calls == ["video_003", "video_004"]
+    second_json = json.loads(second_checkpoint.read_bytes())
+    assert second_json["attempts"] == {
+        "video_001": 1,
+        "video_002": 1,
+        "video_003": 1,
+        "video_004": 1,
+    }
+    assert second_json["pending_video_ids"] == ["video_005"]
+    assert all(value > 0 for value in second_json["attempts"].values())
+    loaded = load_checkpoint(
+        second_checkpoint,
+        expected_fingerprint=second_json["request_fingerprint"],
+        expected_adapter_version="0.1.0",
+        expected_contract_version="1.1.0",
+        expected_retain_raw_captions=False,
+    )
+    assert [item.video_id for item in loaded.completed] == [
+        "video_001",
+        "video_002",
+        "video_003",
+        "video_004",
+    ]
+    assert loaded.pending_video_ids == ("video_005",)
+    manifest = json.loads((second_result.package_path / "package.json").read_bytes())
+    assert manifest["resumes_run_id"] == "run-1"
+    assert manifest["prior_run_ids"] == ["run-1"]
+    assert manifest["prior_package_ids"] == ["package-1"]
+    assert manifest["reconciliation_summary"] == {
+        "acquired": 2,
+        "dropped": 0,
+        "pending": 1,
+        "reused": 2,
+    }
+    assert manifest["final_attempt_counts"] == second_json["attempts"]
+    checkpoint_bytes = second_checkpoint.read_bytes() + b"".join(
+        path.read_bytes()
+        for path in sorted((tmp_path / "checkpoint-2.data").rglob("*"))
+        if path.is_file()
+    )
+    assert b"WEBVTT" not in checkpoint_bytes
+    assert not any(
+        token in checkpoint_bytes.lower()
+        for token in (b"signature=", b"cookie=", b"authorization=", b"credential=", b"token=")
     )
 
 
@@ -715,6 +820,24 @@ def test_checkpoint_validation_and_changed_playlist_reconciliation(tmp_path: Pat
         ("video_001",),
         ("video_003",),
     )
+    pending_attempted = json.loads(json.dumps(checkpoint.as_dict()))
+    attempts = pending_attempted["attempts"]
+    assert isinstance(attempts, dict)
+    attempts["video_002"] = 1
+    path.write_text(json.dumps(pending_attempted))
+    assert load_checkpoint(path, expected_fingerprint=fingerprint).attempts == {
+        "video_001": 1,
+        "video_002": 1,
+    }
+    for invalid_attempt in (0, -1, 1.5, "1"):
+        invalid = json.loads(json.dumps(checkpoint.as_dict()))
+        invalid_attempts = invalid["attempts"]
+        assert isinstance(invalid_attempts, dict)
+        invalid_attempts["video_002"] = invalid_attempt
+        path.write_text(json.dumps(invalid))
+        with pytest.raises(ValueError, match="corrupt"):
+            load_checkpoint(path, expected_fingerprint=fingerprint)
+    save_checkpoint(checkpoint, path)
     normalized_file = tmp_path / normalized_path
     normalized_file.write_bytes(b"modified\n")
     with pytest.raises(ValueError, match="digest mismatch"):
