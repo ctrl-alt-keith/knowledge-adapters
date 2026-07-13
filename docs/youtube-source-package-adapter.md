@@ -104,8 +104,11 @@ path, 8 MiB, and SHA-256 checks run on load. Resume copies only matching
 verified bytes into the next checkpoint, drops disappeared IDs, and marks new
 IDs pending. Attempt counts are cumulative across checkpoints while the retry
 limit applies independently to the new run, so failure-to-success transitions
-record the additional attempt. A raw yt-dlp archive is not a canonical
-checkpoint. Schema 1.2 checkpoints are rejected rather than silently migrated,
+record the additional attempt. The attempts map contains only identities that
+have actually been attempted, and every stored count is positive;
+never-attempted pending identities are omitted rather than recorded with zero.
+A raw yt-dlp archive is not a canonical checkpoint. Schema 1.2 checkpoints are
+rejected rather than silently migrated,
 preventing legacy raw-caption state from crossing a disabled-retention boundary.
 Work interrupted before successful normalization is not completed and is
 reacquired on resume.
