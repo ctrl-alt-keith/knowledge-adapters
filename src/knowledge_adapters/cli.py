@@ -42,6 +42,7 @@ from knowledge_adapters.run_report import (
     render_run_report_markdown,
 )
 from knowledge_adapters.runtime_identity import adapter_runtime_identity
+from knowledge_adapters.source_package import VerificationFinding, VerificationResult
 
 TOP_LEVEL_HELP_EXAMPLES = """First steps:
   knowledge-adapters --help
@@ -50,6 +51,7 @@ TOP_LEVEL_HELP_EXAMPLES = """First steps:
   knowledge-adapters public_webpage --help
   knowledge-adapters public_pdf --help
   knowledge-adapters public_replay_acceptance --help
+  knowledge-adapters source_package verify ./source-package
   knowledge-adapters git_repo --help
   knowledge-adapters github_metadata --help
   knowledge-adapters confluence --help
@@ -130,6 +132,11 @@ PUBLIC_REPLAY_ACCEPTANCE_HELP_EXAMPLES = """Examples:
   knowledge-adapters public_replay_acceptance --source dora_2023_public_pdf
   knowledge-adapters public_replay_acceptance --source meaningfultech_webpage
   knowledge-adapters public_replay_acceptance --source dora_roi_2026_public_pdf
+"""
+
+SOURCE_PACKAGE_HELP_EXAMPLES = """Examples:
+  knowledge-adapters source_package verify ./source-package
+  knowledge-adapters source_package verify ./artifacts/youtube-package
 """
 
 GIT_REPO_HELP_EXAMPLES = """Examples:
@@ -889,6 +896,39 @@ def build_parser() -> argparse.ArgumentParser:
         help="Known public source to check, or all configured known sources.",
     )
 
+    source_package_parser = subparsers.add_parser(
+        "source_package",
+        help="Verify sealed Source Package handoff artifacts.",
+        description=(
+            "Inspect sealed Source Package handoff artifacts through the canonical "
+            "verifier without exposing provider extensions or artifact content. "
+            "Verification checks the package envelope, digest sidecar, manifest, "
+            "compatibility, paths, terminal accounting, lineage, and artifact integrity."
+        ),
+        epilog=SOURCE_PACKAGE_HELP_EXAMPLES,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    source_package_subparsers = source_package_parser.add_subparsers(
+        dest="source_package_command",
+        required=True,
+    )
+    source_package_verify_parser = source_package_subparsers.add_parser(
+        "verify",
+        help="Verify one sealed Source Package directory.",
+        description=(
+            "Verify one sealed Source Package directory using the canonical "
+            "provider-neutral verification order. Returns 0 only when the package "
+            "is verified."
+        ),
+        epilog=SOURCE_PACKAGE_HELP_EXAMPLES,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    source_package_verify_parser.add_argument(
+        "package_dir",
+        metavar="PACKAGE_DIR",
+        help="Directory containing package.json and package.sha256.",
+    )
+
     git_repo_parser = subparsers.add_parser(
         "git_repo",
         help="Normalize selected UTF-8 text files from a Git repository into shared artifacts.",
@@ -1303,6 +1343,71 @@ def exit_with_cli_error(
 def render_user_path(path: str | Path) -> str:
     """Render user-facing paths with one consistent absolute form."""
     return str(Path(path).expanduser().resolve())
+
+
+def _render_verification_finding(finding: VerificationFinding) -> str:
+    location = f" ({finding.reference})" if finding.reference is not None else ""
+    detail_parts = []
+    if finding.observed is not None:
+        detail_parts.append(f"observed={finding.observed}")
+    if finding.expected is not None:
+        detail_parts.append(f"expected={finding.expected}")
+    details = f" [{', '.join(detail_parts)}]" if detail_parts else ""
+    return (
+        f"  - {finding.severity.value} [{finding.stage.value}] "
+        f"{finding.code}: {finding.message}{location}{details}"
+    )
+
+
+def print_source_package_verification_result(
+    package_dir: str | Path,
+    result: VerificationResult,
+) -> None:
+    """Print a bounded Source Package verification summary."""
+    print("Source Package verification invoked")
+    print(f"  package: {render_user_path(package_dir)}")
+    print(f"  consumer_profile: {result.consumer_profile}")
+    print(f"  state: {result.state.value}")
+    print(f"  last_completed_stage: {result.last_completed_stage.value}")
+    if result.content_address is not None:
+        print(f"  content_address: {result.content_address}")
+
+    claims = result.verified_claims
+    if claims is not None:
+        if claims.contract_name is not None or claims.contract_version is not None:
+            print(f"  contract: {claims.contract_name} {claims.contract_version}")
+        for label, value in (
+            ("package_id", claims.package_id),
+            ("request_id", claims.request_id),
+            ("run_id", claims.run_id),
+            ("status", claims.status),
+        ):
+            if value is not None:
+                print(f"  {label}: {value}")
+        if claims.adapter is not None:
+            adapter = claims.adapter
+            revision = f" ({adapter.revision})" if adapter.revision is not None else ""
+            print(f"  adapter: {adapter.name} {adapter.version}{revision}")
+        if claims.totals is not None:
+            print(f"  package_entries: {claims.totals.package_entries}")
+            print(f"  item_records: {claims.totals.item_records}")
+            print(f"  artifacts: {claims.totals.artifacts}")
+            print(f"  diagnostics: {claims.totals.diagnostics}")
+            print(f"  aggregate_bytes: {claims.totals.aggregate_bytes}")
+        if claims.collection_progress is not None:
+            print(f"  collection_progress: {claims.collection_progress.state.value}")
+        if claims.resumes_run_id is not None:
+            print(f"  resumes_run_id: {claims.resumes_run_id}")
+
+    if result.findings:
+        print("Findings:")
+        for finding in result.findings:
+            print(_render_verification_finding(finding))
+
+    if result.ok:
+        print("Verification complete. Source Package is valid.")
+    else:
+        print("Verification failed. Source Package is not valid.")
 
 
 def print_stale_artifacts(
@@ -1723,6 +1828,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(raw_argv)
     verbose = bool(args.verbose)
+
+    if args.command == "source_package":
+        from knowledge_adapters.source_package import verify_package
+
+        if args.source_package_command == "verify":
+            package_dir = Path(args.package_dir).expanduser()
+            result = verify_package(package_dir)
+            print_source_package_verification_result(package_dir, result)
+            return 0 if result.ok else 1
 
     if args.command == "run":
         from knowledge_adapters.run_config import load_run_config, select_runs

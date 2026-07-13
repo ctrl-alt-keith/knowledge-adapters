@@ -66,6 +66,29 @@ def test_public_pdf_cli_help_includes_extraction_limitations(tmp_path: Path) -> 
     assert "2023-dora-accelerate-state-of-devops-report.pdf" in stdout
 
 
+def test_source_package_cli_help_includes_verification_guidance(tmp_path: Path) -> None:
+    result = run_cli(tmp_path, "source_package", "--help")
+    stdout = normalize_whitespace(result.stdout)
+
+    assert result.returncode == 0, result.stderr
+    assert "Inspect sealed Source Package handoff artifacts" in stdout
+    assert "canonical verifier" in stdout
+    assert "without exposing provider extensions or artifact content" in stdout
+    assert "terminal accounting, lineage, and artifact integrity" in stdout
+    assert "knowledge-adapters source_package verify ./source-package" in stdout
+
+
+def test_source_package_verify_cli_help_includes_package_argument(tmp_path: Path) -> None:
+    result = run_cli(tmp_path, "source_package", "verify", "--help")
+    stdout = normalize_whitespace(result.stdout)
+
+    assert result.returncode == 0, result.stderr
+    assert "Verify one sealed Source Package directory" in stdout
+    assert "canonical provider-neutral verification order" in stdout
+    assert "PACKAGE_DIR" in stdout
+    assert "Directory containing package.json and package.sha256." in stdout
+
+
 def test_git_repo_cli_help_includes_filter_and_binary_guidance(tmp_path: Path) -> None:
     result = run_cli(tmp_path, "git_repo", "--help")
     stdout = normalize_whitespace(result.stdout)
