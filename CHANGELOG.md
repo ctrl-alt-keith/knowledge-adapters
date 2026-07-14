@@ -11,11 +11,80 @@ Formal changelog coverage begins at `0.2.0`, when this repository started using
 
 ## Unreleased
 
-- Added `public_webpage` and `public_pdf` adapters for producing unreviewed
-  markdown-first candidate artifacts from public webpage/article and PDF/report
-  URLs without retaining raw fetched bytes.
-- Added `pypdf` as the PDF text extraction dependency and documented the
-  extraction limitations surfaced in generated candidate output.
+## 0.9.0
+
+This minor release marks the project's transition from a collection of
+ingestion adapters into a verifiable acquisition platform. Acquisitions can now
+cross a provider-neutral, versioned producer-to-consumer interchange boundary,
+while operators gain explicit controls for artifact discovery, verification,
+resume, and cleanup. The Source Package contract is still experimental within
+this 0.9.0 project release; it is not a project-level 1.0 compatibility promise.
+
+### Public-source acquisition
+
+- Added `public_webpage` and `public_pdf` adapters that discover canonical public
+  sources and produce inspectable, markdown-first candidate artifacts without
+  retaining raw fetched bytes by default.
+- Improved deterministic webpage and PDF normalization, including wrapper-target
+  selection, canonical source resolution, conservative line-wrap and footer-noise
+  handling, replay-quality metadata, and regression fixtures derived from public
+  webpage and DORA report failure shapes.
+- Added public replay acceptance checks so operators can evaluate source
+  resolution, extraction quality, reviewability, limitations, and promotion
+  readiness against explicit evidence instead of treating a successful fetch as
+  sufficient.
+
+### Verifiable producer-to-consumer handoff
+
+- Added the provider-neutral Source Package contract and public construction and
+  verification APIs, including `PackageBuilder`, `verify_package`, typed package
+  models, canonical JSON, package sealing, and a verification CLI.
+- Added consumer profiles, bounded structural and resource verification,
+  compatibility and capability checks, path and digest integrity checks, curated
+  verified claims, explicit valid/invalid/indeterminate outcomes, and shared
+  conformance vectors for producer and consumer implementations.
+- Defined the chain-of-custody boundary between acquisition and editorial
+  retention: a valid package is eligible for consumer review, but does not assert
+  that its content is trusted, approved, retained, or publishable.
+
+### Bounded and resumable collection
+
+- Added a bounded YouTube Source Package producer for explicit video and playlist
+  requests, with deterministic caption selection and normalization, retry limits,
+  item and byte bounds, and no media download.
+- Added canonical collection progress, continuation checkpoints, immutable resume
+  lineage, reconciliation and attempt accounting, and integrity-checked reuse of
+  completed normalized artifacts across resumed runs.
+- Hardened creator and automatic WebVTT caption parsing, checkpoint reconstruction,
+  and raw-caption retention so raw caption bytes remain absent from every durable
+  adapter-managed surface unless retention is explicitly enabled.
+
+### Artifact lifecycle and repeat runs
+
+- Added safe stale-artifact pruning with dry-run previews and bounded deletion of
+  generated artifacts previously recorded in a manifest.
+- Added orphaned-artifact discovery and pruning across adapter-specific output
+  layouts, including the nested `github_metadata` layout, while preserving
+  non-generated files and refusing unsafe paths.
+- Added config-run dry-run and cleanup controls so operators can preview an entire
+  run file, pass cleanup policy through repeatable runs, and inspect remaining
+  artifacts without modifying the stored configuration.
+- Extracted shared incremental-sync classification and strategy-selection
+  abstractions, reducing behavioral drift across Confluence and GitHub metadata
+  adapters.
+
+### Reliability and release operations
+
+- Hardened GitHub metadata acquisition with lifecycle and pull-request conversation
+  receipts, normalized comment metadata, source-aware incremental behavior, and
+  layout-correct cleanup; hardened Confluence authentication selection, response
+  validation, failure classification, and missing-page behavior.
+- Added adapter readiness reports, reusable adapter contract tests, deterministic
+  and replayable chaos testing, lightweight run reports, broader CLI and fixture
+  coverage, and an expanded canonical validation path.
+- Improved release publication and recovery workflows with canonical validation in
+  release checks, focused changelog extraction, safe partial-release inspection,
+  and recovery paths that do not move or recreate public tags.
 
 ## 0.8.0
 

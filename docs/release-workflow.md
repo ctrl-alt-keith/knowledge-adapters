@@ -14,15 +14,16 @@ For shared branch, PR, validation, and current-main workflow, follow
 
 1. confirm the version bump is present
 2. confirm `CHANGELOG.md` is updated
-3. validate the post-merge release prerequisites without creating a tag or
-   GitHub release; this also runs the repository's canonical `make check`
-   validation:
+3. from the clean release branch, validate the release metadata and remote
+   publication state without creating a tag or GitHub release; this also runs
+   the repository's canonical `make check` validation:
 
    ```bash
    make release-check VERSION=0.8.1
    ```
 
-4. after the release PR lands, publish the post-merge tag and GitHub release:
+4. after the release PR lands, update local `main` to match `origin/main`, then
+   publish the post-merge tag and GitHub release:
 
    ```bash
    make release-publish VERSION=0.8.1
