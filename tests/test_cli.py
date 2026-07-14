@@ -1,5 +1,6 @@
 import io
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from pytest import CaptureFixture
@@ -12,6 +13,7 @@ from knowledge_adapters.source_package import (
     PackageBuilder,
     PackageItem,
 )
+from knowledge_adapters.source_package import core as source_package_core
 from tests.artifact_assertions import assert_manifest_entries, manifest_file
 from tests.cli_output_assertions import (
     assert_dry_run_summary,
@@ -87,6 +89,29 @@ def test_source_package_verify_cli_returns_nonzero_for_rejected_package(
     assert "last_completed_stage: sidecar-format" in captured.out
     assert "Findings:" in captured.out
     assert "error [manifest-digest] manifest-digest-mismatch" in captured.out
+    assert "Verification failed. Source Package is not valid." in captured.out
+
+
+def test_source_package_verify_cli_returns_nonzero_for_indeterminate_package(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    package = _write_cli_source_package(tmp_path)
+
+    def read_hook(phase: str, package_dir: Path, relative: str) -> None:
+        del package_dir
+        if phase == "before_path_stat" and relative == "items/one.json":
+            raise OSError("simulated disappearing item")
+
+    with patch.object(source_package_core, "_PACKAGE_READ_TEST_HOOK", read_hook):
+        exit_code = main(["source_package", "verify", str(package)])
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "state: indeterminate_io" in captured.out
+    assert "last_completed_stage: inventory-coverage" in captured.out
+    assert "Findings:" in captured.out
+    assert "error [terminal-accounting] io-item-read-failure" in captured.out
     assert "Verification failed. Source Package is not valid." in captured.out
 
 
