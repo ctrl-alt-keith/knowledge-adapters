@@ -634,6 +634,166 @@ def test_github_metadata_releases_paginate_filter_since_order_and_limit(
     ]
 
 
+@pytest.mark.parametrize(
+    ("resource_type", "expected_error"),
+    [
+        ("issues", "Response error: repeated GitHub issues pagination URL."),
+        (
+            "pull_requests",
+            "Response error: repeated GitHub pull requests pagination URL.",
+        ),
+        ("releases", "Response error: repeated GitHub releases pagination URL."),
+    ],
+)
+def test_github_metadata_list_endpoints_reject_repeated_pagination_urls(
+    monkeypatch: MonkeyPatch,
+    resource_type: str,
+    expected_error: str,
+) -> None:
+    monkeypatch.setenv("GH_TOKEN", "secret-token")
+    if resource_type == "issues":
+        first_url = issue_list_api_url(
+            api_root="https://api.github.com",
+            owner="octo",
+            repo_name="project",
+            state="open",
+            since=None,
+        )
+        payload = [_issue(1)]
+    elif resource_type == "pull_requests":
+        first_url = pull_request_list_api_url(
+            api_root="https://api.github.com",
+            owner="octo",
+            repo_name="project",
+            state="open",
+        )
+        payload = [_pull_request(1)]
+    else:
+        first_url = release_list_api_url(
+            api_root="https://api.github.com",
+            owner="octo",
+            repo_name="project",
+        )
+        payload = [_release(1)]
+    fake_urlopen = _install_fake_urlopen(
+        monkeypatch,
+        {
+            first_url: _FakeGitHubResponse(
+                payload,
+                headers={"Link": f'<{first_url}>; rel="next"'},
+            )
+        },
+    )
+
+    with pytest.raises(ValueError, match=expected_error):
+        if resource_type == "issues":
+            list_repository_issues(repo="octo/project", token_env="GH_TOKEN")
+        elif resource_type == "pull_requests":
+            list_repository_pull_requests(repo="octo/project", token_env="GH_TOKEN")
+        else:
+            list_repository_releases(repo="octo/project", token_env="GH_TOKEN")
+
+    assert fake_urlopen.calls == [first_url]
+
+
+@pytest.mark.parametrize(
+    ("comment_type", "expected_error"),
+    [
+        (
+            "issue",
+            "Response error: repeated GitHub issue comments pagination URL.",
+        ),
+        (
+            "pull_request",
+            "Response error: repeated GitHub pull request comments pagination URL.",
+        ),
+        (
+            "pull_request_review",
+            "Response error: repeated GitHub pull request review comments pagination URL.",
+        ),
+    ],
+)
+def test_github_metadata_comment_endpoints_reject_repeated_pagination_urls(
+    monkeypatch: MonkeyPatch,
+    comment_type: str,
+    expected_error: str,
+) -> None:
+    monkeypatch.setenv("GH_TOKEN", "secret-token")
+    if comment_type == "issue":
+        list_url = issue_list_api_url(
+            api_root="https://api.github.com",
+            owner="octo",
+            repo_name="project",
+            state="open",
+            since=None,
+        )
+        comment_url = issue_comments_api_url(
+            api_root="https://api.github.com",
+            owner="octo",
+            repo_name="project",
+            issue_number=1,
+        )
+        list_payload = [_issue(1)]
+        comment_payload = [_issue_comment(1)]
+    elif comment_type == "pull_request":
+        list_url = pull_request_list_api_url(
+            api_root="https://api.github.com",
+            owner="octo",
+            repo_name="project",
+            state="open",
+        )
+        comment_url = pull_request_comments_api_url(
+            api_root="https://api.github.com",
+            owner="octo",
+            repo_name="project",
+            pull_number=1,
+        )
+        list_payload = [_pull_request(1)]
+        comment_payload = [_pr_comment(1)]
+    else:
+        list_url = pull_request_list_api_url(
+            api_root="https://api.github.com",
+            owner="octo",
+            repo_name="project",
+            state="open",
+        )
+        comment_url = pull_request_review_comments_api_url(
+            api_root="https://api.github.com",
+            owner="octo",
+            repo_name="project",
+            pull_number=1,
+        )
+        list_payload = [_pull_request(1)]
+        comment_payload = [_pr_review_comment(1)]
+    fake_urlopen = _install_fake_urlopen(
+        monkeypatch,
+        {
+            list_url: _FakeGitHubResponse(list_payload),
+            comment_url: _FakeGitHubResponse(
+                comment_payload,
+                headers={"Link": f'<{comment_url}>; rel="next"'},
+            ),
+        },
+    )
+
+    with pytest.raises(ValueError, match=expected_error):
+        if comment_type == "issue":
+            list_repository_issues(
+                repo="octo/project",
+                token_env="GH_TOKEN",
+                include_issue_comments=True,
+            )
+        else:
+            list_repository_pull_requests(
+                repo="octo/project",
+                token_env="GH_TOKEN",
+                include_pr_comments=comment_type == "pull_request",
+                include_pr_review_comments=comment_type == "pull_request_review",
+            )
+
+    assert fake_urlopen.calls == [list_url, comment_url]
+
+
 def test_github_metadata_issue_comments_paginate_and_sort_deterministically(
     monkeypatch: MonkeyPatch,
 ) -> None:
