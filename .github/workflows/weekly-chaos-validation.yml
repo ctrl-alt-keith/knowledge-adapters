@@ -1,0 +1,104 @@
+name: Weekly chaos validation
+run-name: Weekly chaos validation · ${{ github.event_name }} · ${{ github.sha }}
+
+on:
+  schedule:
+    # GitHub cron is interpreted in UTC. 17:00 UTC is Monday 10:00 during
+    # Pacific daylight time and Monday 09:00 during Pacific standard time.
+    - cron: "0 17 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: weekly-chaos-validation-${{ github.ref }}
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  chaos-all:
+    name: make chaos-all
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out exact tested commit
+        id: checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Verify and report tested commit
+        id: checkout-verification
+        shell: bash
+        run: |
+          checked_out_sha="$(git rev-parse HEAD)"
+          if [[ "$checked_out_sha" != "$GITHUB_SHA" ]]; then
+            echo "Checked out $checked_out_sha, expected $GITHUB_SHA." >&2
+            exit 1
+          fi
+          echo "sha=$checked_out_sha" >> "$GITHUB_OUTPUT"
+          echo "Repository: $GITHUB_REPOSITORY"
+          echo "Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          echo "Event: $GITHUB_EVENT_NAME"
+          echo "Tested commit: $checked_out_sha"
+          echo "Runner: $RUNNER_NAME ($RUNNER_OS/$RUNNER_ARCH)"
+          echo "Command: make chaos-all"
+
+      - name: Set up Python
+        id: python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      # Setup is mandatory. If it is unavailable or fails, validation is
+      # skipped and the job fails without being reclassified as a clean pass.
+      - name: Install dependencies through make dev
+        id: dependencies
+        run: make dev
+
+      - name: Run make chaos-all
+        id: validation
+        run: make chaos-all
+
+      - name: Verify repository state is unchanged
+        id: repository-state
+        if: ${{ always() && steps.checkout-verification.outcome == 'success' }}
+        shell: bash
+        run: |
+          git diff --exit-code
+          git diff --cached --exit-code
+          if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
+            echo "Validation left unexpected repository changes:" >&2
+            git status --short >&2
+            exit 1
+          fi
+
+      # GitHub's run and job conclusions remain authoritative. This summary is
+      # derived operator context; the complete retained evidence is in the run
+      # and step logs under the repository's Actions retention settings.
+      - name: Write run summary
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          {
+            echo "## Weekly chaos validation"
+            echo
+            echo "- Repository: \`$GITHUB_REPOSITORY\`"
+            echo "- Workflow run: [$GITHUB_RUN_ID]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
+            echo "- Event: \`$GITHUB_EVENT_NAME\`"
+            echo "- Requested commit: \`$GITHUB_SHA\`"
+            echo "- Tested commit: \`${{ steps.checkout-verification.outputs.sha || 'unavailable' }}\`"
+            echo "- Runner: \`$RUNNER_NAME ($RUNNER_OS/$RUNNER_ARCH)\`"
+            echo "- Command: \`make chaos-all\`"
+            echo "- Checkout: \`${{ steps.checkout.outcome }}\`"
+            echo "- Commit verification: \`${{ steps.checkout-verification.outcome }}\`"
+            echo "- Python setup: \`${{ steps.python.outcome }}\`"
+            echo "- Dependency setup: \`${{ steps.dependencies.outcome }}\`"
+            echo "- Chaos validation: \`${{ steps.validation.outcome }}\`"
+            echo "- Repository-state check: \`${{ steps.repository-state.outcome }}\`"
+            echo
+            echo "The GitHub Actions run and job conclusion is the authoritative outcome."
+          } >> "$GITHUB_STEP_SUMMARY"
