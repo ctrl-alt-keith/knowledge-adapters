@@ -4,6 +4,11 @@ This document provides a concise, human-readable view of the current state of
 the repository, active work, and upcoming arcs. It complements GitHub issues by
 grouping them into meaningful lanes.
 
+This repository currently implements the **Source Acquisition Product
+Candidate**. The Product Candidate owns the bounded acquisition transaction and
+Source Package semantics; this repository controls only its accepted source,
+current implementation, validation, review, and merge facts.
+
 ## Current State
 
 - Confluence adapter: mature (single-page, tree traversal, incremental sync,
@@ -14,7 +19,8 @@ grouping them into meaningful lanes.
   GitHub/GHE issues, pull requests, releases, optional issue comments, and
   optional pull request comments/review comments)
 - Google Docs destination: design completed as a separate post-bundle
-  publication layer, not a `knowledge-adapters` adapter or bundle subcommand
+  implementation of the **Publication Product Candidate**, not a
+  `knowledge-adapters` source adapter or bundle subcommand
 - Bundle command:
   - v1 complete (#147)
   - ordering controls added (#153)

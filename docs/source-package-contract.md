@@ -11,6 +11,12 @@ consumed by a review system such as `knowledge-vault`. It describes one bounded
 acquisition run, the resources considered, candidate representations produced,
 and failures or limitations encountered.
 
+The **Source Acquisition Product Candidate** is the **Semantic Contract
+Producer** for the Source Package contract: it owns shared contract meaning,
+emission semantics, and compatible evolution. A source adapter is the Runtime
+Producer that emits a contract instance. `knowledge-adapters` currently hosts
+the normative contract and producer implementation.
+
 The stable boundary is:
 
 ```text
@@ -19,17 +25,22 @@ source request -> adapter acquisition -> immutable source package
                                       -> retained editorial judgment
 ```
 
-The adapter owns acquisition. The consumer owns review and retention. A valid
-package is eligible to enter review; it is never approval to retain, trust, or
-publish its content. This extends the boundary in
+Source Acquisition owns acquisition semantics. A consuming Product owns its
+accepted versions and consumer-local policy, while an authorized human reviewer
+makes consequential retention decisions. A valid package is eligible to enter
+review; it is never approval to retain, trust, or publish its content. This
+extends the boundary in
 [`chain-of-custody.md`](chain-of-custody.md) without replacing it.
 
-## Normative Ownership
+## Normative Contract Host
 
-`knowledge-adapters` owns this normative Source Package Contract. This document
-is the canonical source for shared interchange vocabulary, package structure,
-package semantics, compatibility rules, lifecycle definitions, integrity
-requirements, and producer/consumer handoff behavior.
+This document, currently hosted in `knowledge-adapters`, is the normative Source
+Package Contract and the canonical source for shared interchange vocabulary,
+package structure, package semantics, compatibility rules, lifecycle
+definitions, integrity requirements, and producer/consumer handoff behavior.
+Repository Authority is limited to the accepted contract bytes, current
+implementation, validation, review, and merge facts recorded here; hosting does
+not transfer semantic ownership from Source Acquisition to the repository.
 
 Consumers such as `knowledge-vault` may document derived summaries and
 consumer-specific review policy, but they do not independently redefine this
@@ -37,22 +48,32 @@ contract. If a consumer summary conflicts with this document, this document
 governs. The companion vault expectations are documented in
 [`knowledge-vault`](https://github.com/ctrl-alt-keith/knowledge-vault/blob/main/docs/source-package-consumer-contract.md).
 
-## Participants
+## Participants And Authority
 
-The interchange has three roles:
+The interchange keeps these roles distinct:
 
-- the adapter is the producer and owns the acquisition transaction and sealed
-  package;
-- the vault is the consumer and owns validation for review, editorial review,
-  and retention decisions; and
-- the operator or orchestrator invokes adapters, supplies runtime credential
-  references, selects supported compatibility ranges, transfers sealed
-  packages, manages quarantine, preserves package bytes during transfer and
-  review, and initiates review.
+- **Semantic Contract Producer:** Source Acquisition owns shared Source Package
+  meaning, emission semantics, and compatible evolution.
+- **Runtime Producer:** a source adapter performs the producer-side operation
+  and emits a sealed package conforming to Source Acquisition semantics.
+- **Normative contract host:** `knowledge-adapters` currently hosts this
+  contract, the producer implementation, and producer conformance validation.
+- **Contract consumer:** the **Knowledge Record Product Candidate** consumes
+  Source Packages under its accepted-version, editorial, and retention policy.
+- **Consumer implementation:** `knowledge-vault` currently hosts package
+  verification, review workflow, and retained decision records.
+- **Transport or orchestration:** the operator or orchestrator invokes
+  adapters, supplies runtime credential references, selects supported
+  compatibility ranges, transfers sealed packages, manages quarantine,
+  preserves package bytes during transfer and review, and initiates review.
+- **Consequential human authority:** an authorized human reviewer decides
+  editorial retention; Repository merge authority decides whether a proposed
+  contract or implementation change may merge.
 
-The operator does not make editorial or retention decisions. A person or
-system may perform more than one role operationally, but the responsibilities
-remain distinct.
+Transport does not make editorial or retention decisions and does not own
+producer or consumer semantics. A person or system may perform more than one
+role operationally, but the responsibilities and authority questions remain
+distinct.
 
 ## Adapter Responsibilities
 

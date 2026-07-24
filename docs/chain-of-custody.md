@@ -1,17 +1,22 @@
 # Chain Of Custody Boundary
 
-This document names the product boundary for `knowledge-adapters`.
+This document names the Source Acquisition boundary currently implemented in
+`knowledge-adapters`.
 
-`knowledge-adapters` owns the acquisition transaction. It turns configured
-source inputs into deterministic, inspectable, replayable local artifacts and
-metadata that downstream systems or reviewers can evaluate.
+The **Source Acquisition Product Candidate** is the **Semantic Contract
+Producer** for the Source Package contract: it owns the bounded acquisition
+transaction and shared contract semantics. `knowledge-adapters` currently hosts
+the primary implementation and normative Source Package contract. Its source
+adapters perform acquisition and emit deterministic, inspectable, replayable
+local artifacts and metadata that downstream systems or reviewers can evaluate.
 
-It does not decide whether acquired content is true, worth keeping, safe to
-publish, or ready for long-term retention.
+Neither Source Acquisition nor this repository decides whether acquired
+content is true, worth keeping, authorized for publication, or ready for
+long-term retention.
 
-## Product Role
+## Product Candidate Role
 
-`knowledge-adapters` is responsible for acquisition work:
+Source Acquisition owns the meaning and boundary of acquisition work:
 
 - source resolution;
 - fetch or acquisition from configured sources;
@@ -21,9 +26,11 @@ publish, or ready for long-term retention.
 - replay evidence that lets a later run be compared with an earlier run;
 - review handoff packaging, including bundles.
 
-The repository should make the acquisition event clear enough that another
-system or human can review it. It should avoid becoming the place that judges
-the acquired material.
+Source adapters are the Runtime Producers for these outputs. The repository
+currently implements those adapters, exposes their commands, and records their
+accepted source, validation, review, and merge facts. The implementation should
+make the acquisition event clear enough that another system or human can
+review it without assigning content judgment to the repository or adapter.
 
 ## Core Invariant
 
@@ -57,19 +64,30 @@ changed resources, skipped resources, and handoff readiness. They must not be
 treated as approval that the content should be kept, trusted, published, or
 promoted.
 
-## Repository Boundaries
+## Product And Repository Boundaries
 
-Adjacent repositories own later lifecycle steps:
+Adjacent Product Candidates own later bounded questions while repositories
+currently host their implementations and evidence:
 
-- `knowledge-vault` owns retention, review status, cataloging,
-  no-promotion decisions, and committed reviewed knowledge.
-- `trusted-ai-environment` owns evidence bundle contracts, chunking,
-  relations, findings, synthesis, and analysis over trusted evidence.
-- `ka-destinations` owns publication, destination credentials, destination
-  IDs, sharing, sync, and publish state.
+- The **Knowledge Record Product Candidate** owns the editorial-retention
+  authority boundary. An authorized human reviewer decides retention,
+  restriction, rejection, or deferral. `knowledge-vault` currently hosts the
+  consumer implementation and records accepted editorial decisions.
+- The **Evidence Synthesis Product Candidate** owns an identified analytical
+  attempt over a frozen accepted-evidence set. Its runtime components perform
+  chunking, relation extraction, finding production, and synthesis without
+  turning execution into analytical approval.
+- The **Publication Product Candidate** owns the authorized external-delivery
+  transaction and publication-receipt semantics. A publication authorizer
+  decides what exact artifact and destination are authorized.
+  `ka-destinations` currently implements destination behavior and records
+  publication receipts.
 
-`knowledge-adapters` may prepare handoff material for those systems, but it
-should not store their lifecycle state or make their decisions.
+An operator or orchestrator may transport a sealed Source Package or bundle
+between implementations. Transport does not own Source Acquisition semantics,
+consumer-local policy, Publication semantics, or consequential human
+decisions. `knowledge-adapters` may prepare handoff material, but it should not
+store later lifecycle state or make later Product or human decisions.
 
 ## Diagnostic Vocabulary
 
@@ -92,28 +110,33 @@ readiness. For example, `review-ready` means the acquisition result appears
 inspectable enough for review; it does not mean the content has passed review.
 `unsafe-to-promote` is an acquisition-side diagnostic that may indicate
 additional review outside `knowledge-adapters` is required. It does not mean
-this repository tracks, owns, or waits for downstream decisions, and it does
-not decide retention or promotion policy.
+this repository tracks or waits for downstream decisions, and it does not
+decide retention or promotion policy.
 
 ## Product Decision Filter
 
 Use these questions when deciding whether a proposed capability belongs in this
 repository:
 
-- Does this strengthen the integrity of the acquisition transaction?
+- Does this strengthen Source Acquisition's bounded transaction or shared
+  contract meaning?
 - Does this make acquisition more deterministic, reproducible, inspectable, or
   handoff-ready?
+- Is the work a Runtime Producer or normative-contract-host implementation
+  change that currently belongs in this repository?
 - Does this start deciding whether the content is true, valuable, retained, or
   published?
 - Does this store destination or retention state that belongs elsewhere?
 
-Capabilities that improve acquisition integrity usually fit. Capabilities that
+Capabilities that improve acquisition integrity usually fit the Source
+Acquisition boundary and may currently fit this repository. Capabilities that
 make content judgments, retention decisions, publication decisions, or
-downstream analysis usually belong in another repository.
+downstream analysis belong to the applicable Product boundary and its current
+implementation, regardless of repository convenience.
 
 ## Non-Goals
 
-`knowledge-adapters` does not own:
+Source Acquisition does not own:
 
 - content truth judgment;
 - retention approval;
