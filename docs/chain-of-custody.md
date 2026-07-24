@@ -66,13 +66,15 @@ promoted.
 
 ## Product And Repository Boundaries
 
-Adjacent Product Candidates own later bounded questions while repositories
+Adjacent Product identities own later bounded questions while repositories
 currently host their implementations and evidence:
 
-- The **Knowledge Record Product Candidate** owns the editorial-retention
-  authority boundary. An authorized human reviewer decides retention,
-  restriction, rejection, or deferral. `knowledge-vault` currently hosts the
-  consumer implementation and records accepted editorial decisions.
+- The **Knowledge Record Enduring Product** owns the editorial-retention
+  authority boundary. **Human Product Promotion Decision #1**, effective
+  2026-07-24, controls its promoted status without changing that boundary. An
+  authorized human reviewer decides retention, restriction, rejection, or
+  deferral. `knowledge-vault` currently hosts the consumer implementation and
+  records accepted editorial decisions.
 - The **Evidence Synthesis Product Candidate** owns an identified analytical
   attempt over a frozen accepted-evidence set. Its runtime components perform
   chunking, relation extraction, finding production, and synthesis without
