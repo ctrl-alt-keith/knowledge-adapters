@@ -3,6 +3,23 @@
 Generic adapters for acquiring knowledge from external sources and normalizing
 them into one predictable local artifact layout.
 
+The **Source Acquisition Product Candidate** is the **Semantic Contract
+Producer** for the Source Package contract: it owns the bounded acquisition
+transaction and shared contract semantics. This repository currently hosts its
+primary implementation and the normative
+[Source Package Contract](docs/source-package-contract.md). Source adapters are
+Runtime Producers: they perform acquisition and emit candidate artifacts or
+conforming Source Packages, but they do not approve retention or publication.
+An authorized human reviewer makes consequential retention decisions under the
+consuming Product's policy.
+
+Google Docs can appear on either side of this boundary. Acquiring a configured
+Google Doc as source material is Source Acquisition work. Delivering an
+authorized artifact to Google Docs is work of the **Publication Product
+Candidate** and its destination implementation, not a source-adapter
+responsibility. See the
+[Google Docs destination design](docs/google-docs-destination.md).
+
 ---
 
 ## Choose Your Command Context
@@ -653,8 +670,8 @@ This repository contains only generic tooling, abstractions, and documentation.
 4. Add tests and automation around the contract
 5. Expand only after shared patterns become clear
 
-For the product boundary around acquisition artifacts, manifests, diagnostics,
-and downstream handoff, see
+For the Product Candidate boundary around acquisition artifacts, manifests,
+diagnostics, and downstream handoff, see
 [`docs/chain-of-custody.md`](docs/chain-of-custody.md).
 
 ---

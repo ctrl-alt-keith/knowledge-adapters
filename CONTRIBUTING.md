@@ -89,6 +89,20 @@ Each adapter should:
 
 ## Design Principles
 
+Before placing a feature, apply the Product boundary in
+[`docs/chain-of-custody.md`](docs/chain-of-custody.md):
+
+- Does it strengthen the Source Acquisition Product Candidate's bounded
+  transaction or shared Source Package semantics?
+- Is it Runtime Producer or normative-contract-host implementation work that
+  currently belongs in this repository?
+- Does it instead make a consequential retention, analysis, or publication
+  decision owned by another Product boundary and an authorized human role?
+
+Repository placement does not create Product authority. Keep source-adapter
+execution, contract meaning, consumer-local policy, transport, and human
+decisions distinct.
+
 ### 1. Public-Safe by Default
 - Do not commit secrets, tokens, or credentials
 - Do not include internal URLs or identifiers

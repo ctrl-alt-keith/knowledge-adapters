@@ -6,6 +6,13 @@ This document defines how Google Docs should fit into the
 `knowledge-adapters` workflow without changing the existing ingestion,
 artifact, manifest, and bundle architecture.
 
+The boundary depends on the direction of the transaction. The **Source
+Acquisition Product Candidate** owns acquisition semantics when a configured
+Google Doc is acquired and normalized as source material. The **Publication
+Product Candidate** owns an authorized external-delivery transaction and
+publication-receipt semantics when a caller-supplied artifact is delivered to
+Google Docs. This document addresses the Publication direction only.
+
 The target workflow is:
 
 ```text
@@ -20,10 +27,12 @@ knowledge, not a new responsibility inside `knowledge-adapters`.
 Google Docs integration should live outside `knowledge-adapters` as a separate
 destination tool or thin publication layer.
 
-`knowledge-adapters` should continue to own source ingestion, normalization into
-local artifacts, manifest writing, and deterministic bundling. A Google Docs
-publication layer should consume bundle output and publish that output into
-Google Docs for use by Gemini or human collaborators.
+Source Acquisition should continue to own source-ingestion and Source Package
+semantics. `knowledge-adapters` currently implements source acquisition,
+normalization into local artifacts, manifest writing, and deterministic
+bundling. A Google Docs destination implementation should consume caller-
+supplied bundle output and perform the authorized delivery into Google Docs for
+use by Gemini or human collaborators.
 
 This keeps the boundary clean:
 
@@ -33,6 +42,9 @@ This keeps the boundary clean:
   not leak into adapter or bundle code.
 - The same bundle output can support Google Docs, manual upload, or another
   destination without changing adapter contracts.
+- A publication authorizer selects the exact artifact and destination; a
+  destination driver performs the API operation and records the observed
+  result. Successful execution does not authorize publication.
 
 ## System Placement
 
@@ -99,6 +111,14 @@ and update policy. Those are destination concerns, not packaging concerns.
 
 The Google Docs destination layer should consume bundle output as its primary
 input.
+
+For this boundary, the bundle command emits a local bundle file and the
+Publication Product Candidate consumes it as caller-supplied downstream input.
+This design does not declare a new Source Package or bundle interchange
+contract. The Google Docs destination driver is the runtime component that
+performs external delivery. An operator or orchestrator may transport the file
+and invoke the driver, but does not thereby acquire Source Acquisition,
+Publication, or publication-authorization authority.
 
 ### Required Input
 
@@ -246,7 +266,7 @@ The separate Google Docs destination layer should:
 - preserve source attribution from bundle headers
 - report the Google Doc URL after publication
 - keep destination configuration outside this repository
-- own Google-specific auth, API retries, and workspace errors
+- implement Google-specific auth, API retries, and workspace error handling
 - keep any publish state in its own local or destination-specific state file
 
 ### Google Docs Destination Layer Should Not Do
@@ -304,7 +324,7 @@ The v1 trigger should be explicit.
 Recommended triggers, in order:
 
 1. A separate CLI outside this repository.
-2. A local script owned by the operator or workspace automation.
+2. A local script maintained by the operator or workspace automation.
 3. Manual upload or copy into Google Docs for early validation.
 
 `knowledge-adapters` should not grow a `google_docs` subcommand for v1.
@@ -359,9 +379,10 @@ Features to avoid inside `knowledge-adapters`:
 - comment or suggestion import
 - Gemini chat orchestration
 
-The architecture stays healthy when `knowledge-adapters` remains a deterministic
-producer of local artifacts and bundles, and the destination layer remains an
-explicit consumer of those local files.
+The architecture stays healthy when `knowledge-adapters` remains the current
+host of runtime components that emit deterministic local artifacts and bundles,
+while the destination layer remains an explicit consumer of those local files
+and a runtime implementation of Publication delivery.
 
 ## Future Evolution
 
@@ -376,7 +397,7 @@ Potential later additions outside `knowledge-adapters`:
   manifest `canonical_id`
 - support full-document replacement for known document IDs
 - add destination tools for Notion, SharePoint, or other document stores
-- add an operator-owned sync tool that watches bundle output directories
+- add an operator-maintained sync tool that watches bundle output directories
 
 Potential later additions inside `knowledge-adapters`, only if real use proves
 the need:
