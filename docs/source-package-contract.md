@@ -58,8 +58,10 @@ The interchange keeps these roles distinct:
   and emits a sealed package conforming to Source Acquisition semantics.
 - **Normative contract host:** `knowledge-adapters` currently hosts this
   contract, the producer implementation, and producer conformance validation.
-- **Contract consumer:** the **Knowledge Record Product Candidate** consumes
+- **Contract consumer:** the **Knowledge Record Enduring Product** consumes
   Source Packages under its accepted-version, editorial, and retention policy.
+  **Human Product Promotion Decision #1**, effective 2026-07-24, controls its
+  promoted status without changing the consumer or contract boundary.
 - **Consumer implementation:** `knowledge-vault` currently hosts package
   verification, review workflow, and retained decision records.
 - **Transport or orchestration:** the operator or orchestrator invokes
