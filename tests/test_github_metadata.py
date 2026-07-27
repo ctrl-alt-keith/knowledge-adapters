@@ -359,6 +359,32 @@ def test_github_metadata_classifies_request_failures(
     assert exc_info.value.classification.retry_after == expected_retry_after
 
 
+def test_github_metadata_classifies_request_timeout_as_expected_retryable(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    def raise_timeout(api_request: request.Request, timeout: int) -> None:
+        del api_request, timeout
+        raise TimeoutError("synthetic request timeout")
+
+    monkeypatch.setenv("GH_TOKEN", "secret-token")
+    monkeypatch.setattr(
+        "knowledge_adapters.github_metadata.client.request.urlopen",
+        raise_timeout,
+    )
+
+    with pytest.raises(
+        GitHubMetadataRequestError,
+        match=(
+            r"GitHub request timed out while reading octo/project "
+            r"from https://api\.github\.com\."
+        ),
+    ) as exc_info:
+        list_repository_issues(repo="octo/project", token_env="GH_TOKEN")
+
+    assert exc_info.value.classification is not None
+    assert exc_info.value.classification.failure_class == AdapterFailureClass.EXPECTED_RETRYABLE
+
+
 def test_github_metadata_cli_reports_configuration_failure_class(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,

@@ -154,7 +154,7 @@ Basic error behavior:
   configuration
 - `auth`: `401` or non-rate-limit `403` responses
 - `expected_retryable`: GitHub rate-limit responses, including `403` or `429`
-  with rate-limit headers, and transport failures
+  with rate-limit headers, transport failures, and request timeouts
 - `permanent`: `404`, invalid response payloads, and other non-retryable
   request errors
 - `provider`: GitHub `5xx` provider-side failures

@@ -1038,6 +1038,11 @@ def _request_json_list(
             f"GitHub request failed while reading {repo} from {api_root}: {exc.reason}.",
             classification=AdapterFailureClassification(AdapterFailureClass.EXPECTED_RETRYABLE),
         ) from exc
+    except TimeoutError as exc:
+        raise GitHubMetadataRequestError(
+            f"GitHub request timed out while reading {repo} from {api_root}.",
+            classification=AdapterFailureClassification(AdapterFailureClass.EXPECTED_RETRYABLE),
+        ) from exc
     except json.JSONDecodeError as exc:
         raise ValueError("Response error: invalid JSON payload.") from exc
 
