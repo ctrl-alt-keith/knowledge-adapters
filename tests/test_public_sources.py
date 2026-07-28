@@ -49,14 +49,20 @@ class _FakeResponse:
         content: bytes,
         content_type: str,
         charset: str | None = None,
+        content_length: int | None = None,
+        include_content_length: bool = True,
     ) -> None:
         self._url = url
         self._content = content
+        self.read_amounts: list[int] = []
         self.headers = Message()
         self.headers["Content-Type"] = (
             f"{content_type}; charset={charset}" if charset is not None else content_type
         )
-        self.headers["Content-Length"] = str(len(content))
+        if include_content_length:
+            self.headers["Content-Length"] = str(
+                len(content) if content_length is None else content_length
+            )
 
     def __enter__(self) -> _FakeResponse:
         return self
@@ -68,6 +74,7 @@ class _FakeResponse:
         return self._url
 
     def read(self, amount: int = -1) -> bytes:
+        self.read_amounts.append(amount)
         if amount < 0:
             return self._content
         return self._content[:amount]
@@ -100,6 +107,54 @@ def test_fetch_public_url_uses_in_memory_response_and_metadata(
     assert fetched.content_type == "text/html"
     assert fetched.content_charset == "utf-8"
     assert fetched.retrieved_at.endswith("Z")
+
+
+def test_fetch_public_url_rejects_oversized_declared_response_before_reading(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    response = _FakeResponse(
+        url=MEANINGFULTECH_URL,
+        content=b"not read",
+        content_type="text/html",
+        content_length=1001,
+    )
+    monkeypatch.setattr(
+        "knowledge_adapters.public_sources.urlopen",
+        lambda request, timeout: response,
+    )
+
+    with pytest.raises(ValueError, match="1001 bytes exceeds 1000 byte limit"):
+        fetch_public_url(
+            MEANINGFULTECH_URL,
+            accepted_content_types=("text/html",),
+            max_bytes=1000,
+        )
+
+    assert response.read_amounts == []
+
+
+def test_fetch_public_url_rejects_oversized_streamed_response_with_bounded_read(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    response = _FakeResponse(
+        url=MEANINGFULTECH_URL,
+        content=b"x" * 1001,
+        content_type="text/html",
+        include_content_length=False,
+    )
+    monkeypatch.setattr(
+        "knowledge_adapters.public_sources.urlopen",
+        lambda request, timeout: response,
+    )
+
+    with pytest.raises(ValueError, match="exceeds 1000 byte limit"):
+        fetch_public_url(
+            MEANINGFULTECH_URL,
+            accepted_content_types=("text/html",),
+            max_bytes=1000,
+        )
+
+    assert response.read_amounts == [1001]
 
 
 @pytest.mark.parametrize(
