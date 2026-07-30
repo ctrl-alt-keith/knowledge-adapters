@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Protocol
 
 
 class AdapterFailureClass(StrEnum):
@@ -24,12 +23,6 @@ class AdapterFailureClassification:
     failure_class: AdapterFailureClass
     provider_status_code: int | None = None
     retry_after: str | None = None
-
-
-class ClassifiedAdapterError(Protocol):
-    """Protocol for exceptions that carry adapter failure classification."""
-
-    classification: AdapterFailureClassification | None
 
 
 def response_or_config_failure(exc: Exception) -> AdapterFailureClassification:
