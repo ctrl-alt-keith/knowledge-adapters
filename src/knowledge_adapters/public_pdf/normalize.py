@@ -180,10 +180,6 @@ def normalize_to_markdown(page: Mapping[str, object]) -> str:
 """
 
 
-def _normalize_broken_url_spacing(text: str) -> str:
-    return _normalize_broken_url_spacing_with_count(text)[0]
-
-
 def _normalize_broken_url_spacing_with_count(text: str) -> tuple[str, int]:
     return _BROKEN_URL_SCHEME_RE.subn(_join_broken_url_scheme, text)
 
@@ -263,10 +259,6 @@ def _is_one_letter_split_word_pair(
         and next_line[0].islower()
         and any(character.isalpha() for character in next_line[1:])
     )
-
-
-def _suppress_repeated_footer_lines(page_texts: list[str]) -> list[str]:
-    return _suppress_repeated_footer_lines_with_metadata(page_texts)[0]
 
 
 def _suppress_high_coverage_text_footer_lines_with_metadata(
