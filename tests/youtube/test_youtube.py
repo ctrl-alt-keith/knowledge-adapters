@@ -976,6 +976,22 @@ def test_real_client_rejects_discovery_beyond_requested_bound() -> None:
         client.discover(YouTubeOptions(PLAYLIST, ScopeKind.COLLECTION, 1))
 
 
+def test_real_client_rejects_missing_playlist_entry_id() -> None:
+    stub = StubYtDlp({"id": "playlist_001", "entries": [{"title": "private"}]})
+
+    with pytest.raises(ProviderFailure, match="provider-shape:video-id"):
+        stub_real_client(stub).discover(
+            YouTubeOptions(PLAYLIST, ScopeKind.COLLECTION, 1)
+        )
+
+
+def test_real_client_rejects_invalid_caption_language() -> None:
+    stub = StubYtDlp({"subtitles": {1: [{"ext": "vtt"}]}})
+
+    with pytest.raises(ProviderFailure, match="provider-shape:caption-language"):
+        stub_real_client(stub).enrich("video_001", options())
+
+
 def test_deterministic_replay_produces_identical_package_bytes(tmp_path: Path) -> None:
     package = produce(tmp_path, single_client(creator_track()))
     first = {
