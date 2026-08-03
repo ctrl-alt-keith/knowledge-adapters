@@ -109,6 +109,16 @@ class YtDlpClient:
             )
         return value
 
+    @classmethod
+    def _required_bounded_text(cls, value: object, *, field: str) -> str:
+        text = cls._bounded_text(value, field=field, required=True)
+        if text is None:
+            raise ProviderFailure(
+                ProviderFailureCategory.UNAVAILABLE,
+                f"provider-shape:{field}",
+            )
+        return text
+
     @staticmethod
     def _read_bounded(response: BinaryIO, limit: int) -> bytes:
         data = response.read(limit + 1)
@@ -165,8 +175,7 @@ class YtDlpClient:
                 raise ProviderFailure(
                     ProviderFailureCategory.UNAVAILABLE, "provider-shape:playlist-entry"
                 )
-            video_id = self._bounded_text(raw.get("id"), field="video-id", required=True)
-            assert video_id is not None
+            video_id = self._required_bounded_text(raw.get("id"), field="video-id")
             position = raw.get("playlist_index")
             if position is not None and (not isinstance(position, int) or position <= 0):
                 position = None
@@ -188,10 +197,9 @@ class YtDlpClient:
                     failure,
                 )
             )
-        playlist_id = self._bounded_text(
-            info.get("id") or resource_id, field="playlist-id", required=True
+        playlist_id = self._required_bounded_text(
+            info.get("id") or resource_id, field="playlist-id"
         )
-        assert playlist_id is not None
         resolved = self._bounded_text(info.get("webpage_url"), field="playlist-url")
         return Discovery(
             options.locator,
@@ -222,10 +230,9 @@ class YtDlpClient:
                             f"provider-shape:{field}",
                         )
                     for language, candidates in collection.items():
-                        language_value = self._bounded_text(
-                            language, field="caption-language", required=True
+                        language_value = self._required_bounded_text(
+                            language, field="caption-language"
                         )
-                        assert language_value is not None
                         if not self._language_relevant(language_value, options):
                             continue
                         if not isinstance(candidates, list):
@@ -244,12 +251,10 @@ class YtDlpClient:
                                     ProviderFailureCategory.UNAVAILABLE,
                                     "provider-shape:caption-candidate",
                                 )
-                            caption_format = self._bounded_text(
+                            caption_format = self._required_bounded_text(
                                 candidate.get("ext") or "unknown",
                                 field="caption-format",
-                                required=True,
                             )
-                            assert caption_format is not None
                             name = self._bounded_text(candidate.get("name"), field="caption-name")
                             url = self._bounded_text(candidate.get("url"), field="caption-url")
                             candidate_records.append(
