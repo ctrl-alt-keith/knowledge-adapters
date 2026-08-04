@@ -116,6 +116,12 @@ def _validate_public_hostname(hostname: str) -> None:
         except OSError:
             return
 
+    _validate_public_address(address)
+
+
+def _validate_public_address(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> None:
+    """Apply one public-address policy to canonical and legacy IP spellings."""
+
     if address.is_loopback:
         raise ValueError("URL host must not be a loopback IP address.")
     if address.is_link_local:

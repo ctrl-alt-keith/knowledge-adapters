@@ -185,6 +185,7 @@ def test_validate_public_http_url_accepts_public_http_targets(url: str) -> None:
         "https://0177.0.0.1/report",
         "https://0x7f000001/report",
         "https://2130706433/report",
+        "https://012.0.0.1/report",
         "https://[::1]/report",
         "https://10.0.0.1/report",
         "https://172.16.0.1/report",
