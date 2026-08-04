@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import re
+import socket
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -110,7 +111,16 @@ def _validate_public_hostname(hostname: str) -> None:
     try:
         address = ipaddress.ip_address(normalized_hostname)
     except ValueError:
-        return
+        try:
+            address = ipaddress.ip_address(socket.inet_aton(normalized_hostname))
+        except OSError:
+            return
+
+    _validate_public_address(address)
+
+
+def _validate_public_address(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> None:
+    """Apply one public-address policy to canonical and legacy IP spellings."""
 
     if address.is_loopback:
         raise ValueError("URL host must not be a loopback IP address.")
