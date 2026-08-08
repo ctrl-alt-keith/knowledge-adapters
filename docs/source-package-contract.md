@@ -60,8 +60,11 @@ The interchange keeps these roles distinct:
   contract, the producer implementation, and producer conformance validation.
 - **Contract consumer:** the **Knowledge Record Enduring Product** consumes
   Source Packages under its accepted-version, editorial, and retention policy.
-  **Human Product Promotion Decision #1**, effective 2026-07-24, controls its
-  promoted status without changing the consumer or contract boundary.
+  The Playbook's [Product Status](https://github.com/ctrl-alt-keith/ai-workflow-playbook/blob/main/docs/product-status.md#knowledge-record)
+  records its current accepted status, and [Human Product Promotion Decision
+  #1](https://github.com/ctrl-alt-keith/ai-workflow-playbook/blob/main/docs/product-promotion-decisions/human-product-promotion-decision-001.md),
+  effective 2026-07-24, records the historical governance event that established
+  it without changing the consumer or contract boundary.
 - **Consumer implementation:** `knowledge-vault` currently hosts package
   verification, review workflow, and retained decision records.
 - **Transport or orchestration:** the operator or orchestrator invokes

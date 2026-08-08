@@ -70,11 +70,13 @@ Adjacent Product identities own later bounded questions while repositories
 currently host their implementations and evidence:
 
 - The **Knowledge Record Enduring Product** owns the editorial-retention
-  authority boundary. **Human Product Promotion Decision #1**, effective
-  2026-07-24, controls its promoted status without changing that boundary. An
-  authorized human reviewer decides retention, restriction, rejection, or
-  deferral. `knowledge-vault` currently hosts the consumer implementation and
-  records accepted editorial decisions.
+  authority boundary. The Playbook's [Product Status](https://github.com/ctrl-alt-keith/ai-workflow-playbook/blob/main/docs/product-status.md#knowledge-record)
+  records its current accepted status, and [Human Product Promotion Decision
+  #1](https://github.com/ctrl-alt-keith/ai-workflow-playbook/blob/main/docs/product-promotion-decisions/human-product-promotion-decision-001.md),
+  effective 2026-07-24, records the historical governance event that established
+  it without changing that boundary. An authorized human reviewer decides
+  retention, restriction, rejection, or deferral. `knowledge-vault` currently
+  hosts the consumer implementation and records accepted editorial decisions.
 - The **Evidence Synthesis Product Candidate** owns an identified analytical
   attempt over a frozen accepted-evidence set. Its runtime components perform
   chunking, relation extraction, finding production, and synthesis without
