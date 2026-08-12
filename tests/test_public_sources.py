@@ -29,7 +29,11 @@ from knowledge_adapters.public_sources import (
     output_name_for_url,
     validate_public_http_url,
 )
-from knowledge_adapters.public_webpage.client import PublicWebpageDocument, fetch_webpage
+from knowledge_adapters.public_webpage.client import (
+    PublicWebpageDocument,
+    _ReadableHTMLExtractor,
+    fetch_webpage,
+)
 from knowledge_adapters.public_webpage.normalize import normalize_to_markdown as normalize_webpage
 from knowledge_adapters.public_webpage.writer import markdown_path as webpage_markdown_path
 from tests.artifact_assertions import assert_manifest_entries, assert_markdown_document
@@ -279,6 +283,30 @@ def test_fetch_webpage_extracts_title_and_visible_text(monkeypatch: MonkeyPatch)
     assert "Review still matters." in document.content
     assert "doNotKeep" not in document.content
     assert "Unreviewed candidate material" in document.extraction_notes
+
+
+def test_webpage_extractor_ignores_hidden_markup_links_and_metadata() -> None:
+    extractor = _ReadableHTMLExtractor()
+    extractor.feed(
+        """
+        <html>
+          <head><title>Visible page title</title></head>
+          <body>
+            <template>
+              <a href="https://example.com/report.pdf">Download report</a>
+              <link href="https://example.com/canonical-report.pdf" rel="canonical">
+              <meta property="citation_pdf_url" content="https://example.com/paper.pdf">
+            </template>
+            <p>Visible article text.</p>
+          </body>
+        </html>
+        """
+    )
+    extractor.close()
+
+    assert extractor.title == "Visible page title"
+    assert extractor.markdown_text() == "Visible article text."
+    assert extractor.target_links() == ()
 
 
 def test_public_webpage_normalizer_marks_candidate_status() -> None:

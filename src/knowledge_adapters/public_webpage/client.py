@@ -154,6 +154,11 @@ class _ReadableHTMLExtractor(HTMLParser):
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         normalized_tag = tag.lower()
+        if normalized_tag in self._IGNORED_TAGS:
+            self._ignored_depth += 1
+            return
+        if self._ignored_depth > 0:
+            return
         attr_map = {key.lower(): value or "" for key, value in attrs}
         if normalized_tag == "title":
             self._in_title = True
@@ -182,14 +187,16 @@ class _ReadableHTMLExtractor(HTMLParser):
                         source="meta_url",
                     )
                 )
-        if normalized_tag in self._IGNORED_TAGS:
-            self._ignored_depth += 1
-            return
         if normalized_tag in self._BLOCK_TAGS:
             self._append_break()
 
     def handle_endtag(self, tag: str) -> None:
         normalized_tag = tag.lower()
+        if normalized_tag in self._IGNORED_TAGS and self._ignored_depth > 0:
+            self._ignored_depth -= 1
+            return
+        if self._ignored_depth > 0:
+            return
         if normalized_tag == "title":
             self._in_title = False
         if normalized_tag == "a":
@@ -203,9 +210,6 @@ class _ReadableHTMLExtractor(HTMLParser):
                 )
             self._active_link_href = ""
             self._active_link_text = []
-        if normalized_tag in self._IGNORED_TAGS and self._ignored_depth > 0:
-            self._ignored_depth -= 1
-            return
         if normalized_tag in self._BLOCK_TAGS:
             self._append_break()
 
