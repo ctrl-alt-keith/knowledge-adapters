@@ -304,7 +304,8 @@ Optional request pacing is available only when you opt in. Use
 `--request-delay-ms` to require a minimum delay between live Confluence API
 request starts, or `--max-requests-per-second` to cap the request rate. If both
 are set, the slower interval wins. The first live request is immediate, and
-cache hits do not sleep.
+cache hits do not sleep. Each live Confluence API request has a fixed 30-second
+timeout, independent of optional pacing.
 Real-mode summaries include a `request_summary` block with live API request
 counts, timing, effective request rate, and pacing status.
 
