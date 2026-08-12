@@ -2382,8 +2382,13 @@ def test_run_command_uses_same_real_client_ca_bundle_as_direct_cli(
         observed_cafiles.append(cafile)
         return FakeSSLContext()
 
-    def fake_urlopen(api_request: object, context: object | None = None) -> _FakeHTTPResponse:
+    def fake_urlopen(
+        api_request: object,
+        context: object | None = None,
+        timeout: int | None = None,
+    ) -> _FakeHTTPResponse:
         del context
+        assert timeout == 30
         observed_request_urls.append(str(cast(Any, api_request).full_url))
         return _FakeHTTPResponse(
             {

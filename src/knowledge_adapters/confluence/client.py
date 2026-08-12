@@ -15,6 +15,8 @@ from knowledge_adapters.confluence.models import ResolvedTarget
 from knowledge_adapters.confluence.traversal import DISCOVERY_PROGRESS_INTERVAL
 from knowledge_adapters.failures import AdapterFailureClass, AdapterFailureClassification
 
+DEFAULT_REQUEST_TIMEOUT_SECONDS = 30
+
 
 class ConfluenceRequestError(RuntimeError):
     """Stable request failure with Confluence-specific debug context."""
@@ -430,7 +432,11 @@ def _request_json(
             request_pacer()
         if request_counter is not None:
             request_counter()
-        with request.urlopen(api_request, context=request_auth.ssl_context) as response:
+        with request.urlopen(
+            api_request,
+            context=request_auth.ssl_context,
+            timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS,
+        ) as response:
             raw_payload = json.loads(response.read().decode("utf-8"))
     except (HTTPError, URLError) as exc:
         raise ConfluenceRequestError(

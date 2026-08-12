@@ -129,6 +129,26 @@ def test_real_child_list_does_not_report_progress_for_small_results(
     assert progress_updates == []
 
 
+def test_real_client_bounds_provider_requests(monkeypatch: MonkeyPatch) -> None:
+    observed_timeout: list[object] = []
+
+    def fake_urlopen(*args: object, **kwargs: object) -> _FakeHTTPResponse:
+        del args
+        observed_timeout.append(kwargs["timeout"])
+        return _FakeHTTPResponse(_valid_confluence_payload())
+
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    fetch_real_page(
+        _real_target(),
+        base_url="https://example.com/wiki",
+        auth_method="bearer-env",
+    )
+
+    assert observed_timeout == [30]
+
+
 def test_real_space_page_list_reports_periodic_progress_during_pagination(
     monkeypatch: MonkeyPatch,
 ) -> None:
