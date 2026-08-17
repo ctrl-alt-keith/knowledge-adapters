@@ -346,7 +346,7 @@ def list_repository_issues(
                     base_urls=base_urls,
                 )
             )
-        next_url = _next_link_url(link_header)
+        next_url = _next_link_url(link_header, api_root=base_urls.api_root)
 
     ordered_issues = tuple(sorted(issues, key=lambda issue: issue.number))
     selected_issues = (
@@ -419,7 +419,7 @@ def list_repository_pull_requests(
                     base_urls=base_urls,
                 )
             )
-        next_url = _next_link_url(link_header)
+        next_url = _next_link_url(link_header, api_root=base_urls.api_root)
 
     ordered_pull_requests = tuple(
         sorted(pull_requests, key=lambda pull_request: pull_request.number)
@@ -518,7 +518,7 @@ def list_repository_releases(
                     base_urls=base_urls,
                 )
             )
-        next_url = _next_link_url(link_header)
+        next_url = _next_link_url(link_header, api_root=base_urls.api_root)
 
     ordered_releases = tuple(
         sorted(
@@ -772,7 +772,7 @@ def _list_issue_comments(
         )
         for item in payload:
             comments.append(_map_issue_comment(item))
-        next_url = _next_link_url(link_header)
+        next_url = _next_link_url(link_header, api_root=api_root)
 
     return tuple(
         sorted(
@@ -845,7 +845,7 @@ def _list_pull_request_comments(
         )
         for item in payload:
             comments.append(_map_pull_request_comment(item))
-        next_url = _next_link_url(link_header)
+        next_url = _next_link_url(link_header, api_root=api_root)
 
     return tuple(
         sorted(
@@ -894,7 +894,7 @@ def _list_pull_request_review_comments(
         )
         for item in payload:
             comments.append(_map_pull_request_review_comment(item))
-        next_url = _next_link_url(link_header)
+        next_url = _next_link_url(link_header, api_root=api_root)
 
     return tuple(
         sorted(
@@ -1127,7 +1127,8 @@ def _rate_limit_hint(exc: HTTPError) -> str | None:
     return "no retry time provided"
 
 
-def _next_link_url(link_header: str | None) -> str | None:
+def _next_link_url(link_header: str | None, *, api_root: str) -> str | None:
+    """Return a next-page URL only when it remains under the configured API root."""
     if not link_header:
         return None
     for raw_link in link_header.split(","):
@@ -1137,8 +1138,25 @@ def _next_link_url(link_header: str | None) -> str | None:
         if 'rel="next"' not in link_params:
             continue
         if link_url.startswith("<") and link_url.endswith(">"):
-            return link_url[1:-1]
+            next_url = link_url[1:-1]
+            if not _is_api_pagination_url(next_url, api_root=api_root):
+                raise ValueError(
+                    "Response error: pagination URL is outside configured GitHub API root."
+                )
+            return next_url
     return None
+
+
+def _is_api_pagination_url(url: str, *, api_root: str) -> bool:
+    candidate = parse.urlparse(url)
+    root = parse.urlparse(api_root)
+    if (
+        candidate.scheme.casefold() != root.scheme.casefold()
+        or candidate.netloc.casefold() != root.netloc.casefold()
+    ):
+        return False
+    root_path = root.path.rstrip("/")
+    return not root_path or candidate.path.startswith(f"{root_path}/")
 
 
 def _parse_timestamp(value: str) -> datetime:
