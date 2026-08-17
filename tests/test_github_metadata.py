@@ -722,6 +722,37 @@ def test_github_metadata_list_endpoints_reject_repeated_pagination_urls(
     assert fake_urlopen.calls == [first_url]
 
 
+def test_github_metadata_rejects_pagination_url_outside_configured_api_root(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GH_TOKEN", "secret-token")
+    first_url = issue_list_api_url(
+        api_root="https://api.github.com",
+        owner="octo",
+        repo_name="project",
+        state="open",
+        since=None,
+    )
+    untrusted_url = "https://untrusted.example/repos/octo/project/issues?page=2"
+    fake_urlopen = _install_fake_urlopen(
+        monkeypatch,
+        {
+            first_url: _FakeGitHubResponse(
+                [_issue(1)],
+                headers={"Link": f'<{untrusted_url}>; rel="next"'},
+            )
+        },
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Response error: pagination URL is outside configured GitHub API root.",
+    ):
+        list_repository_issues(repo="octo/project", token_env="GH_TOKEN")
+
+    assert fake_urlopen.calls == [first_url]
+
+
 @pytest.mark.parametrize(
     ("comment_type", "expected_error"),
     [
