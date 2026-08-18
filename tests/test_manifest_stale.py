@@ -8,6 +8,7 @@ from knowledge_adapters.manifest_stale import (
     OrphanedArtifact,
     StaleArtifact,
     find_orphaned_artifacts,
+    load_previous_manifest_index,
     plan_orphaned_artifact_prune,
     plan_stale_artifact_prune,
     prune_orphaned_artifacts,
@@ -97,6 +98,24 @@ def test_prune_stale_artifacts_rejects_directories_without_deleting_them(
         )
 
     assert stale_dir.is_dir()
+
+
+def test_load_previous_manifest_index_rejects_duplicate_canonical_ids(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "manifest.json").write_text(
+        """{
+  "files": [
+    {"canonical_id": "page:1", "output_path": "pages/one.md"},
+    {"canonical_id": "page:1", "output_path": "pages/two.md"}
+  ]
+}
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="duplicate canonical_id 'page:1'"):
+        load_previous_manifest_index(str(tmp_path))
 
 
 def test_find_orphaned_artifacts_reports_unreferenced_markdown_under_pages(
