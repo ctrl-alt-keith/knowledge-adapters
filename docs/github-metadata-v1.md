@@ -144,6 +144,10 @@ pagination. When requested, it also fetches paginated whole-pull-request
 comments and review comments for each selected pull request. Release mode lists
 repository releases through REST and handles pagination.
 
+For every paginated collection, a `rel="next"` link must retain the configured
+API root's scheme, network location, and path boundary. A next-page URL outside
+that API root fails before the adapter follows it.
+
 Basic error behavior:
 
 - invalid `repo`, `state`, `since`, or `max_items` values fail before requests
