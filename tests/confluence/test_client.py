@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
-from typing import Literal
+from typing import Any, Literal
 
+import pytest
 from pytest import MonkeyPatch
 
 from knowledge_adapters.confluence.client import (
@@ -184,6 +185,147 @@ def test_real_space_page_list_reports_periodic_progress_during_pagination(
 
     assert len(page_ids) == 1100
     assert progress_updates == [500, 1000]
+
+
+def test_real_space_page_list_rejects_cross_origin_pagination_link(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    payloads = [
+        _valid_space_page_list_payload(
+            page_ids=["100"],
+            next_url="https://attacker.example/collect?token=leak",
+        )
+    ]
+    requested_urls: list[str] = []
+
+    def fake_urlopen(api_request: Any, **kwargs: object) -> _FakeHTTPResponse:
+        del kwargs
+        requested_urls.append(api_request.full_url)
+        return _FakeHTTPResponse(payloads.pop(0))
+
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    with pytest.raises(ValueError, match="pagination link is outside"):
+        list_real_space_page_ids(
+            "ENG",
+            base_url="https://example.com/wiki",
+            auth_method="bearer-env",
+        )
+
+    assert len(requested_urls) == 1
+    assert "attacker.example" not in requested_urls[0]
+
+
+def test_real_space_page_list_accepts_absolute_same_origin_pagination_link(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    payloads = [
+        _valid_space_page_list_payload(
+            page_ids=["100"],
+            next_url="https://example.com/wiki/rest/api/content?start=1",
+        ),
+        _valid_space_page_list_payload(page_ids=["200"]),
+    ]
+    requested_urls: list[str] = []
+
+    def fake_urlopen(api_request: Any, **kwargs: object) -> _FakeHTTPResponse:
+        del kwargs
+        requested_urls.append(api_request.full_url)
+        return _FakeHTTPResponse(payloads.pop(0))
+
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    assert list_real_space_page_ids(
+        "ENG",
+        base_url="https://example.com/wiki",
+        auth_method="bearer-env",
+    ) == ["100", "200"]
+    assert requested_urls[1] == "https://example.com/wiki/rest/api/content?start=1"
+
+
+@pytest.mark.parametrize(
+    ("base_url", "next_url", "expected_next_url"),
+    [
+        (
+            "https://example.com/confluence",
+            "/rest/api/content?start=1",
+            "https://example.com/confluence/rest/api/content?start=1",
+        ),
+        (
+            "https://example.com/wiki",
+            "/wiki/rest/api/content?start=1",
+            "https://example.com/wiki/rest/api/content?start=1",
+        ),
+    ],
+)
+def test_real_space_page_list_resolves_root_relative_pagination_under_instance_path(
+    monkeypatch: MonkeyPatch,
+    base_url: str,
+    next_url: str,
+    expected_next_url: str,
+) -> None:
+    payloads = [
+        _valid_space_page_list_payload(page_ids=["100"], next_url=next_url),
+        _valid_space_page_list_payload(page_ids=["200"]),
+    ]
+    requested_urls: list[str] = []
+
+    def fake_urlopen(api_request: Any, **kwargs: object) -> _FakeHTTPResponse:
+        del kwargs
+        requested_urls.append(api_request.full_url)
+        return _FakeHTTPResponse(payloads.pop(0))
+
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    assert list_real_space_page_ids(
+        "ENG",
+        base_url=base_url,
+        auth_method="bearer-env",
+    ) == ["100", "200"]
+    assert requested_urls == [
+        f"{base_url}/rest/api/content?spaceKey=ENG&type=page&start=0&limit=100",
+        expected_next_url,
+    ]
+
+
+@pytest.mark.parametrize(
+    "next_url",
+    [
+        "https://example.com/wiki/../outside",
+        "/wiki/../outside",
+        "../outside",
+        "https://example.com/wiki/%2e%2e/outside",
+    ],
+)
+def test_real_space_page_list_rejects_pagination_path_traversal(
+    monkeypatch: MonkeyPatch,
+    next_url: str,
+) -> None:
+    payloads = [
+        _valid_space_page_list_payload(page_ids=["100"], next_url=next_url),
+    ]
+    request_count = 0
+
+    def fake_urlopen(*args: object, **kwargs: object) -> _FakeHTTPResponse:
+        nonlocal request_count
+        del args, kwargs
+        request_count += 1
+        return _FakeHTTPResponse(payloads.pop(0))
+
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    with pytest.raises(ValueError, match="pagination link is outside"):
+        list_real_space_page_ids(
+            "ENG",
+            base_url="https://example.com/wiki",
+            auth_method="bearer-env",
+        )
+
+    assert request_count == 1
 
 
 def test_real_space_page_list_does_not_report_progress_for_small_runs(
