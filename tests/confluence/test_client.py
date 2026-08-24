@@ -245,6 +245,43 @@ def test_real_space_page_list_accepts_absolute_same_origin_pagination_link(
     assert requested_urls[1] == "https://example.com/wiki/rest/api/content?start=1"
 
 
+@pytest.mark.parametrize(
+    "next_url",
+    [
+        "https://example.com/wiki/../outside",
+        "/wiki/../outside",
+        "../outside",
+        "https://example.com/wiki/%2e%2e/outside",
+    ],
+)
+def test_real_space_page_list_rejects_pagination_path_traversal(
+    monkeypatch: MonkeyPatch,
+    next_url: str,
+) -> None:
+    payloads = [
+        _valid_space_page_list_payload(page_ids=["100"], next_url=next_url),
+    ]
+    request_count = 0
+
+    def fake_urlopen(*args: object, **kwargs: object) -> _FakeHTTPResponse:
+        nonlocal request_count
+        del args, kwargs
+        request_count += 1
+        return _FakeHTTPResponse(payloads.pop(0))
+
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    with pytest.raises(ValueError, match="pagination link is outside"):
+        list_real_space_page_ids(
+            "ENG",
+            base_url="https://example.com/wiki",
+            auth_method="bearer-env",
+        )
+
+    assert request_count == 1
+
+
 def test_real_space_page_list_does_not_report_progress_for_small_runs(
     monkeypatch: MonkeyPatch,
 ) -> None:
