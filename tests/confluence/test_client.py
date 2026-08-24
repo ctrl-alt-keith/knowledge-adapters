@@ -246,6 +246,52 @@ def test_real_space_page_list_accepts_absolute_same_origin_pagination_link(
 
 
 @pytest.mark.parametrize(
+    ("base_url", "next_url", "expected_next_url"),
+    [
+        (
+            "https://example.com/confluence",
+            "/rest/api/content?start=1",
+            "https://example.com/confluence/rest/api/content?start=1",
+        ),
+        (
+            "https://example.com/wiki",
+            "/wiki/rest/api/content?start=1",
+            "https://example.com/wiki/rest/api/content?start=1",
+        ),
+    ],
+)
+def test_real_space_page_list_resolves_root_relative_pagination_under_instance_path(
+    monkeypatch: MonkeyPatch,
+    base_url: str,
+    next_url: str,
+    expected_next_url: str,
+) -> None:
+    payloads = [
+        _valid_space_page_list_payload(page_ids=["100"], next_url=next_url),
+        _valid_space_page_list_payload(page_ids=["200"]),
+    ]
+    requested_urls: list[str] = []
+
+    def fake_urlopen(api_request: Any, **kwargs: object) -> _FakeHTTPResponse:
+        del kwargs
+        requested_urls.append(api_request.full_url)
+        return _FakeHTTPResponse(payloads.pop(0))
+
+    monkeypatch.setenv("CONFLUENCE_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    assert list_real_space_page_ids(
+        "ENG",
+        base_url=base_url,
+        auth_method="bearer-env",
+    ) == ["100", "200"]
+    assert requested_urls == [
+        f"{base_url}/rest/api/content?spaceKey=ENG&type=page&start=0&limit=100",
+        expected_next_url,
+    ]
+
+
+@pytest.mark.parametrize(
     "next_url",
     [
         "https://example.com/wiki/../outside",

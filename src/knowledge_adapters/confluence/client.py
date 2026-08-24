@@ -93,14 +93,35 @@ def _space_page_api_url(
 
 def _absolute_api_url(base_url: str, url: str) -> str:
     parsed_base = parse.urlparse(base_url)
-    resolved_url = parse.urljoin(f"{base_url.rstrip('/')}/", url)
+    parsed_next = parse.urlparse(url)
+    decoded_next_path = parse.unquote(parsed_next.path)
+    if any(segment in {".", ".."} for segment in decoded_next_path.split("/")):
+        raise ValueError("Response error: pagination link is outside the Confluence base URL.")
+
+    normalized_base_path = posixpath.normpath(parsed_base.path or "/")
+    if parsed_next.scheme or parsed_next.netloc:
+        resolved_url = url
+    elif parsed_next.path.startswith("/"):
+        if _path_is_under_base(parsed_next.path, normalized_base_path):
+            resolved_path = parsed_next.path
+        else:
+            resolved_path = f"{normalized_base_path.rstrip('/')}/{parsed_next.path.lstrip('/')}"
+        resolved_url = parse.urlunparse(
+            parsed_base._replace(
+                path=resolved_path,
+                params=parsed_next.params,
+                query=parsed_next.query,
+                fragment=parsed_next.fragment,
+            )
+        )
+    else:
+        resolved_url = parse.urljoin(f"{base_url.rstrip('/')}/", url)
     parsed_url = parse.urlparse(resolved_url)
     decoded_path = parse.unquote(parsed_url.path)
     if any(segment in {".", ".."} for segment in decoded_path.split("/")):
         raise ValueError("Response error: pagination link is outside the Confluence base URL.")
 
     normalized_path = posixpath.normpath(parsed_url.path)
-    normalized_base_path = posixpath.normpath(parsed_base.path or "/")
     if (
         parsed_url.scheme != parsed_base.scheme
         or parsed_url.netloc != parsed_base.netloc
