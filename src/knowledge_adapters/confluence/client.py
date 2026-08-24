@@ -93,6 +93,13 @@ def _space_page_api_url(
 def _absolute_api_url(base_url: str, url: str) -> str:
     parsed_url = parse.urlparse(url)
     if parsed_url.scheme and parsed_url.netloc:
+        parsed_base = parse.urlparse(base_url)
+        if (
+            parsed_url.scheme != parsed_base.scheme
+            or parsed_url.netloc != parsed_base.netloc
+            or not _path_is_under_base(parsed_url.path, parsed_base.path)
+        ):
+            raise ValueError("Response error: pagination link is outside the Confluence base URL.")
         return url
 
     normalized_base = base_url.rstrip("/")
@@ -105,6 +112,15 @@ def _absolute_api_url(base_url: str, url: str) -> str:
             return f"{parsed_base.scheme}://{parsed_base.netloc}{url}"
         return f"{normalized_base}{url}"
     return f"{normalized_base}/{url.lstrip('/')}"
+
+
+def _path_is_under_base(path: str, base_path: str) -> bool:
+    """Return whether a URL path stays within the configured instance path."""
+    normalized_path = path or "/"
+    normalized_base_path = base_path.rstrip("/") or "/"
+    return normalized_path == normalized_base_path or normalized_path.startswith(
+        f"{normalized_base_path.rstrip('/')}/"
+    )
 
 
 def _require_string(payload: dict[str, object], key: str) -> str:
