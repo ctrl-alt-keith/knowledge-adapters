@@ -139,7 +139,10 @@ does not write files in dry-run mode. Localhost, `.local`, private, link-local,
 multicast, unspecified, reserved, and credential-bearing targets are rejected
 before fetch and after redirects. Raw fetched HTML is held only in memory. The
 output is explicitly unreviewed candidate material; links, images, tables,
-comments, and publication metadata may be incomplete. Public webpage outputs
+comments, and publication metadata may be incomplete. Clearly mechanical page
+chrome such as subscription, sign-in, sharing, discussion, footer/legal, and
+platform-promotion prompts may be suppressed; article body text remains
+unreviewed candidate material. Public webpage outputs
 include replay-quality metadata and the same normalized replay classification
 shape as public PDFs, so reviewers can distinguish `review-ready` candidates
 from `diagnostic-only` extractions while seeing that unreviewed public-source
