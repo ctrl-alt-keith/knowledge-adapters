@@ -54,11 +54,16 @@ def fetch_public_url(
             content_charset = headers.get_content_charset()
             _validate_content_type(content_type, accepted_content_types)
             content_length = headers.get("Content-Length")
-            if content_length is not None and int(content_length) > max_bytes:
-                raise ValueError(
-                    f"Response is too large: {content_length} bytes exceeds "
-                    f"{max_bytes} byte limit."
-                )
+            if content_length is not None:
+                try:
+                    declared_size = int(content_length)
+                except ValueError as exc:
+                    raise ValueError("Response Content-Length header is invalid.") from exc
+                if declared_size > max_bytes:
+                    raise ValueError(
+                        f"Response is too large: {content_length} bytes exceeds "
+                        f"{max_bytes} byte limit."
+                    )
             content = response.read(max_bytes + 1)
     except HTTPError as exc:
         raise ValueError(f"HTTP request failed for {url}: {exc.code} {exc.reason}.") from exc

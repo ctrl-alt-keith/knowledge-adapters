@@ -137,6 +137,30 @@ def test_fetch_public_url_rejects_oversized_declared_response_before_reading(
     assert response.read_amounts == []
 
 
+def test_fetch_public_url_rejects_malformed_declared_response_size_before_reading(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    response = _FakeResponse(
+        url=MEANINGFULTECH_URL,
+        content=b"not read",
+        content_type="text/html",
+    )
+    response.headers.replace_header("Content-Length", "not-a-size")
+    monkeypatch.setattr(
+        "knowledge_adapters.public_sources.urlopen",
+        lambda request, timeout: response,
+    )
+
+    with pytest.raises(ValueError, match="Content-Length header is invalid"):
+        fetch_public_url(
+            MEANINGFULTECH_URL,
+            accepted_content_types=("text/html",),
+            max_bytes=1000,
+        )
+
+    assert response.read_amounts == []
+
+
 def test_fetch_public_url_rejects_oversized_streamed_response_with_bounded_read(
     monkeypatch: MonkeyPatch,
 ) -> None:
