@@ -165,6 +165,7 @@ def test_fetch_public_url_rejects_oversized_streamed_response_with_bounded_read(
     "url",
     (
         "https://example.com/article",
+        "https://example.com:8443/article",
         "http://subdomain.example.org/report",
         "https://8.8.8.8/dns-over-https",
         "https://[2606:4700:4700::1111]/",
@@ -203,6 +204,9 @@ def test_validate_public_http_url_accepts_public_http_targets(url: str) -> None:
         "https://[::]/report",
         "https://240.0.0.1/report",
         "https://[2001:db8::1]/report",
+        "https://[fe80::1%25en0]/report",
+        "https://example.com:99999/report",
+        "https://example.com:not-a-port/report",
     ),
 )
 def test_validate_public_http_url_rejects_local_private_internal_targets(url: str) -> None:

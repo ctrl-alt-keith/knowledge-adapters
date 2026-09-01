@@ -92,9 +92,9 @@ def validate_public_http_url(url: str) -> None:
     if parsed.username or parsed.password:
         raise ValueError("URL must not include embedded credentials.")
     try:
-        hostname = parsed.hostname
+        hostname, _ = parsed.hostname, parsed.port
     except ValueError as exc:
-        raise ValueError("URL host is invalid.") from exc
+        raise ValueError("URL host or port is invalid.") from exc
     if hostname is None or not hostname.strip():
         raise ValueError("URL must include a host.")
 
@@ -103,6 +103,8 @@ def validate_public_http_url(url: str) -> None:
 
 def _validate_public_hostname(hostname: str) -> None:
     normalized_hostname = hostname.rstrip(".").lower()
+    if "%" in normalized_hostname:
+        raise ValueError("URL host must not include an IPv6 zone identifier.")
     if normalized_hostname == "localhost":
         raise ValueError("URL host must not be localhost.")
     if normalized_hostname.endswith(".local"):
