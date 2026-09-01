@@ -137,6 +137,65 @@ def test_fetch_public_url_rejects_oversized_declared_response_before_reading(
     assert response.read_amounts == []
 
 
+@pytest.mark.parametrize(
+    "content_length",
+    ("not-a-size", "-1", "+1", "1_0", "", "١"),
+)
+def test_fetch_public_url_rejects_invalid_declared_response_size_before_reading(
+    monkeypatch: MonkeyPatch,
+    content_length: str,
+) -> None:
+    response = _FakeResponse(
+        url=MEANINGFULTECH_URL,
+        content=b"not read",
+        content_type="text/html",
+    )
+    response.headers.replace_header("Content-Length", content_length)
+    monkeypatch.setattr(
+        "knowledge_adapters.public_sources.urlopen",
+        lambda request, timeout: response,
+    )
+
+    with pytest.raises(ValueError, match="Content-Length header is invalid"):
+        fetch_public_url(
+            MEANINGFULTECH_URL,
+            accepted_content_types=("text/html",),
+            max_bytes=1000,
+        )
+
+    assert response.read_amounts == []
+
+
+@pytest.mark.parametrize(
+    ("content_length", "content"),
+    (("0", b""), ("0005", b"hello"), (" \t5\t ", b"hello")),
+)
+def test_fetch_public_url_accepts_decimal_declared_response_size_with_http_whitespace(
+    monkeypatch: MonkeyPatch,
+    content_length: str,
+    content: bytes,
+) -> None:
+    response = _FakeResponse(
+        url=MEANINGFULTECH_URL,
+        content=content,
+        content_type="text/html",
+    )
+    response.headers.replace_header("Content-Length", content_length)
+    monkeypatch.setattr(
+        "knowledge_adapters.public_sources.urlopen",
+        lambda request, timeout: response,
+    )
+
+    fetched = fetch_public_url(
+        MEANINGFULTECH_URL,
+        accepted_content_types=("text/html",),
+        max_bytes=1000,
+    )
+
+    assert fetched.content == content
+    assert response.read_amounts == [1001]
+
+
 def test_fetch_public_url_rejects_oversized_streamed_response_with_bounded_read(
     monkeypatch: MonkeyPatch,
 ) -> None:
