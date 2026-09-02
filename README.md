@@ -610,26 +610,15 @@ over time.
 
 ### Implemented
 
-- repository structure
-- initial documentation
-- Confluence adapter scaffold with a default stub client
-- local files adapter scaffold
-- CLI entrypoint
-- basic end-to-end pipeline (resolve → fetch stub → normalize → write)
-- Confluence single-page CLI flow for resolve, dry-run, write, and manifest generation
-- CI through the repository `make check` target
-- initial unit tests
-
-### Planned MVP
-
-- Confluence adapter
-  - keep the default stub flow and opt-in real mode aligned around one CLI contract
-  - continue hardening contract-tested real-mode fetch, traversal, and
-    incremental sync behavior against live environments
-- local files adapter
-  - accept a runtime-provided file path
-  - normalize file contents into markdown plus metadata
-  - write local artifacts to a specified output directory
+- `local_files`, `public_webpage`, and `public_pdf` adapters for local and
+  public-source candidate artifacts
+- `git_repo` and `github_metadata` adapters for repository files and GitHub
+  issues, pull requests, and releases
+- Confluence single-page and tree flows with default stub and opt-in real
+  clients, incremental sync, pacing, and cache controls
+- Source Package verification, deterministic bundle rendering, config-driven
+  multi-source runs, and replay-acceptance diagnostics
+- CI through the repository `make check` target and contract-focused tests
 
 ---
 
@@ -641,7 +630,6 @@ over time.
 - cloud document publishing
 - browser automation
 - handling every Confluence macro or attachment type perfectly
-- multiple source adapters in the first implementation
 
 ---
 
@@ -703,8 +691,8 @@ knowledge-adapters/
 
 ## Confluence Status
 
-The Confluence adapter is currently a scaffolded CLI flow with a default stub
-client.
+The Confluence adapter supports a default stub client for safe local planning
+and an opt-in real client for live fetches.
 
 ### Implemented in the default CLI
 
@@ -720,17 +708,11 @@ client.
 - writes `manifest.json` for normal runs
 - supports dry-run output and manifest-based skip logic for the resolved page
 
-### Design-level or contract-tested behavior
-
-- child-page discovery that produces multi-page recursive tree runs
-- recursive dry-run summaries over real discovered descendants
-- production-oriented incremental sync against live-fetched Confluence content
-
-The recursive traversal and incremental sync docs still matter: they define the
-intended contract for a real or monkeypatched client. See
+The recursive traversal and incremental sync docs still matter: they describe
+the bounds and behavior of those implemented flows. See
 [`docs/confluence-recursive-fetch.md`](docs/confluence-recursive-fetch.md) and
 [`docs/confluence-incremental-sync.md`](docs/confluence-incremental-sync.md) for
-that design surface.
+those contracts.
 
 ## Examples
 
