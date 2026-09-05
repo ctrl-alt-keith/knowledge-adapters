@@ -94,9 +94,8 @@ before `make check`. These are CI canaries outside the required local
 completion path; run them locally when the task touches CLI smoke coverage,
 chaos behavior, or when investigating a related failure.
 
-`make chaos-all`, `make chaos-replay`, and `make adapter-readiness` are
-advisory or diagnostic targets. They do not replace `make check` and are not
-hidden release gates.
+`make chaos-all` and `make chaos-replay` are advisory or diagnostic targets.
+They do not replace `make check` and are not hidden release gates.
 
 `make check` must stay deterministic and must not require live provider access,
 network credentials, GitHub authentication, or release permissions. Optional
