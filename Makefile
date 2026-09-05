@@ -1,4 +1,4 @@
-.PHONY: help dev test smoke lint fix format typecheck check fix-all check-env check-gh-env adapter-readiness chaos-random chaos-replay chaos-all release-notes release-check release-recover release-create-from-tag release-publish clean
+.PHONY: help dev test smoke lint fix format typecheck check fix-all check-env check-gh-env chaos-random chaos-replay chaos-all release-notes release-check release-recover release-create-from-tag release-publish clean
 
 .DEFAULT_GOAL := dev
 
@@ -31,9 +31,6 @@ check-env: ## Verify local development prerequisites.
 check-gh-env: ## Verify GitHub CLI availability and authentication.
 	@command -v gh >/dev/null 2>&1 || { echo "Error: GitHub CLI (gh) is required but is not installed." >&2; exit 1; }
 	@gh auth status >/dev/null 2>&1 || { echo "Error: GitHub CLI authentication is required. Run 'gh auth login' and try again." >&2; exit 1; }
-
-adapter-readiness: $(VENV)/bin/activate ## Run adapter readiness diagnostics.
-	@$(PYTHON) -m knowledge_adapters.adapter_readiness
 
 test: $(VENV)/bin/activate ## Run the test suite.
 	$(PYTEST)
