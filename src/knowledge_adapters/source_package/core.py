@@ -716,7 +716,11 @@ class PackageBuilder:
     def seal(self, destination: Path) -> SealResult:
         if self._sealed:
             return SealResult(False, error="package builder is already sealed")
-        if destination.exists():
+        # ``Path.exists`` follows symlinks and returns False for a broken
+        # destination link.  Treat every directory entry at the destination
+        # path as occupied so the final rename cannot replace a caller-owned
+        # symlink while honoring the absent-create/no-overwrite contract.
+        if os.path.lexists(destination):
             return SealResult(False, error="destination already exists")
 
         artifacts = dict(self._artifacts)

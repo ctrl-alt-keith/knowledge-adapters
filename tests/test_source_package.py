@@ -305,6 +305,17 @@ def test_seal_failure_cleans_temporary_output_and_retry_succeeds(tmp_path: Path)
     assert value.seal(destination).ok
 
 
+def test_seal_rejects_broken_destination_symlink(tmp_path: Path) -> None:
+    destination = tmp_path / "package"
+    destination.symlink_to(tmp_path / "missing-package", target_is_directory=True)
+
+    result = builder().seal(destination)
+
+    assert not result.ok
+    assert result.error == "destination already exists"
+    assert destination.is_symlink()
+
+
 def test_verifier_rejects_duplicate_manifest_keys_after_digest(tmp_path: Path) -> None:
     destination = tmp_path / "package"
     assert builder().seal(destination).ok
