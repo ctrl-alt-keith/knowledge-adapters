@@ -13,7 +13,8 @@ current implementation, validation, review, and merge facts.
 
 - Confluence adapter: mature (single-page, tree traversal, incremental sync,
   space discovery by key/URL, TLS/auth, portable CA bundle overrides,
-  environment-specific config overrides, progress output)
+  environment-specific config overrides, opt-in fetch and traversal caches,
+  progress output)
 - Git repo ingestion: complete (`git_repo` adapter, polish, and example config)
 - GitHub metadata ingestion: v1 complete (`github_metadata` adapter for
   GitHub/GHE issues, pull requests, releases, optional issue comments, and
@@ -28,7 +29,8 @@ current implementation, validation, review, and merge facts.
   - header modes added (#155)
   - changed-only bundle comparison complete (#157)
   - size-aware bundle splitting complete (#154)
-- CLI, config-driven runs, interrupt handling, and test coverage are stable
+- Config-driven runs, named bundle definitions, stale-aware bundling, CLI,
+  interrupt handling, and test coverage are stable
 
 ## Next Arcs
 
@@ -38,23 +40,6 @@ current implementation, validation, review, and merge facts.
 
 - Keep future additions usage-driven and bounded, such as release assets,
   changed paths, labels, milestones, reviews, or checks
-
-## Deferred / Usage-driven
-
-### Confluence resumability
-
-- #146 Add optional resumable fetch cache for Confluence tree runs
-- Note: only implement after confirming repeated large-run pain
-
-### Bundle config integration
-
-- #151 Add `runs.yaml`-defined bundles for named runs
-- Note: defer until CLI bundle semantics stabilize
-
-### Stale-aware bundling
-
-- #156 Add stale-aware bundle handling for Confluence tree outputs
-- Note: requires clearer stale-state persistence model
 
 ## Principles
 
