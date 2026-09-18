@@ -94,3 +94,13 @@ bundles:
       - eng-space-tree
     output: ./artifacts/bundles/review-pack.md
     header_mode: minimal
+
+# This configuration is inert. Only `knowledge-adapters publish --config
+# runs.yaml --publish review-pack-doc` can select it for a Google API call.
+publishes:
+  - name: review-pack-doc
+    bundle: review-pack
+    # title: Review Pack
+    # folder_id: "google-drive-folder-id"
+    # oauth_client_file: /secure/path/google-desktop-client.json
+    # oauth_token_file: /secure/path/knowledge-adapters-google-token.json

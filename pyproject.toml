@@ -13,6 +13,9 @@ authors = [
   { name = "Keith Minnig" }
 ]
 dependencies = [
+  "google-api-python-client>=2.0",
+  "google-auth>=2.0",
+  "google-auth-oauthlib>=1.0",
   "pypdf>=5.0",
   "PyYAML>=6.0",
 ]

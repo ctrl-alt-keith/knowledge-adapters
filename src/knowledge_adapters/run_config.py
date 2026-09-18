@@ -177,12 +177,25 @@ class ConfiguredBundle:
 
 
 @dataclass(frozen=True)
+class ConfiguredPublish:
+    """One explicit Google Docs publication described beside local workflow config."""
+
+    name: str
+    bundle: str
+    title: str | None = None
+    folder_id: str | None = None
+    oauth_client_file: str | None = None
+    oauth_token_file: str | None = None
+
+
+@dataclass(frozen=True)
 class RunConfig:
     """Validated multi-run config."""
 
     config_path: Path
     runs: tuple[ConfiguredRun, ...]
     bundles: tuple[ConfiguredBundle, ...] = ()
+    publishes: tuple[ConfiguredPublish, ...] = ()
 
 
 def load_run_config(
@@ -250,10 +263,34 @@ def load_run_config(
         )
         _reject_duplicate_bundle_names(configured_bundles, config_path=resolved_config_path)
 
+    configured_publishes: tuple[ConfiguredPublish, ...] = ()
+    if "publishes" in raw_config:
+        raw_publishes = raw_config.get("publishes")
+        if not isinstance(raw_publishes, list) or not raw_publishes:
+            raise ValueError(
+                f"Config file {resolved_config_path} must define top-level 'publishes:' "
+                "as a non-empty list when provided."
+            )
+        bundles_by_name = {bundle.name: bundle for bundle in configured_bundles}
+        configured_publishes = tuple(
+            _parse_configured_publish(
+                item,
+                index=index,
+                config_path=resolved_config_path,
+                bundles_by_name=bundles_by_name,
+            )
+            for index, item in enumerate(raw_publishes, start=1)
+        )
+        if len({item.name for item in configured_publishes}) != len(configured_publishes):
+            raise ValueError(
+                f"Config file {resolved_config_path} contains duplicate publish names."
+            )
+
     return RunConfig(
         config_path=resolved_config_path,
         runs=configured_runs,
         bundles=configured_bundles,
+        publishes=configured_publishes,
     )
 
 
@@ -300,6 +337,77 @@ def select_bundle(run_config: RunConfig, *, name: str) -> ConfiguredBundle:
     raise ValueError(
         f"Unknown bundle name {name!r} in {run_config.config_path}. "
         f"Available bundle names: {available}."
+    )
+
+
+def select_publish(run_config: RunConfig, *, name: str) -> ConfiguredPublish:
+    """Select one configured publication; selection itself does not execute it."""
+    for configured_publish in run_config.publishes:
+        if configured_publish.name == name:
+            return configured_publish
+    available = ", ".join(repr(item.name) for item in run_config.publishes)
+    raise ValueError(
+        f"Unknown publish name {name!r} in {run_config.config_path}. "
+        f"Available publish names: {available or '(none)'}."
+    )
+
+
+def _parse_configured_publish(
+    item: object,
+    *,
+    index: int,
+    config_path: Path,
+    bundles_by_name: dict[str, ConfiguredBundle],
+) -> ConfiguredPublish:
+    if not isinstance(item, dict):
+        raise ValueError(f"Publish #{index} in {config_path} must be a mapping.")
+    allowed = {"name", "bundle", "title", "folder_id", "oauth_client_file", "oauth_token_file"}
+    unknown = sorted(set(item) - allowed)
+    if unknown:
+        raise ValueError(f"Publish #{index} in {config_path} has unsupported keys: {unknown}.")
+
+    def required(key: str) -> str:
+        value = item.get(key)
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"Publish #{index} in {config_path} must define a non-empty '{key}'.")
+        return value.strip()
+
+    name = required("name")
+    bundle = required("bundle")
+    if bundle not in bundles_by_name:
+        raise ValueError(f"Publish {name!r} in {config_path} references unknown bundle {bundle!r}.")
+    title_raw = item.get("title")
+    if title_raw is not None and (not isinstance(title_raw, str) or not title_raw.strip()):
+        raise ValueError(f"Publish {name!r} in {config_path} must use a non-empty title when set.")
+    title = title_raw.strip() if isinstance(title_raw, str) else None
+
+    values: dict[str, str | None] = {}
+    for key in ("folder_id", "oauth_client_file", "oauth_token_file"):
+        value = item.get(key)
+        if value is not None and (not isinstance(value, str) or not value.strip()):
+            raise ValueError(
+                f"Publish {name!r} in {config_path} must use a non-empty {key} when set."
+            )
+        values[key] = value.strip() if isinstance(value, str) else None
+    if bool(values["oauth_client_file"]) != bool(values["oauth_token_file"]):
+        raise ValueError(
+            f"Publish {name!r} must set oauth_client_file and oauth_token_file together."
+        )
+    return ConfiguredPublish(
+        name=name,
+        bundle=bundle,
+        title=title,
+        folder_id=values["folder_id"],
+        oauth_client_file=(
+            _resolve_path_string(values["oauth_client_file"], config_path=config_path)
+            if values["oauth_client_file"]
+            else None
+        ),
+        oauth_token_file=(
+            _resolve_path_string(values["oauth_token_file"], config_path=config_path)
+            if values["oauth_token_file"]
+            else None
+        ),
     )
 
 

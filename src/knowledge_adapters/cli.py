@@ -56,6 +56,7 @@ TOP_LEVEL_HELP_EXAMPLES = """First steps:
   knowledge-adapters github_metadata --help
   knowledge-adapters confluence --help
   knowledge-adapters bundle ./artifacts --output ./bundle.md
+  knowledge-adapters publish --config runs.yaml --publish review-pack-doc
 
 Typical flow:
   1. Start with local_files to try the artifact layout with a text file you
@@ -1317,6 +1318,29 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    publish_parser = subparsers.add_parser(
+        "publish",
+        help="Explicitly publish one configured bundle to Google Docs.",
+        description=(
+            "Publish one named configured bundle to Google Docs. This consequential "
+            "operation is never performed by the run or bundle commands."
+        ),
+    )
+    add_verbose_argument(publish_parser)
+    publish_parser.add_argument("--config", required=True, metavar="RUNS_YAML")
+    publish_parser.add_argument("--publish", dest="publish_name", required=True, metavar="NAME")
+    publish_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate configured input and print a receipt without calling Google APIs.",
+    )
+    publish_parser.add_argument(
+        "--output-format",
+        choices=("text", "json"),
+        default="text",
+        help="Output format for the publication receipt.",
+    )
+
     return parser
 
 
@@ -1841,6 +1865,68 @@ def main(argv: Sequence[str] | None = None) -> int:
             result = verify_package(package_dir)
             print_source_package_verification_result(package_dir, result)
             return 0 if result.ok else 1
+
+    if args.command == "publish":
+        from knowledge_adapters import google_docs
+        from knowledge_adapters.run_config import load_run_config, select_bundle, select_publish
+
+        try:
+            run_config = load_run_config(args.config)
+            configured_publish = select_publish(run_config, name=args.publish_name)
+            configured_bundle = select_bundle(run_config, name=configured_publish.bundle)
+            bundle_path = Path(configured_bundle.output).expanduser().resolve()
+            content = bundle_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            exit_with_cli_error(str(exc), command="publish")
+
+        title = configured_publish.title or bundle_path.stem
+        if not title:
+            exit_with_cli_error(
+                "Configured bundle output has no filename stem; set title explicitly.",
+                command="publish",
+            )
+        receipt: dict[str, object] = {
+            "bundle": configured_publish.bundle,
+            "bundle_path": str(bundle_path),
+            "character_count": len(content),
+            "destination": "google_docs",
+            "document_url": None,
+            "dry_run": bool(args.dry_run),
+            "folder_id": configured_publish.folder_id,
+            "publish": configured_publish.name,
+            "title": title,
+        }
+        if args.dry_run:
+            if args.output_format == "json":
+                print(json.dumps(receipt, sort_keys=True))
+            else:
+                print(f"Dry run: would publish {bundle_path} to Google Docs with title {title!r}.")
+            return 0
+
+        try:
+            receipt["document_url"] = google_docs.publish_markdown(
+                content=content,
+                title=title,
+                folder_id=configured_publish.folder_id,
+                oauth_client_file=(
+                    Path(configured_publish.oauth_client_file)
+                    if configured_publish.oauth_client_file
+                    else None
+                ),
+                oauth_token_file=(
+                    Path(configured_publish.oauth_token_file)
+                    if configured_publish.oauth_token_file
+                    else None
+                ),
+            )
+        except Exception as exc:
+            print(f"publish failed: {google_docs.publish_failure_message(exc)}", file=sys.stderr)
+            return 1
+        if args.output_format == "json":
+            print(json.dumps(receipt, sort_keys=True))
+        else:
+            print(receipt["document_url"])
+        return 0
 
     if args.command == "run":
         from knowledge_adapters.run_config import load_run_config, select_runs
