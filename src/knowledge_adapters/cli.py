@@ -201,6 +201,7 @@ BUNDLE_HELP_EXAMPLES = """Examples:
   knowledge-adapters bundle ./artifacts/confluence --output ./bundle.md
   knowledge-adapters bundle ./artifacts/a ./artifacts/b --output ./bundle.md
   knowledge-adapters bundle ./artifacts/manifest.json --output ./bundle.md
+  knowledge-adapters bundle --config ./runs.yaml
   knowledge-adapters bundle --config ./runs.yaml --bundle review-pack
   knowledge-adapters bundle ./artifacts --header-mode minimal --output ./bundle.md
   knowledge-adapters bundle ./artifacts --include "team-*" --exclude "*draft*" --output ./bundle.md
@@ -1144,13 +1145,16 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="INPUT",
         help=(
             "One or more adapter output directories or manifest files to bundle. "
-            "Omit when using --config and --bundle."
+            "Omit when using --config."
         ),
     )
     bundle_parser.add_argument(
         "--config",
         metavar="RUNS_YAML",
-        help="Load a named bundle definition from runs.yaml. Requires --bundle.",
+        help=(
+            "Load bundle definitions from runs.yaml. Without --bundle, renders every "
+            "configured bundle in config order."
+        ),
     )
     bundle_parser.add_argument(
         "--bundle",
@@ -1163,7 +1167,7 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="FILE",
         help=(
             "Markdown file to write with the bundled artifact content. Required for "
-            "direct input mode; named bundles use their configured output."
+            "direct input mode; configured bundles use their configured output."
         ),
     )
     bundle_parser.add_argument(
@@ -3676,6 +3680,56 @@ def main(argv: Sequence[str] | None = None) -> int:
             write_split_bundle,
         )
         from knowledge_adapters.run_config import load_run_config, select_bundle
+
+        if args.config is not None and args.bundle_name is None:
+            if args.inputs:
+                exit_with_cli_error(
+                    "Configured bundle mode does not accept direct INPUT paths.",
+                    command="bundle",
+                )
+            if args.output is not None:
+                exit_with_cli_error(
+                    "Configured bundle mode uses bundle outputs from runs.yaml and does not "
+                    "accept --output.",
+                    command="bundle",
+                )
+            try:
+                run_config = load_run_config(args.config)
+            except ValueError as exc:
+                exit_with_cli_error(str(exc), command="bundle")
+            if not run_config.bundles:
+                exit_with_cli_error(
+                    f"Config file {run_config.config_path} does not define any top-level named "
+                    "bundles. Add a 'bundles:' list or use direct bundle inputs.",
+                    command="bundle",
+                )
+
+            outputs_by_path: dict[Path, str] = {}
+            for configured_bundle in run_config.bundles:
+                output_path = Path(configured_bundle.output).expanduser().resolve()
+                if output_path.exists() and output_path.is_dir():
+                    exit_with_cli_error(
+                        (
+                            f"Bundle output path for {configured_bundle.name!r} is a directory: "
+                            f"{output_path}. Verify the configured output and use a file path."
+                        ),
+                        command="bundle",
+                    )
+                prior_bundle_name = outputs_by_path.get(output_path)
+                if prior_bundle_name is not None:
+                    exit_with_cli_error(
+                        (
+                            "Configured bundles "
+                            f"{prior_bundle_name!r} and {configured_bundle.name!r} use the same "
+                            f"output path: {output_path}."
+                        ),
+                        command="bundle",
+                    )
+                outputs_by_path[output_path] = configured_bundle.name
+
+            for configured_bundle in run_config.bundles:
+                main(["bundle", "--config", args.config, "--bundle", configured_bundle.name])
+            return 0
 
         named_bundle_mode = args.config is not None or args.bundle_name is not None
         if named_bundle_mode:
