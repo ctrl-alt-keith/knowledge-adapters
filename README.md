@@ -482,9 +482,20 @@ Render a named bundle from `runs.yaml`:
 knowledge-adapters bundle --config ./runs.yaml --bundle review-pack
 ```
 
-Use `runs.yaml` for repeatable workflows. `--stale-mode include|exclude|flag`
-controls how bundle rendering handles explicit stale-artifact metadata. See
-`runs.example.yaml` for fuller bundle and named-bundle examples.
+Render every configured bundle in `runs.yaml`, in config order:
+
+```bash
+knowledge-adapters bundle --config ./runs.yaml
+```
+
+Use `runs.yaml` for repeatable workflows. In config mode, each bundle's own
+settings and output path are authoritative; `--bundle` selects only one
+configured bundle. Configured bundles run in order and stop at the first
+rendering failure. Duplicate configured output paths and output paths that are
+directories are rejected before rendering starts. `--stale-mode
+include|exclude|flag` controls direct bundle rendering; configured bundles use
+their configured stale handling. See `runs.example.yaml` for fuller bundle and
+named-bundle examples.
 
 ---
 

@@ -667,6 +667,273 @@ bundles:
     assert "canonical_id:" not in bundle_text
 
 
+def test_bundle_cli_renders_all_configured_bundles_in_config_order(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    output_a = tmp_path / "artifacts" / "a"
+    output_b = tmp_path / "artifacts" / "b"
+    _write_output_dir(
+        output_a,
+        files=[
+            {
+                "canonical_id": "alpha",
+                "source_url": "https://example.com/alpha",
+                "output_path": "pages/alpha.md",
+                "title": "Alpha",
+            }
+        ],
+        artifact_contents={"pages/alpha.md": "# Alpha\n"},
+    )
+    _write_output_dir(
+        output_b,
+        files=[
+            {
+                "canonical_id": "bravo",
+                "source_url": "https://example.com/bravo",
+                "output_path": "pages/bravo.md",
+                "title": "Bravo",
+            }
+        ],
+        artifact_contents={"pages/bravo.md": "# Bravo\n"},
+    )
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: run-a
+    type: local_files
+    file_path: ./inputs/a.txt
+    output_dir: ./artifacts/a
+  - name: run-b
+    type: local_files
+    file_path: ./inputs/b.txt
+    output_dir: ./artifacts/b
+bundles:
+  - name: bravo-first
+    runs: run-b
+    output: ./bundles/bravo.md
+    header_mode: minimal
+  - name: alpha-second
+    runs: run-a
+    output: ./bundles/alpha.md
+    header_mode: minimal
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(["bundle", "--config", str(config_path)])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert captured.out.index("bundle: bravo-first") < captured.out.index("bundle: alpha-second")
+    assert "## Bravo\n" in (tmp_path / "bundles" / "bravo.md").read_text(encoding="utf-8")
+    assert "## Alpha\n" in (tmp_path / "bundles" / "alpha.md").read_text(encoding="utf-8")
+
+
+def test_bundle_cli_rejects_configured_bundle_output_collisions_before_rendering(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: source
+    type: local_files
+    file_path: ./inputs/source.txt
+    output_dir: ./artifacts/source
+bundles:
+  - name: first
+    runs: source
+    output: ./bundles/review.md
+  - name: second
+    runs: source
+    output: ./bundles/review.md
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        main(["bundle", "--config", str(config_path)])
+
+    captured = capsys.readouterr()
+    assert "Configured bundles 'first' and 'second' use the same output path" in captured.err
+    assert not (tmp_path / "bundles" / "review.md").exists()
+
+
+def test_bundle_cli_rejects_configured_bundle_directory_output_before_rendering(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    output_dir = tmp_path / "bundles"
+    output_dir.mkdir()
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: source
+    type: local_files
+    file_path: ./inputs/source.txt
+    output_dir: ./artifacts/source
+bundles:
+  - name: review-pack
+    runs: source
+    output: ./bundles
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        main(["bundle", "--config", str(config_path)])
+
+    captured = capsys.readouterr()
+    assert "Bundle output path for 'review-pack' is a directory" in captured.err
+
+
+@pytest.mark.parametrize(
+    ("extra_args", "expected_error"),
+    [
+        (["./artifacts/source"], "Configured bundle mode does not accept direct INPUT paths"),
+        (["--output", "./bundle.md"], "Configured bundle mode uses bundle outputs"),
+    ],
+)
+def test_bundle_cli_rejects_direct_options_in_all_configured_bundle_mode(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    extra_args: list[str],
+    expected_error: str,
+) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: source
+    type: local_files
+    file_path: ./inputs/source.txt
+    output_dir: ./artifacts/source
+bundles:
+  - name: review-pack
+    runs: source
+    output: ./bundles/review.md
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        main(["bundle", "--config", str(config_path), *extra_args])
+
+    assert expected_error in capsys.readouterr().err
+
+
+def test_bundle_cli_rejects_direct_output_that_collides_with_split_bundle_output(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: source
+    type: local_files
+    file_path: ./inputs/source.txt
+    output_dir: ./artifacts/source
+bundles:
+  - name: split
+    runs: source
+    output: ./bundles/review.md
+    max_bytes: 1
+  - name: direct
+    runs: source
+    output: ./bundles/review-001.md
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        main(["bundle", "--config", str(config_path)])
+
+    captured = capsys.readouterr()
+    assert "Configured bundle 'direct' output path" in captured.err
+    assert "collides with a split output from 'split'" in captured.err
+    assert not (tmp_path / "bundles" / "review-001.md").exists()
+
+
+def test_bundle_cli_stops_after_the_first_configured_bundle_failure(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    output_dir = tmp_path / "artifacts" / "good"
+    later_output_dir = tmp_path / "artifacts" / "later"
+    _write_output_dir(
+        output_dir,
+        files=[
+            {
+                "canonical_id": "alpha",
+                "source_url": "https://example.com/alpha",
+                "output_path": "pages/alpha.md",
+                "title": "Alpha",
+            }
+        ],
+        artifact_contents={"pages/alpha.md": "# Alpha\n"},
+    )
+    _write_output_dir(
+        later_output_dir,
+        files=[
+            {
+                "canonical_id": "later",
+                "source_url": "https://example.com/later",
+                "output_path": "pages/later.md",
+                "title": "Later",
+            }
+        ],
+        artifact_contents={"pages/later.md": "# Later\n"},
+    )
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: good
+    type: local_files
+    file_path: ./inputs/good.txt
+    output_dir: ./artifacts/good
+  - name: missing
+    type: local_files
+    file_path: ./inputs/missing.txt
+    output_dir: ./artifacts/missing
+  - name: later
+    type: local_files
+    file_path: ./inputs/later.txt
+    output_dir: ./artifacts/later
+bundles:
+  - name: first
+    runs: good
+    output: ./bundles/first.md
+  - name: second
+    runs: missing
+    output: ./bundles/second.md
+  - name: third
+    runs: later
+    output: ./bundles/third.md
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        main(["bundle", "--config", str(config_path)])
+
+    assert (tmp_path / "bundles" / "first.md").exists()
+    assert not (tmp_path / "bundles" / "second.md").exists()
+    assert not (tmp_path / "bundles" / "third.md").exists()
+    assert "Configured bundle 'second' failed." in capsys.readouterr().err
+
+
 def test_bundle_cli_rejects_unknown_named_bundle_name(
     tmp_path: Path,
     capsys: CaptureFixture[str],
