@@ -3705,6 +3705,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
 
             outputs_by_path: dict[Path, str] = {}
+            direct_output_paths: dict[Path, str] = {}
+            split_output_patterns: list[tuple[Path, re.Pattern[str], str]] = []
             for configured_bundle in run_config.bundles:
                 output_path = Path(configured_bundle.output).expanduser().resolve()
                 if output_path.exists() and output_path.is_dir():
@@ -3726,9 +3728,52 @@ def main(argv: Sequence[str] | None = None) -> int:
                         command="bundle",
                     )
                 outputs_by_path[output_path] = configured_bundle.name
+                for output_parent, split_pattern, split_bundle_name in split_output_patterns:
+                    if output_path.parent == output_parent and split_pattern.fullmatch(
+                        output_path.name
+                    ):
+                        exit_with_cli_error(
+                            (
+                                f"Configured bundle {configured_bundle.name!r} output path "
+                                f"{output_path} collides with a split output from "
+                                f"{split_bundle_name!r}."
+                            ),
+                            command="bundle",
+                        )
+                if configured_bundle.max_bytes is None:
+                    direct_output_paths[output_path] = configured_bundle.name
+                    continue
+
+                split_output_pattern = re.compile(
+                    rf"^{re.escape(output_path.stem)}-\d{{3,}}{re.escape(output_path.suffix)}$"
+                )
+                for direct_output_path, direct_bundle_name in direct_output_paths.items():
+                    if (
+                        direct_output_path.parent == output_path.parent
+                        and split_output_pattern.fullmatch(direct_output_path.name)
+                    ):
+                        exit_with_cli_error(
+                            (
+                                f"Configured bundle {direct_bundle_name!r} output path "
+                                f"{direct_output_path} collides with a split output from "
+                                f"{configured_bundle.name!r}."
+                            ),
+                            command="bundle",
+                        )
+                split_output_patterns.append(
+                    (output_path.parent, split_output_pattern, configured_bundle.name)
+                )
 
             for configured_bundle in run_config.bundles:
-                main(["bundle", "--config", args.config, "--bundle", configured_bundle.name])
+                try:
+                    exit_code = main(
+                        ["bundle", "--config", args.config, "--bundle", configured_bundle.name]
+                    )
+                except SystemExit:
+                    print(f"Configured bundle {configured_bundle.name!r} failed.", file=sys.stderr)
+                    raise
+                if exit_code != 0:
+                    return exit_code
             return 0
 
         named_bundle_mode = args.config is not None or args.bundle_name is not None

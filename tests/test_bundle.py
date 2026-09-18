@@ -794,10 +794,82 @@ bundles:
     assert "Bundle output path for 'review-pack' is a directory" in captured.err
 
 
+@pytest.mark.parametrize(
+    ("extra_args", "expected_error"),
+    [
+        (["./artifacts/source"], "Configured bundle mode does not accept direct INPUT paths"),
+        (["--output", "./bundle.md"], "Configured bundle mode uses bundle outputs"),
+    ],
+)
+def test_bundle_cli_rejects_direct_options_in_all_configured_bundle_mode(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    extra_args: list[str],
+    expected_error: str,
+) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: source
+    type: local_files
+    file_path: ./inputs/source.txt
+    output_dir: ./artifacts/source
+bundles:
+  - name: review-pack
+    runs: source
+    output: ./bundles/review.md
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        main(["bundle", "--config", str(config_path), *extra_args])
+
+    assert expected_error in capsys.readouterr().err
+
+
+def test_bundle_cli_rejects_direct_output_that_collides_with_split_bundle_output(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    config_path = tmp_path / "runs.yaml"
+    config_path.write_text(
+        """
+runs:
+  - name: source
+    type: local_files
+    file_path: ./inputs/source.txt
+    output_dir: ./artifacts/source
+bundles:
+  - name: split
+    runs: source
+    output: ./bundles/review.md
+    max_bytes: 1
+  - name: direct
+    runs: source
+    output: ./bundles/review-001.md
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        main(["bundle", "--config", str(config_path)])
+
+    captured = capsys.readouterr()
+    assert "Configured bundle 'direct' output path" in captured.err
+    assert "collides with a split output from 'split'" in captured.err
+    assert not (tmp_path / "bundles" / "review-001.md").exists()
+
+
 def test_bundle_cli_stops_after_the_first_configured_bundle_failure(
     tmp_path: Path,
+    capsys: CaptureFixture[str],
 ) -> None:
     output_dir = tmp_path / "artifacts" / "good"
+    later_output_dir = tmp_path / "artifacts" / "later"
     _write_output_dir(
         output_dir,
         files=[
@@ -809,6 +881,18 @@ def test_bundle_cli_stops_after_the_first_configured_bundle_failure(
             }
         ],
         artifact_contents={"pages/alpha.md": "# Alpha\n"},
+    )
+    _write_output_dir(
+        later_output_dir,
+        files=[
+            {
+                "canonical_id": "later",
+                "source_url": "https://example.com/later",
+                "output_path": "pages/later.md",
+                "title": "Later",
+            }
+        ],
+        artifact_contents={"pages/later.md": "# Later\n"},
     )
     config_path = tmp_path / "runs.yaml"
     config_path.write_text(
@@ -822,6 +906,10 @@ runs:
     type: local_files
     file_path: ./inputs/missing.txt
     output_dir: ./artifacts/missing
+  - name: later
+    type: local_files
+    file_path: ./inputs/later.txt
+    output_dir: ./artifacts/later
 bundles:
   - name: first
     runs: good
@@ -829,6 +917,9 @@ bundles:
   - name: second
     runs: missing
     output: ./bundles/second.md
+  - name: third
+    runs: later
+    output: ./bundles/third.md
 """.strip()
         + "\n",
         encoding="utf-8",
@@ -839,6 +930,8 @@ bundles:
 
     assert (tmp_path / "bundles" / "first.md").exists()
     assert not (tmp_path / "bundles" / "second.md").exists()
+    assert not (tmp_path / "bundles" / "third.md").exists()
+    assert "Configured bundle 'second' failed." in capsys.readouterr().err
 
 
 def test_bundle_cli_rejects_unknown_named_bundle_name(
