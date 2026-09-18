@@ -497,6 +497,28 @@ include|exclude|flag` controls direct bundle rendering; configured bundles use
 their configured stale handling. See `runs.example.yaml` for fuller bundle and
 named-bundle examples.
 
+### Explicit Google Docs publication
+
+Publication configuration may share `runs.yaml`, but `run` and `bundle` never
+publish. Create the bundle first, then deliberately select one publish entry:
+
+```bash
+knowledge-adapters publish --config ./runs.yaml --publish review-pack-doc
+```
+
+Use `--dry-run` to validate the selected local bundle and print a receipt with
+no Google API call. A configured `title` takes precedence; without one, the
+document title is derived from the bundle filename without its final extension.
+Publication creates a new Google Doc and inserts the bundle as readable plain
+text; it does not update documents, share content, manage permissions, or
+synchronize in the background.
+
+By default Google Application Default Credentials are used. For a desktop user
+flow, configure both `oauth_client_file` and `oauth_token_file` in the selected
+publish entry. The token is persisted atomically with owner-only permissions.
+Docs scope is always requested; Drive file scope is added only when `folder_id`
+is configured. Do not put either credential file in the repository.
+
 ---
 
 ## Repo-Local Development Setup
