@@ -228,11 +228,16 @@ def _build_google_credentials(
 def _build_installed_app_oauth_credentials(
     client_file: Path, token_file: Path, scopes: list[str]
 ) -> Any:
+    # Imported outside the OAuth safety wrapper below: a missing publish extra is a
+    # dependency problem, and reporting it as an OAuth client or token problem sends
+    # the operator to the wrong remediation.
     try:
         from google.auth.transport.requests import Request
         from google.oauth2.credentials import Credentials
         from google_auth_oauthlib.flow import InstalledAppFlow  # type: ignore[import-untyped]
-
+    except ImportError as exc:
+        raise GoogleDependenciesMissingError(_MISSING_GOOGLE_DEPENDENCIES_MESSAGE) from exc
+    try:
         credentials: Any | None = None
         if os.path.lexists(token_file):
             _prepare_oauth_token_file(token_file)

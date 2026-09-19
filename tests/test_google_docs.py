@@ -774,3 +774,27 @@ def test_missing_google_dependencies_raise_the_classified_error(
         call()
 
     assert gdocs.publish_failure_message(error.value) == gdocs._MISSING_GOOGLE_DEPENDENCIES_MESSAGE
+
+
+@pytest.mark.parametrize(
+    "module",
+    [
+        "google.auth.transport.requests",
+        "google.oauth2.credentials",
+        "google_auth_oauthlib.flow",
+    ],
+)
+def test_installed_app_oauth_reports_missing_publish_extra(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, module: str
+) -> None:
+    """A missing extra is a dependency problem, not an OAuth client or token problem."""
+    monkeypatch.setitem(sys.modules, module, None)
+
+    with pytest.raises(gdocs.GoogleDependenciesMissingError) as error:
+        gdocs._build_installed_app_oauth_credentials(
+            client_file=tmp_path / "client.json",
+            token_file=tmp_path / "token.json",
+            scopes=[gdocs.GOOGLE_DOCS_SCOPE],
+        )
+
+    assert gdocs.publish_failure_message(error.value) == gdocs._MISSING_GOOGLE_DEPENDENCIES_MESSAGE
