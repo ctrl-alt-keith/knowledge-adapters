@@ -14,9 +14,42 @@ RELEASE_TAG = v$(RELEASE_VERSION)
 CHAOS_SEED ?=
 CHAOS_SCENARIO ?=
 CHAOS_NODEID ?=
+MIN_PYTHON_VERSION = 3.13
+PYTHON_BIN ?=
+
+# Print the first interpreter that satisfies requires-python, or fail with an
+# actionable message. An explicit PYTHON_BIN is honored strictly rather than
+# falling back, so a deliberate choice never silently resolves to another
+# interpreter.
+define select_python
+set -e; \
+if [ -n "$(PYTHON_BIN)" ]; then \
+	candidates="$(PYTHON_BIN)"; \
+else \
+	candidates="python3 python$(MIN_PYTHON_VERSION)"; \
+fi; \
+selected=""; \
+for candidate in $$candidates; do \
+	command -v "$$candidate" >/dev/null 2>&1 || continue; \
+	"$$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= tuple(int(part) for part in "$(MIN_PYTHON_VERSION)".split(".")) else 1)' 2>/dev/null || continue; \
+	selected="$$candidate"; \
+	break; \
+done; \
+if [ -z "$$selected" ]; then \
+	if [ -n "$(PYTHON_BIN)" ]; then \
+		echo "Error: PYTHON_BIN=$(PYTHON_BIN) is missing or older than Python $(MIN_PYTHON_VERSION)." >&2; \
+	else \
+		echo "Error: no Python $(MIN_PYTHON_VERSION)+ interpreter found. Install one or set PYTHON_BIN=/path/to/python$(MIN_PYTHON_VERSION)." >&2; \
+	fi; \
+	exit 1; \
+fi; \
+echo "$$selected"
+endef
 
 $(VENV)/bin/activate:
-	python3 -m venv $(VENV)
+	@interpreter="$$($(select_python))" || exit 1; \
+	echo "Creating $(VENV) with $$interpreter."; \
+	"$$interpreter" -m venv $(VENV)
 	$(PIP) install --upgrade pip
 	$(PIP) install -e '.[dev]'
 
@@ -26,7 +59,8 @@ help: ## List available repo-local Makefile targets with short descriptions.
 dev: $(VENV)/bin/activate ## Create or refresh the local development environment.
 
 check-env: ## Verify local development prerequisites.
-	@command -v python3 >/dev/null 2>&1 || { echo "Error: python3 is required for local development." >&2; exit 1; }
+	@interpreter="$$($(select_python))" || exit 1; \
+	echo "Using $$interpreter ($$("$$interpreter" --version 2>&1))."
 
 check-gh-env: ## Verify GitHub CLI availability and authentication.
 	@command -v gh >/dev/null 2>&1 || { echo "Error: GitHub CLI (gh) is required but is not installed." >&2; exit 1; }

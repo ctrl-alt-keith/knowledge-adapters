@@ -11,6 +11,43 @@ Formal changelog coverage begins at `0.2.0`, when this repository started using
 
 ## Unreleased
 
+### Explicit Google Docs publication
+
+- Integrated the Google Docs publication path from the retired `ka-destinations`
+  repository into this repository as a separately invoked `publish` command, so
+  acquisition, bundling, and publication share one local config file without
+  sharing authority. Configuration presence never authorizes publication, and
+  neither `run` nor `bundle` can trigger it.
+- Preserved the dogfood-proven Google behavior: installed-app Desktop OAuth
+  alongside Application Default Credentials, minimum required scopes, atomic
+  owner-only token persistence, and secret-safe failure diagnostics that never
+  render provider response bodies.
+- Added regression coverage for that publication authority boundary and for the
+  failure-diagnostic redaction rules, including allowlisted HTTP 403 status and
+  reason classification and the provider-response size cap.
+
+### Bundling
+
+- `bundle --config` without `--bundle` now renders every configured bundle in
+  config order.
+
+### Packaging
+
+- Moved the Google client libraries out of the base dependencies into an opt-in
+  `publish` extra. Acquisition and bundling no longer install provider SDKs, and
+  a publish attempt without the extra fails closed with installation guidance.
+  Install with `pip install 'knowledge-adapters[publish]'` to publish.
+
+### Local validation
+
+- The local virtual environment bootstrap now selects an interpreter that
+  satisfies `requires-python` instead of assuming `python3` is new enough, and
+  `make check-env` reports the selected interpreter. Set `PYTHON_BIN` to choose
+  one explicitly; an explicit choice is validated rather than silently replaced.
+- Tests now clear ambient adapter environment variables, so proxied, CI, and
+  corporate shells that export `REQUESTS_CA_BUNDLE` or `SSL_CERT_FILE` no longer
+  turn deterministic TLS expectations into host-dependent failures.
+
 ## 0.9.0
 
 This minor release marks the project's transition from a collection of

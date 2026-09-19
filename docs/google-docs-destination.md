@@ -49,6 +49,18 @@ publishes:
 Publishing never executes or renders the named bundle. It reads that existing
 local output only after the operator explicitly selects the publish entry.
 
+## Installation
+
+The Google client libraries are an opt-in `publish` extra rather than a base
+dependency, so operators who only acquire and bundle do not carry them:
+
+```bash
+pip install 'knowledge-adapters[publish]'
+```
+
+Without the extra, configuration parsing and `--dry-run` still work, and a real
+publish fails closed with installation guidance rather than a partial attempt.
+
 ## Google authentication and safety
 
 ADC remains the default. Installed-app Desktop OAuth is opt-in and requires

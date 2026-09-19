@@ -84,8 +84,17 @@ currently host their implementations and evidence:
 - The **Publication Product Candidate** owns the authorized external-delivery
   transaction and publication-receipt semantics. A publication authorizer
   decides what exact artifact and destination are authorized.
-  `ka-destinations` currently implements destination behavior and records
-  publication receipts.
+  `knowledge-adapters` now hosts the explicit Google Docs publication path
+  described in [Google Docs Publication](google-docs-destination.md); the
+  earlier separate `ka-destinations` implementation is retired. Hosting that
+  implementation does not move Publication authority into this repository or
+  into Source Acquisition.
+
+This repository therefore hosts implementations of two Product boundaries. Keep
+them distinct: acquisition commands never publish, and the publish command
+never acquires, renders, or approves. Publication remains a separately invoked
+consequential action, and its receipt stays a report of that transaction rather
+than retained lifecycle state.
 
 An operator or orchestrator may transport a sealed Source Package or bundle
 between implementations. Transport does not own Source Acquisition semantics,
