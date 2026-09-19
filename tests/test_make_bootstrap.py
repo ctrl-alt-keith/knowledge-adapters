@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -53,6 +54,49 @@ def test_check_env_rejects_a_missing_explicit_interpreter() -> None:
 
     assert result.returncode != 0
     assert "python-does-not-exist" in result.stderr
+
+
+def _environment_built_by_another_interpreter(tmp_path: Path) -> Path:
+    """A stand-in environment that reports a different base interpreter.
+
+    Exercising the guard needs two distinguishable base interpreters, and a host
+    is only guaranteed to have one that satisfies requires-python. The stub
+    answers the base-interpreter probe with a different path and delegates every
+    other call, so the branch is reachable without a second real interpreter.
+    """
+    venv = tmp_path / "other-venv"
+    (venv / "bin").mkdir(parents=True)
+    python = venv / "bin" / "python"
+    python.write_text(
+        "#!/bin/sh\n"
+        'case "$*" in\n'
+        '  *_base_executable*) echo "/nonexistent/other-python" ;;\n'
+        f'  *) exec {sys.executable} "$@" ;;\n'
+        "esac\n",
+        encoding="utf-8",
+    )
+    python.chmod(0o755)
+    return venv
+
+
+@pytest.mark.parametrize("already_installed", [False, True])
+def test_explicit_interpreter_is_not_ignored_for_an_existing_environment(
+    tmp_path: Path, already_installed: bool
+) -> None:
+    """An explicit PYTHON_BIN must never be silently discarded.
+
+    The completed-install case matters most: the stamp is up to date there, so a
+    recipe-level check never runs and the selection would otherwise be dropped.
+    """
+    venv = _environment_built_by_another_interpreter(tmp_path)
+    if already_installed:
+        (venv / ".dev-install-complete").touch()
+
+    result = _run_make("dev", f"VENV={venv}", f"PYTHON_BIN={sys.executable}")
+
+    assert result.returncode != 0
+    assert "make clean" in result.stderr
+    assert "/nonexistent/other-python" in result.stderr
 
 
 def test_bootstrap_does_not_reuse_an_environment_left_by_a_failed_install(

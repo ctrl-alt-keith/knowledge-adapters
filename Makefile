@@ -1,4 +1,4 @@
-.PHONY: help dev test smoke lint fix format typecheck check fix-all check-env check-gh-env chaos-random chaos-replay chaos-all release-notes release-check release-recover release-create-from-tag release-publish clean
+.PHONY: help dev verify-venv-interpreter test smoke lint fix format typecheck check fix-all check-env check-gh-env chaos-random chaos-replay chaos-all release-notes release-check release-recover release-create-from-tag release-publish clean
 
 .DEFAULT_GOAL := dev
 
@@ -47,10 +47,30 @@ fi; \
 echo "$$selected"
 endef
 
+# Order-only so it runs on every invocation, including when the stamp is already
+# current, without forcing a reinstall. A recipe-level check cannot reach the
+# stamped case, which is exactly where an explicit PYTHON_BIN would otherwise be
+# discarded in favor of whatever interpreter the environment was built from.
+verify-venv-interpreter:
+	@[ -n "$(PYTHON_BIN)" ] && [ -x $(PYTHON) ] || exit 0; \
+	interpreter="$$($(select_python))" || exit 1; \
+	requested="$$("$$interpreter" -c 'import sys; print(sys._base_executable or sys.executable)' 2>/dev/null)"; \
+	existing="$$($(PYTHON) -c 'import sys; print(sys._base_executable or sys.executable)' 2>/dev/null)"; \
+	if [ -z "$$requested" ] || [ -z "$$existing" ]; then \
+		echo "Error: could not determine the interpreter behind $(VENV) or PYTHON_BIN=$(PYTHON_BIN)." >&2; \
+		exit 1; \
+	fi; \
+	if [ "$$(realpath "$$requested" 2>/dev/null || echo "$$requested")" \
+		!= "$$(realpath "$$existing" 2>/dev/null || echo "$$existing")" ]; then \
+		echo "Error: $(VENV) was built from $$existing, not the requested PYTHON_BIN=$(PYTHON_BIN) ($$requested)." >&2; \
+		echo "Run 'make clean' to remove it, then re-run this target to build with the requested interpreter." >&2; \
+		exit 1; \
+	fi
+
 # Completion stamp rather than an activation script: a virtual environment left
 # behind by an interrupted or failed install must never look ready, or the
 # bootstrap silently reuses it and skips interpreter selection entirely.
-$(VENV_READY):
+$(VENV_READY): | verify-venv-interpreter
 	@interpreter="$$($(select_python))" || exit 1; \
 	if [ ! -e $(VENV) ]; then \
 		echo "Creating $(VENV) with $$interpreter."; \
