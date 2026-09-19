@@ -15,6 +15,7 @@ CHAOS_SEED ?=
 CHAOS_SCENARIO ?=
 CHAOS_NODEID ?=
 MIN_PYTHON_VERSION = 3.13
+VENV_READY = $(VENV)/.dev-install-complete
 PYTHON_BIN ?=
 
 # Print the first interpreter that satisfies requires-python, or fail with an
@@ -46,17 +47,29 @@ fi; \
 echo "$$selected"
 endef
 
-$(VENV)/bin/activate:
+# Completion stamp rather than an activation script: a virtual environment left
+# behind by an interrupted or failed install must never look ready, or the
+# bootstrap silently reuses it and skips interpreter selection entirely.
+$(VENV_READY):
 	@interpreter="$$($(select_python))" || exit 1; \
-	echo "Creating $(VENV) with $$interpreter."; \
-	"$$interpreter" -m venv $(VENV)
+	if [ ! -e $(VENV) ]; then \
+		echo "Creating $(VENV) with $$interpreter."; \
+		"$$interpreter" -m venv $(VENV); \
+	elif [ -x $(PYTHON) ] && $(PYTHON) -c 'import sys; sys.exit(0 if sys.version_info >= tuple(int(part) for part in "$(MIN_PYTHON_VERSION)".split(".")) else 1)' 2>/dev/null; then \
+		echo "Completing the existing $(VENV) install."; \
+	else \
+		echo "Error: $(VENV) exists but has no Python $(MIN_PYTHON_VERSION)+ interpreter, so it cannot be completed in place." >&2; \
+		echo "Run 'make clean' to remove it, then re-run this target." >&2; \
+		exit 1; \
+	fi
 	$(PIP) install --upgrade pip
 	$(PIP) install -e '.[dev]'
+	@touch $@
 
 help: ## List available repo-local Makefile targets with short descriptions.
 	@awk 'BEGIN {FS = ":.*## "}; /^[a-zA-Z0-9_.-]+:.*## / {printf "  %-24s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-dev: $(VENV)/bin/activate ## Create or refresh the local development environment.
+dev: $(VENV_READY) ## Create or refresh the local development environment.
 
 check-env: ## Verify local development prerequisites.
 	@interpreter="$$($(select_python))" || exit 1; \
@@ -66,13 +79,13 @@ check-gh-env: ## Verify GitHub CLI availability and authentication.
 	@command -v gh >/dev/null 2>&1 || { echo "Error: GitHub CLI (gh) is required but is not installed." >&2; exit 1; }
 	@gh auth status >/dev/null 2>&1 || { echo "Error: GitHub CLI authentication is required. Run 'gh auth login' and try again." >&2; exit 1; }
 
-test: $(VENV)/bin/activate ## Run the test suite.
+test: $(VENV_READY) ## Run the test suite.
 	$(PYTEST)
 
-smoke: $(VENV)/bin/activate ## Run CLI smoke tests.
+smoke: $(VENV_READY) ## Run CLI smoke tests.
 	$(PYTEST) tests/test_cli_smoke.py
 
-chaos-random: $(VENV)/bin/activate ## Run one randomly selected chaos scenario.
+chaos-random: $(VENV_READY) ## Run one randomly selected chaos scenario.
 	@set -e; \
 	seed="$(CHAOS_SEED)"; \
 	if [ -z "$$seed" ]; then \
@@ -94,7 +107,7 @@ chaos-random: $(VENV)/bin/activate ## Run one randomly selected chaos scenario.
 	echo "CHAOS_REPLAY_COMMAND: $$replay_command"; \
 	CHAOS_TARGET=chaos-random CHAOS_SEED="$$seed" CHAOS_SCENARIO="$$scenario" $(PYTEST) -m chaos -k "$$scenario"
 
-chaos-replay: $(VENV)/bin/activate ## Replay a selected chaos scenario.
+chaos-replay: $(VENV_READY) ## Replay a selected chaos scenario.
 	@set -e; \
 	seed="$(CHAOS_SEED)"; \
 	scenario="$(CHAOS_SCENARIO)"; \
@@ -119,19 +132,19 @@ chaos-replay: $(VENV)/bin/activate ## Replay a selected chaos scenario.
 		CHAOS_TARGET=chaos-replay CHAOS_SEED="$$seed" CHAOS_SCENARIO="$$scenario" $(PYTEST) -m chaos -k "$$scenario"; \
 	fi
 
-chaos-all: $(VENV)/bin/activate ## Run all chaos scenarios.
+chaos-all: $(VENV_READY) ## Run all chaos scenarios.
 	CHAOS_TARGET=chaos-all $(PYTEST) -m chaos
 
-lint: $(VENV)/bin/activate ## Run Ruff lint checks.
+lint: $(VENV_READY) ## Run Ruff lint checks.
 	$(RUFF) check .
 
-fix: $(VENV)/bin/activate ## Apply Ruff lint fixes.
+fix: $(VENV_READY) ## Apply Ruff lint fixes.
 	$(RUFF) check . --fix
 
-format: $(VENV)/bin/activate ## Format code with Ruff.
+format: $(VENV_READY) ## Format code with Ruff.
 	$(RUFF) format .
 
-typecheck: $(VENV)/bin/activate ## Run MyPy type checks.
+typecheck: $(VENV_READY) ## Run MyPy type checks.
 	$(MYPY) .
 
 check: lint typecheck test ## Run canonical local validation.
