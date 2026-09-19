@@ -747,3 +747,30 @@ def test_publish_failure_message_ignores_unusable_403_bodies(content: bytes) -> 
     assert gdocs.publish_failure_message(_http_error(403, content)) == (
         "Google API request was forbidden (HTTP 403); check Google Docs or Drive access"
     )
+
+
+def test_publish_failure_message_reports_missing_publish_extra() -> None:
+    error = gdocs.GoogleDependenciesMissingError(gdocs._MISSING_GOOGLE_DEPENDENCIES_MESSAGE)
+
+    message = gdocs.publish_failure_message(error)
+
+    assert "knowledge-adapters[publish]" in message
+    assert message == gdocs._MISSING_GOOGLE_DEPENDENCIES_MESSAGE
+
+
+@pytest.mark.parametrize(
+    ("module", "call"),
+    [
+        ("google.auth", lambda: gdocs._build_google_credentials(include_drive=False)),
+        ("googleapiclient.discovery", gdocs._google_api_build),
+    ],
+)
+def test_missing_google_dependencies_raise_the_classified_error(
+    monkeypatch: pytest.MonkeyPatch, module: str, call: Any
+) -> None:
+    monkeypatch.setitem(sys.modules, module, None)
+
+    with pytest.raises(gdocs.GoogleDependenciesMissingError) as error:
+        call()
+
+    assert gdocs.publish_failure_message(error.value) == gdocs._MISSING_GOOGLE_DEPENDENCIES_MESSAGE
