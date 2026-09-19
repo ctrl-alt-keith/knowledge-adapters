@@ -575,9 +575,11 @@ make check
 reports the interpreter the bootstrap selected: the first one satisfying this
 project's `requires-python`, which is not necessarily whatever `python3` points
 at. Set `PYTHON_BIN=/path/to/python3.13` to choose one explicitly; an explicit
-choice is validated rather than silently replaced. GitHub authentication is not
-required to create the virtualenv, install dependencies, or run local
-validation.
+choice is validated rather than silently replaced. That holds when `.venv`
+already exists too: if it was built from a different interpreter, the bootstrap
+stops and tells you to `make clean` rather than quietly installing into the
+environment you did not ask for. GitHub authentication is not required to create
+the virtualenv, install dependencies, or run local validation.
 
 If a previous bootstrap failed partway, `.venv` can exist without a complete
 install. The environment is only considered ready once its install finishes, so

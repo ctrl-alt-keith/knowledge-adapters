@@ -52,6 +52,11 @@ Formal changelog coverage begins at `0.2.0`, when this repository started using
   completes it in place when its interpreter still satisfies `requires-python`,
   and otherwise stops with explicit `make clean` recovery guidance instead of
   failing later with a missing-tool error.
+- An explicit `PYTHON_BIN` is now honored against an environment that already
+  exists, including one whose install already completed. If that environment was
+  built from a different interpreter, the bootstrap stops with `make clean`
+  guidance rather than installing into the interpreter the operator did not
+  select.
 - Tests now clear ambient adapter environment variables, so proxied, CI, and
   corporate shells that export `REQUESTS_CA_BUNDLE` or `SSL_CERT_FILE` no longer
   turn deterministic TLS expectations into host-dependent failures.
