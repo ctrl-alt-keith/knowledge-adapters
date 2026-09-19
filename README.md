@@ -571,9 +571,18 @@ make dev
 make check
 ```
 
-`make check-env` verifies only the local prerequisites for development. GitHub
-authentication is not required to create the virtualenv, install dependencies,
-or run local validation.
+`make check-env` verifies only the local prerequisites for development. It
+reports the interpreter the bootstrap selected: the first one satisfying this
+project's `requires-python`, which is not necessarily whatever `python3` points
+at. Set `PYTHON_BIN=/path/to/python3.13` to choose one explicitly; an explicit
+choice is validated rather than silently replaced. GitHub authentication is not
+required to create the virtualenv, install dependencies, or run local
+validation.
+
+If a previous bootstrap failed partway, `.venv` can exist without a complete
+install. The environment is only considered ready once its install finishes, so
+the next `make dev` completes it in place when its interpreter is still
+suitable, and otherwise tells you to run `make clean` first.
 
 After `make dev`, the repo-local CLI entrypoint for this checkout is:
 

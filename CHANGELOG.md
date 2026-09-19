@@ -36,7 +36,9 @@ Formal changelog coverage begins at `0.2.0`, when this repository started using
 - Moved the Google client libraries out of the base dependencies into an opt-in
   `publish` extra. Acquisition and bundling no longer install provider SDKs, and
   a publish attempt without the extra fails closed with installation guidance.
-  Install with `pip install 'knowledge-adapters[publish]'` to publish.
+  Install with `pip install 'knowledge-adapters[publish]'` to publish. That
+  guidance is preserved on the installed-app Desktop OAuth path as well, rather
+  than being reported as an OAuth client or token problem.
 
 ### Local validation
 
@@ -44,6 +46,12 @@ Formal changelog coverage begins at `0.2.0`, when this repository started using
   satisfies `requires-python` instead of assuming `python3` is new enough, and
   `make check-env` reports the selected interpreter. Set `PYTHON_BIN` to choose
   one explicitly; an explicit choice is validated rather than silently replaced.
+- Environment readiness is now tracked by a completion stamp written only after
+  a successful install. A virtual environment left behind by an interrupted
+  bootstrap is no longer mistaken for a usable one: the next `make dev`
+  completes it in place when its interpreter still satisfies `requires-python`,
+  and otherwise stops with explicit `make clean` recovery guidance instead of
+  failing later with a missing-tool error.
 - Tests now clear ambient adapter environment variables, so proxied, CI, and
   corporate shells that export `REQUESTS_CA_BUNDLE` or `SSL_CERT_FILE` no longer
   turn deterministic TLS expectations into host-dependent failures.
