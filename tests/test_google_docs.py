@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import sys
 from pathlib import Path
 from typing import Any, cast
@@ -601,3 +602,199 @@ def test_google_api_build_reports_missing_google_api_client(
         gdocs._google_api_build()
 
     assert isinstance(error.value.__cause__, ImportError)
+
+
+def _http_error(status: object, content: bytes = b"") -> Exception:
+    """Build a real googleapiclient HttpError, which the classifier matches by type."""
+    errors = cast(Any, importlib.import_module("googleapiclient.errors"))
+    response = Mock()
+    response.status = status
+    return cast(Exception, errors.HttpError(resp=response, content=content))
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        (401, "Google API authentication failed (HTTP 401); check Application Default Credentials"),
+        (403, "Google API request was forbidden (HTTP 403); check Google Docs or Drive access"),
+        (404, "Google API resource was not found (HTTP 404); check the configured resource ID"),
+        (429, "Google API rate limit reached (HTTP 429); retry later"),
+        (500, "Google API service failed (HTTP 500); retry later"),
+        (503, "Google API service failed (HTTP 503); retry later"),
+        (400, "Google API request failed (HTTP 400); check the publish configuration"),
+    ],
+)
+def test_publish_failure_message_classifies_http_status(status: int, expected: str) -> None:
+    assert gdocs.publish_failure_message(_http_error(status)) == expected
+
+
+def test_publish_failure_message_handles_missing_http_status() -> None:
+    assert gdocs.publish_failure_message(_http_error(None)) == "Google API request failed"
+
+
+def test_publish_failure_message_reports_installed_app_oauth_failure() -> None:
+    error = gdocs.InstalledAppOAuthError("installed-app OAuth configuration failed")
+
+    assert gdocs.publish_failure_message(error) == (
+        "Google installed-app OAuth failed; check the OAuth client and token files"
+    )
+
+
+@pytest.mark.parametrize(
+    "exception_name", ["DefaultCredentialsError", "RefreshError", "UserAccessTokenError"]
+)
+def test_publish_failure_message_reports_adc_failure(exception_name: str) -> None:
+    exceptions = cast(Any, importlib.import_module("google.auth.exceptions"))
+    error = cast(BaseException, getattr(exceptions, exception_name)("synthetic detail"))
+
+    assert gdocs.publish_failure_message(error) == (
+        "Google authentication failed; check Application Default Credentials"
+    )
+
+
+def test_publish_failure_message_falls_back_for_unrecognized_errors() -> None:
+    error = RuntimeError("synthetic-google-api-token-for-test")
+
+    message = gdocs.publish_failure_message(error)
+
+    assert message == "Google Docs API request was unsuccessful"
+    assert "synthetic-google-api-token-for-test" not in message
+
+
+def test_publish_failure_message_adds_allowlisted_403_status_and_reason() -> None:
+    content = json.dumps(
+        {
+            "error": {
+                "status": "PERMISSION_DENIED",
+                "errors": [{"reason": "forbidden"}],
+            }
+        }
+    ).encode("utf-8")
+
+    assert gdocs.publish_failure_message(_http_error(403, content)) == (
+        "Google API request was forbidden (HTTP 403, status PERMISSION_DENIED, reason forbidden); "
+        "check Google Docs or Drive access"
+    )
+
+
+def test_publish_failure_message_omits_unrecognized_403_status_and_reason() -> None:
+    content = json.dumps(
+        {
+            "error": {
+                "status": "SOMETHING_NEW",
+                "errors": [{"reason": "unlistedReason"}],
+            }
+        }
+    ).encode("utf-8")
+
+    assert gdocs.publish_failure_message(_http_error(403, content)) == (
+        "Google API request was forbidden (HTTP 403); check Google Docs or Drive access"
+    )
+
+
+def test_publish_failure_message_never_renders_provider_403_body() -> None:
+    synthetic_secret = "synthetic-google-api-token-for-test"
+    content = json.dumps(
+        {
+            "error": {
+                "status": "PERMISSION_DENIED",
+                "message": f"Request had insufficient authentication scopes: {synthetic_secret}",
+                "errors": [{"reason": "forbidden", "message": synthetic_secret}],
+                "details": [{"metadata": {"token": synthetic_secret}}],
+            }
+        }
+    ).encode("utf-8")
+
+    message = gdocs.publish_failure_message(_http_error(403, content))
+
+    assert synthetic_secret not in message
+    assert "insufficient authentication scopes" not in message
+    assert "status PERMISSION_DENIED, reason forbidden" in message
+
+
+def test_publish_failure_message_ignores_oversized_403_body() -> None:
+    synthetic_secret = "synthetic-google-api-token-for-test"
+    payload = {
+        "error": {
+            "status": "PERMISSION_DENIED",
+            "errors": [{"reason": "forbidden"}],
+            "padding": synthetic_secret + "x" * gdocs._MAX_GOOGLE_ERROR_CONTENT_BYTES,
+        }
+    }
+    content = json.dumps(payload).encode("utf-8")
+    assert len(content) > gdocs._MAX_GOOGLE_ERROR_CONTENT_BYTES
+
+    message = gdocs.publish_failure_message(_http_error(403, content))
+
+    assert message == (
+        "Google API request was forbidden (HTTP 403); check Google Docs or Drive access"
+    )
+    assert synthetic_secret not in message
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"",
+        b"not json",
+        b"\xff\xfe",
+        b"[]",
+        b'{"error": "forbidden"}',
+        b'{"error": {"errors": "forbidden"}}',
+    ],
+)
+def test_publish_failure_message_ignores_unusable_403_bodies(content: bytes) -> None:
+    assert gdocs.publish_failure_message(_http_error(403, content)) == (
+        "Google API request was forbidden (HTTP 403); check Google Docs or Drive access"
+    )
+
+
+def test_publish_failure_message_reports_missing_publish_extra() -> None:
+    error = gdocs.GoogleDependenciesMissingError(gdocs._MISSING_GOOGLE_DEPENDENCIES_MESSAGE)
+
+    message = gdocs.publish_failure_message(error)
+
+    assert "knowledge-adapters[publish]" in message
+    assert message == gdocs._MISSING_GOOGLE_DEPENDENCIES_MESSAGE
+
+
+@pytest.mark.parametrize(
+    ("module", "call"),
+    [
+        ("google.auth", lambda: gdocs._build_google_credentials(include_drive=False)),
+        ("googleapiclient.discovery", gdocs._google_api_build),
+    ],
+)
+def test_missing_google_dependencies_raise_the_classified_error(
+    monkeypatch: pytest.MonkeyPatch, module: str, call: Any
+) -> None:
+    monkeypatch.setitem(sys.modules, module, None)
+
+    with pytest.raises(gdocs.GoogleDependenciesMissingError) as error:
+        call()
+
+    assert gdocs.publish_failure_message(error.value) == gdocs._MISSING_GOOGLE_DEPENDENCIES_MESSAGE
+
+
+@pytest.mark.parametrize(
+    "module",
+    [
+        "google.auth.transport.requests",
+        "google.oauth2.credentials",
+        "google_auth_oauthlib.flow",
+    ],
+)
+def test_installed_app_oauth_reports_missing_publish_extra(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, module: str
+) -> None:
+    """A missing extra is a dependency problem, not an OAuth client or token problem."""
+    monkeypatch.setitem(sys.modules, module, None)
+
+    with pytest.raises(gdocs.GoogleDependenciesMissingError) as error:
+        gdocs._build_installed_app_oauth_credentials(
+            client_file=tmp_path / "client.json",
+            token_file=tmp_path / "token.json",
+            scopes=[gdocs.GOOGLE_DOCS_SCOPE],
+        )
+
+    assert gdocs.publish_failure_message(error.value) == gdocs._MISSING_GOOGLE_DEPENDENCIES_MESSAGE

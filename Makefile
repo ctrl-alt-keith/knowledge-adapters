@@ -1,4 +1,4 @@
-.PHONY: help dev test smoke lint fix format typecheck check fix-all check-env check-gh-env chaos-random chaos-replay chaos-all release-notes release-check release-recover release-create-from-tag release-publish clean
+.PHONY: help dev verify-venv-interpreter test smoke lint fix format typecheck check fix-all check-env check-gh-env chaos-random chaos-replay chaos-all release-notes release-check release-recover release-create-from-tag release-publish clean
 
 .DEFAULT_GOAL := dev
 
@@ -14,31 +14,114 @@ RELEASE_TAG = v$(RELEASE_VERSION)
 CHAOS_SEED ?=
 CHAOS_SCENARIO ?=
 CHAOS_NODEID ?=
+MIN_PYTHON_VERSION = 3.13
+VENV_READY = $(VENV)/.dev-install-complete
+# The environment executables this Makefile invokes. The readiness guard checks
+# exactly these and nothing deeper: the stamp asserts the install finished, and
+# their presence is what that assertion has to mean for any target here to run.
+# It does not verify package versions, site-packages integrity, or import
+# health, and never re-runs installation to find out.
+VENV_TOOLS = $(PYTHON) $(PIP) $(RUFF) $(MYPY) $(PYTEST)
+PYTHON_BIN ?=
 
-$(VENV)/bin/activate:
-	python3 -m venv $(VENV)
+# Print the first interpreter that satisfies requires-python, or fail with an
+# actionable message. An explicit PYTHON_BIN is honored strictly rather than
+# falling back, so a deliberate choice never silently resolves to another
+# interpreter.
+define select_python
+set -e; \
+if [ -n "$(PYTHON_BIN)" ]; then \
+	candidates="$(PYTHON_BIN)"; \
+else \
+	candidates="python3 python$(MIN_PYTHON_VERSION)"; \
+fi; \
+selected=""; \
+for candidate in $$candidates; do \
+	command -v "$$candidate" >/dev/null 2>&1 || continue; \
+	"$$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= tuple(int(part) for part in "$(MIN_PYTHON_VERSION)".split(".")) else 1)' 2>/dev/null || continue; \
+	selected="$$candidate"; \
+	break; \
+done; \
+if [ -z "$$selected" ]; then \
+	if [ -n "$(PYTHON_BIN)" ]; then \
+		echo "Error: PYTHON_BIN=$(PYTHON_BIN) is missing or older than Python $(MIN_PYTHON_VERSION)." >&2; \
+	else \
+		echo "Error: no Python $(MIN_PYTHON_VERSION)+ interpreter found. Install one or set PYTHON_BIN=/path/to/python$(MIN_PYTHON_VERSION)." >&2; \
+	fi; \
+	exit 1; \
+fi; \
+echo "$$selected"
+endef
+
+# Order-only so it runs on every invocation, including when the stamp is already
+# current, without forcing a reinstall. A recipe-level check cannot reach the
+# stamped case, which is exactly where an explicit PYTHON_BIN would otherwise be
+# discarded in favor of whatever interpreter the environment was built from.
+verify-venv-interpreter:
+	@[ -e $(VENV) ] || exit 0; \
+	if [ ! -x $(PYTHON) ] || ! $(PYTHON) -c 'import sys; sys.exit(0 if sys.version_info >= tuple(int(part) for part in "$(MIN_PYTHON_VERSION)".split(".")) else 1)' 2>/dev/null; then \
+		echo "Error: $(VENV) exists but has no usable Python $(MIN_PYTHON_VERSION)+ interpreter at $(PYTHON)." >&2; \
+		echo "Run 'make clean' to remove it, then re-run this target." >&2; \
+		exit 1; \
+	fi; \
+	if [ -e $(VENV_READY) ]; then \
+		for tool in $(VENV_TOOLS); do \
+			[ -x "$$tool" ] && continue; \
+			echo "Error: $(VENV) is marked complete but $$tool is missing or not executable." >&2; \
+			echo "Run 'make clean' to remove it, then re-run this target." >&2; \
+			exit 1; \
+		done; \
+	fi; \
+	[ -n "$(PYTHON_BIN)" ] || exit 0; \
+	interpreter="$$($(select_python))" || exit 1; \
+	requested="$$("$$interpreter" -c 'import sys; print(sys._base_executable or sys.executable)' 2>/dev/null)"; \
+	existing="$$($(PYTHON) -c 'import sys; print(sys._base_executable or sys.executable)' 2>/dev/null)"; \
+	if [ -z "$$requested" ] || [ -z "$$existing" ]; then \
+		echo "Error: could not determine the interpreter behind $(VENV) or PYTHON_BIN=$(PYTHON_BIN)." >&2; \
+		exit 1; \
+	fi; \
+	if [ "$$(realpath "$$requested" 2>/dev/null || echo "$$requested")" \
+		!= "$$(realpath "$$existing" 2>/dev/null || echo "$$existing")" ]; then \
+		echo "Error: $(VENV) was built from $$existing, not the requested PYTHON_BIN=$(PYTHON_BIN) ($$requested)." >&2; \
+		echo "Run 'make clean' to remove it, then re-run this target to build with the requested interpreter." >&2; \
+		exit 1; \
+	fi
+
+# Completion stamp rather than an activation script: a virtual environment left
+# behind by an interrupted or failed install must never look ready, or the
+# bootstrap silently reuses it and skips interpreter selection entirely.
+$(VENV_READY): | verify-venv-interpreter
+	@if [ ! -e $(VENV) ]; then \
+		interpreter="$$($(select_python))" || exit 1; \
+		echo "Creating $(VENV) with $$interpreter."; \
+		"$$interpreter" -m venv $(VENV); \
+	else \
+		echo "Completing the existing $(VENV) install."; \
+	fi
 	$(PIP) install --upgrade pip
 	$(PIP) install -e '.[dev]'
+	@touch $@
 
 help: ## List available repo-local Makefile targets with short descriptions.
 	@awk 'BEGIN {FS = ":.*## "}; /^[a-zA-Z0-9_.-]+:.*## / {printf "  %-24s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-dev: $(VENV)/bin/activate ## Create or refresh the local development environment.
+dev: $(VENV_READY) ## Create or refresh the local development environment.
 
 check-env: ## Verify local development prerequisites.
-	@command -v python3 >/dev/null 2>&1 || { echo "Error: python3 is required for local development." >&2; exit 1; }
+	@interpreter="$$($(select_python))" || exit 1; \
+	echo "Using $$interpreter ($$("$$interpreter" --version 2>&1))."
 
 check-gh-env: ## Verify GitHub CLI availability and authentication.
 	@command -v gh >/dev/null 2>&1 || { echo "Error: GitHub CLI (gh) is required but is not installed." >&2; exit 1; }
 	@gh auth status >/dev/null 2>&1 || { echo "Error: GitHub CLI authentication is required. Run 'gh auth login' and try again." >&2; exit 1; }
 
-test: $(VENV)/bin/activate ## Run the test suite.
+test: $(VENV_READY) ## Run the test suite.
 	$(PYTEST)
 
-smoke: $(VENV)/bin/activate ## Run CLI smoke tests.
+smoke: $(VENV_READY) ## Run CLI smoke tests.
 	$(PYTEST) tests/test_cli_smoke.py
 
-chaos-random: $(VENV)/bin/activate ## Run one randomly selected chaos scenario.
+chaos-random: $(VENV_READY) ## Run one randomly selected chaos scenario.
 	@set -e; \
 	seed="$(CHAOS_SEED)"; \
 	if [ -z "$$seed" ]; then \
@@ -60,7 +143,7 @@ chaos-random: $(VENV)/bin/activate ## Run one randomly selected chaos scenario.
 	echo "CHAOS_REPLAY_COMMAND: $$replay_command"; \
 	CHAOS_TARGET=chaos-random CHAOS_SEED="$$seed" CHAOS_SCENARIO="$$scenario" $(PYTEST) -m chaos -k "$$scenario"
 
-chaos-replay: $(VENV)/bin/activate ## Replay a selected chaos scenario.
+chaos-replay: $(VENV_READY) ## Replay a selected chaos scenario.
 	@set -e; \
 	seed="$(CHAOS_SEED)"; \
 	scenario="$(CHAOS_SCENARIO)"; \
@@ -85,19 +168,19 @@ chaos-replay: $(VENV)/bin/activate ## Replay a selected chaos scenario.
 		CHAOS_TARGET=chaos-replay CHAOS_SEED="$$seed" CHAOS_SCENARIO="$$scenario" $(PYTEST) -m chaos -k "$$scenario"; \
 	fi
 
-chaos-all: $(VENV)/bin/activate ## Run all chaos scenarios.
+chaos-all: $(VENV_READY) ## Run all chaos scenarios.
 	CHAOS_TARGET=chaos-all $(PYTEST) -m chaos
 
-lint: $(VENV)/bin/activate ## Run Ruff lint checks.
+lint: $(VENV_READY) ## Run Ruff lint checks.
 	$(RUFF) check .
 
-fix: $(VENV)/bin/activate ## Apply Ruff lint fixes.
+fix: $(VENV_READY) ## Apply Ruff lint fixes.
 	$(RUFF) check . --fix
 
-format: $(VENV)/bin/activate ## Format code with Ruff.
+format: $(VENV_READY) ## Format code with Ruff.
 	$(RUFF) format .
 
-typecheck: $(VENV)/bin/activate ## Run MyPy type checks.
+typecheck: $(VENV_READY) ## Run MyPy type checks.
 	$(MYPY) .
 
 check: lint typecheck test ## Run canonical local validation.

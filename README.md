@@ -16,9 +16,10 @@ consuming Product's policy.
 Google Docs can appear on either side of this boundary. Acquiring a configured
 Google Doc as source material is Source Acquisition work. Delivering an
 authorized artifact to Google Docs is work of the **Publication Product
-Candidate** and its destination implementation, not a source-adapter
-responsibility. See the
-[Google Docs destination design](docs/google-docs-destination.md).
+Candidate**, not a source-adapter responsibility. This repository hosts that
+publication path as a separately invoked `publish` command: acquisition and
+bundling never publish, and configuration alone never authorizes publication.
+See [Google Docs Publication](docs/google-docs-destination.md).
 
 ---
 
@@ -42,6 +43,13 @@ To install only the CLI, use `pipx` directly from GitHub:
 ```bash
 pipx install git+https://github.com/ctrl-alt-keith/knowledge-adapters.git
 knowledge-adapters --help
+```
+
+Acquisition and bundling need no provider SDKs. Google Docs publication is an
+opt-in `publish` extra, so install it only if you intend to publish:
+
+```bash
+pipx install 'knowledge-adapters[publish] @ git+https://github.com/ctrl-alt-keith/knowledge-adapters.git'
 ```
 
 With a `pipx` install, use `knowledge-adapters` in the installed-user examples
@@ -513,6 +521,11 @@ Publication creates a new Google Doc and inserts the bundle as readable plain
 text; it does not update documents, share content, manage permissions, or
 synchronize in the background.
 
+This command needs the optional `publish` extra (`pip install
+'knowledge-adapters[publish]'`). Without it, `--dry-run` still validates the
+selected bundle locally, and a real publish stops with installation guidance
+instead of a partial attempt.
+
 By default Google Application Default Credentials are used. For a desktop user
 flow, configure both `oauth_client_file` and `oauth_token_file` in the selected
 publish entry. The token is persisted atomically with owner-only permissions.
@@ -558,9 +571,26 @@ make dev
 make check
 ```
 
-`make check-env` verifies only the local prerequisites for development. GitHub
-authentication is not required to create the virtualenv, install dependencies,
-or run local validation.
+`make check-env` verifies only the local prerequisites for development. It
+reports the interpreter the bootstrap selected: the first one satisfying this
+project's `requires-python`, which is not necessarily whatever `python3` points
+at. Set `PYTHON_BIN=/path/to/python3.13` to choose one explicitly; an explicit
+choice is validated rather than silently replaced. That holds when `.venv`
+already exists too: if it was built from a different interpreter, the bootstrap
+stops and tells you to `make clean` rather than quietly installing into the
+environment you did not ask for. GitHub authentication is not required to create
+the virtualenv, install dependencies, or run local validation.
+
+If a previous bootstrap failed partway, `.venv` can exist without a complete
+install. The environment is only considered ready once its install finishes, so
+the next `make dev` completes it in place when its interpreter is still
+suitable, and otherwise tells you to run `make clean` first. A completed install
+is re-checked the same way, so an environment that was later removed in part, or
+whose base interpreter disappeared from under it, is rejected with the same
+guidance rather than being treated as ready. That check covers the tools these
+`make` targets invoke, so a stamp cannot outlive the install it describes; it
+does not inspect package versions or site-packages, and never reinstalls to
+find out.
 
 After `make dev`, the repo-local CLI entrypoint for this checkout is:
 
@@ -660,7 +690,8 @@ over time.
 - embeddings or vector databases
 - search or retrieval UX
 - notebook publishing
-- cloud document publishing
+- cloud document sharing, permission management, updates, or background sync
+  (the explicit `publish` command creates a new Google Doc and stops there)
 - browser automation
 - handling every Confluence macro or attachment type perfectly
 

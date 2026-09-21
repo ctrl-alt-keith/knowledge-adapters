@@ -29,13 +29,25 @@ _SAFE_GOOGLE_403_REASONS = frozenset(
 )
 
 
+_MISSING_GOOGLE_DEPENDENCIES_MESSAGE = (
+    "Google API dependencies are not installed. Install the publish extra, "
+    "for example 'pip install knowledge-adapters[publish]', before publishing to Google Docs."
+)
+
+
 class InstalledAppOAuthError(RuntimeError):
     """Raised when explicit installed-app OAuth cannot be used safely."""
+
+
+class GoogleDependenciesMissingError(RuntimeError):
+    """Raised when the optional Google publication dependencies are unavailable."""
 
 
 def publish_failure_message(error: BaseException) -> str:
     """Return actionable diagnostics without rendering provider-controlled secrets."""
     error_type = type(error)
+    if error_type is GoogleDependenciesMissingError:
+        return _MISSING_GOOGLE_DEPENDENCIES_MESSAGE
     if error_type is InstalledAppOAuthError:
         return "Google installed-app OAuth failed; check the OAuth client and token files"
     if error_type.__module__ == "google.auth.exceptions" and error_type.__name__ in {
@@ -208,10 +220,7 @@ def _build_google_credentials(
     try:
         import google.auth
     except ImportError as exc:
-        raise RuntimeError(
-            "Google API dependencies are not installed. Install knowledge-adapters "
-            "with its package dependencies before publishing to Google Docs."
-        ) from exc
+        raise GoogleDependenciesMissingError(_MISSING_GOOGLE_DEPENDENCIES_MESSAGE) from exc
     credentials, _ = google.auth.default(scopes=scopes)
     return credentials
 
@@ -219,11 +228,16 @@ def _build_google_credentials(
 def _build_installed_app_oauth_credentials(
     client_file: Path, token_file: Path, scopes: list[str]
 ) -> Any:
+    # Imported outside the OAuth safety wrapper below: a missing publish extra is a
+    # dependency problem, and reporting it as an OAuth client or token problem sends
+    # the operator to the wrong remediation.
     try:
         from google.auth.transport.requests import Request
         from google.oauth2.credentials import Credentials
         from google_auth_oauthlib.flow import InstalledAppFlow  # type: ignore[import-untyped]
-
+    except ImportError as exc:
+        raise GoogleDependenciesMissingError(_MISSING_GOOGLE_DEPENDENCIES_MESSAGE) from exc
+    try:
         credentials: Any | None = None
         if os.path.lexists(token_file):
             _prepare_oauth_token_file(token_file)
@@ -285,10 +299,7 @@ def _google_api_build() -> Any:
     try:
         from googleapiclient.discovery import build  # type: ignore[import-untyped]
     except ImportError as exc:
-        raise RuntimeError(
-            "Google API dependencies are not installed. Install knowledge-adapters "
-            "with its package dependencies before publishing to Google Docs."
-        ) from exc
+        raise GoogleDependenciesMissingError(_MISSING_GOOGLE_DEPENDENCIES_MESSAGE) from exc
     return build
 
 

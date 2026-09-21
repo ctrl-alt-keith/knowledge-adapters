@@ -23,6 +23,25 @@ from tests.chaos import (
     install_confluence_http_chaos,
 )
 
+#: Adapter inputs that a host environment can supply ambiently. Proxied, CI, and
+#: corporate shells routinely export the CA bundle variables, which otherwise
+#: turn deterministic TLS and auth expectations into host-dependent results.
+AMBIENT_ADAPTER_ENV_VARS = (
+    "CONFLUENCE_BEARER_TOKEN",
+    "CONFLUENCE_CLIENT_CERT_FILE",
+    "CONFLUENCE_CLIENT_KEY_FILE",
+    "KNOWLEDGE_ADAPTERS_CONFLUENCE_CA_BUNDLE",
+    "REQUESTS_CA_BUNDLE",
+    "SSL_CERT_FILE",
+)
+
+
+@pytest.fixture(autouse=True)
+def isolate_ambient_adapter_env(monkeypatch: MonkeyPatch) -> None:
+    """Start every test from an environment the host cannot pre-populate."""
+    for name in AMBIENT_ADAPTER_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+
 
 @dataclass(frozen=True)
 class ChaosFailureReport:

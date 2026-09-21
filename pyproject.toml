@@ -13,18 +13,21 @@ authors = [
   { name = "Keith Minnig" }
 ]
 dependencies = [
-  "google-api-python-client>=2.0",
-  "google-auth>=2.0",
-  "google-auth-oauthlib>=1.0",
   "pypdf>=5.0",
   "PyYAML>=6.0",
 ]
 
 [project.optional-dependencies]
+publish = [
+  "google-api-python-client>=2.0",
+  "google-auth>=2.0",
+  "google-auth-oauthlib>=1.0",
+]
 youtube = [
   "yt-dlp>=2025.6.30,<2027",
 ]
 dev = [
+  "knowledge-adapters[publish]",
   "fastapi>=0.115",
   "pytest>=8.0",
   "pytest-cov>=5.0",

@@ -19,9 +19,15 @@ current implementation, validation, review, and merge facts.
 - GitHub metadata ingestion: v1 complete (`github_metadata` adapter for
   GitHub/GHE issues, pull requests, releases, optional issue comments, and
   optional pull request comments/review comments)
-- Google Docs destination: design completed as a separate post-bundle
-  implementation of the **Publication Product Candidate**, not a
-  `knowledge-adapters` source adapter or bundle subcommand
+- Public-source acquisition: `public_webpage` and `public_pdf` adapters,
+  replay-quality diagnostics, and replay-acceptance checks complete
+- YouTube: `youtube` source-package adapter complete
+- Source Package contract: provider-neutral producer-to-consumer interchange,
+  construction and verification APIs complete (experimental contract)
+- Google Docs publication: integrated into this repository as the separately
+  invoked `publish` command implementing the **Publication Product Candidate**
+  (#356). It is not a source adapter, and neither `run` nor `bundle` publishes.
+  The former separate `ka-destinations` implementation is retired
 - Bundle command:
   - v1 complete (#147)
   - ordering controls added (#153)
@@ -29,6 +35,7 @@ current implementation, validation, review, and merge facts.
   - header modes added (#155)
   - changed-only bundle comparison complete (#157)
   - size-aware bundle splitting complete (#154)
+  - `--config` without `--bundle` renders every configured bundle (#355)
 - Config-driven runs, named bundle definitions, stale-aware bundling, CLI,
   interrupt handling, and test coverage are stable
 
