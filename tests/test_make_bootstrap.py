@@ -8,15 +8,28 @@ any package installation, so they stay deterministic and need no network.
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-MIN_PYTHON_VERSION = "3.13"
+
+
+def _required_python_version() -> str:
+    """The one source of truth for the minimum interpreter: requires-python."""
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    requires = pyproject["project"]["requires-python"]
+    match = re.search(r">=\s*(\d+(?:\.\d+)*)", requires)
+    assert match is not None, f"no minimum version in requires-python: {requires!r}"
+    return match.group(1)
+
+
+MIN_PYTHON_VERSION = _required_python_version()
 
 pytestmark = pytest.mark.skipif(shutil.which("make") is None, reason="make is not available")
 
@@ -32,11 +45,34 @@ def _run_make(*arguments: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_check_env_selects_an_interpreter_satisfying_requires_python() -> None:
+def test_makefile_minimum_python_matches_requires_python() -> None:
+    """The bootstrap hardcodes the minimum, so pin it to the packaging metadata.
+
+    Raising requires-python alone would otherwise leave the bootstrap selecting
+    an interpreter it still considers valid, turning a clear selection error
+    into an opaque pip resolution failure after the environment exists.
+    """
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+
+    match = re.search(r"^MIN_PYTHON_VERSION = (\S+)$", makefile, re.MULTILINE)
+
+    assert match is not None, "Makefile no longer defines MIN_PYTHON_VERSION"
+    assert match.group(1) == MIN_PYTHON_VERSION
+
+
+def test_check_env_reports_an_interpreter_or_how_to_supply_one() -> None:
+    """The outcome depends on the host, so assert the contract rather than one branch.
+
+    A host can legitimately have no suitable interpreter on PATH and reach one
+    only through PYTHON_BIN, which is the case this feature exists to serve.
+    Requiring success here would fail the suite on exactly that host.
+    """
     result = _run_make("check-env")
 
-    assert result.returncode == 0, result.stderr
-    assert "Using " in result.stdout
+    if result.returncode == 0:
+        assert "Using " in result.stdout
+    else:
+        assert "PYTHON_BIN" in result.stderr
 
 
 def test_check_env_rejects_an_explicit_interpreter_below_requires_python() -> None:
