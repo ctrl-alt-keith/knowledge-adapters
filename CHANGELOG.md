@@ -62,7 +62,9 @@ Formal changelog coverage begins at `0.2.0`, when this repository started using
   A partially removed environment, or one whose base interpreter disappeared
   from under it, now stops with `make clean` guidance instead of silently
   discarding an explicit `PYTHON_BIN` or failing later with a missing-tool
-  error.
+  error. Readiness covers the environment executables these targets invoke, so
+  a stamp that survives the loss of installed tools is rejected at the
+  readiness boundary rather than at the first target that needs one.
 - Tests now clear ambient adapter environment variables, so proxied, CI, and
   corporate shells that export `REQUESTS_CA_BUNDLE` or `SSL_CERT_FILE` no longer
   turn deterministic TLS expectations into host-dependent failures.

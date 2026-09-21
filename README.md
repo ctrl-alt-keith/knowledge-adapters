@@ -587,7 +587,10 @@ the next `make dev` completes it in place when its interpreter is still
 suitable, and otherwise tells you to run `make clean` first. A completed install
 is re-checked the same way, so an environment that was later removed in part, or
 whose base interpreter disappeared from under it, is rejected with the same
-guidance rather than being treated as ready.
+guidance rather than being treated as ready. That check covers the tools these
+`make` targets invoke, so a stamp cannot outlive the install it describes; it
+does not inspect package versions or site-packages, and never reinstalls to
+find out.
 
 After `make dev`, the repo-local CLI entrypoint for this checkout is:
 
