@@ -99,6 +99,33 @@ def test_explicit_interpreter_is_not_ignored_for_an_existing_environment(
     assert "/nonexistent/other-python" in result.stderr
 
 
+@pytest.mark.parametrize("interpreter_shape", ["missing", "dangling-symlink"])
+@pytest.mark.parametrize("explicit_interpreter", [False, True])
+def test_a_surviving_stamp_without_a_usable_interpreter_is_rejected(
+    tmp_path: Path, interpreter_shape: str, explicit_interpreter: bool
+) -> None:
+    """A completion stamp can outlive the environment it described.
+
+    A partially removed environment, or one whose base interpreter was upgraded
+    out from under its symlink, leaves the stamp current while nothing usable
+    remains. Reporting that as ready discards an explicit PYTHON_BIN and defers
+    the failure to a confusing missing-tool error later in validation.
+    """
+    venv = tmp_path / "stale-venv"
+    (venv / "bin").mkdir(parents=True)
+    (venv / ".dev-install-complete").touch()
+    if interpreter_shape == "dangling-symlink":
+        (venv / "bin" / "python").symlink_to("/nonexistent/python3.13")
+
+    arguments = ["dev", f"VENV={venv}"]
+    if explicit_interpreter:
+        arguments.append(f"PYTHON_BIN={sys.executable}")
+    result = _run_make(*arguments)
+
+    assert result.returncode != 0
+    assert "make clean" in result.stderr
+
+
 def test_bootstrap_does_not_reuse_an_environment_left_by_a_failed_install(
     tmp_path: Path,
 ) -> None:

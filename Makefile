@@ -52,7 +52,13 @@ endef
 # stamped case, which is exactly where an explicit PYTHON_BIN would otherwise be
 # discarded in favor of whatever interpreter the environment was built from.
 verify-venv-interpreter:
-	@[ -n "$(PYTHON_BIN)" ] && [ -x $(PYTHON) ] || exit 0; \
+	@[ -e $(VENV) ] || exit 0; \
+	if [ ! -x $(PYTHON) ] || ! $(PYTHON) -c 'import sys; sys.exit(0 if sys.version_info >= tuple(int(part) for part in "$(MIN_PYTHON_VERSION)".split(".")) else 1)' 2>/dev/null; then \
+		echo "Error: $(VENV) exists but has no usable Python $(MIN_PYTHON_VERSION)+ interpreter at $(PYTHON)." >&2; \
+		echo "Run 'make clean' to remove it, then re-run this target." >&2; \
+		exit 1; \
+	fi; \
+	[ -n "$(PYTHON_BIN)" ] || exit 0; \
 	interpreter="$$($(select_python))" || exit 1; \
 	requested="$$("$$interpreter" -c 'import sys; print(sys._base_executable or sys.executable)' 2>/dev/null)"; \
 	existing="$$($(PYTHON) -c 'import sys; print(sys._base_executable or sys.executable)' 2>/dev/null)"; \
@@ -71,16 +77,12 @@ verify-venv-interpreter:
 # behind by an interrupted or failed install must never look ready, or the
 # bootstrap silently reuses it and skips interpreter selection entirely.
 $(VENV_READY): | verify-venv-interpreter
-	@interpreter="$$($(select_python))" || exit 1; \
-	if [ ! -e $(VENV) ]; then \
+	@if [ ! -e $(VENV) ]; then \
+		interpreter="$$($(select_python))" || exit 1; \
 		echo "Creating $(VENV) with $$interpreter."; \
 		"$$interpreter" -m venv $(VENV); \
-	elif [ -x $(PYTHON) ] && $(PYTHON) -c 'import sys; sys.exit(0 if sys.version_info >= tuple(int(part) for part in "$(MIN_PYTHON_VERSION)".split(".")) else 1)' 2>/dev/null; then \
-		echo "Completing the existing $(VENV) install."; \
 	else \
-		echo "Error: $(VENV) exists but has no Python $(MIN_PYTHON_VERSION)+ interpreter, so it cannot be completed in place." >&2; \
-		echo "Run 'make clean' to remove it, then re-run this target." >&2; \
-		exit 1; \
+		echo "Completing the existing $(VENV) install."; \
 	fi
 	$(PIP) install --upgrade pip
 	$(PIP) install -e '.[dev]'
