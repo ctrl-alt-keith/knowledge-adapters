@@ -57,6 +57,12 @@ Formal changelog coverage begins at `0.2.0`, when this repository started using
   built from a different interpreter, the bootstrap stops with `make clean`
   guidance rather than installing into the interpreter the operator did not
   select.
+- Every existing environment is validated in one place before use, so a
+  completion stamp that outlives its environment no longer makes it look ready.
+  A partially removed environment, or one whose base interpreter disappeared
+  from under it, now stops with `make clean` guidance instead of silently
+  discarding an explicit `PYTHON_BIN` or failing later with a missing-tool
+  error.
 - Tests now clear ambient adapter environment variables, so proxied, CI, and
   corporate shells that export `REQUESTS_CA_BUNDLE` or `SSL_CERT_FILE` no longer
   turn deterministic TLS expectations into host-dependent failures.

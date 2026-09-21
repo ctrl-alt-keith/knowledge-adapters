@@ -584,7 +584,10 @@ the virtualenv, install dependencies, or run local validation.
 If a previous bootstrap failed partway, `.venv` can exist without a complete
 install. The environment is only considered ready once its install finishes, so
 the next `make dev` completes it in place when its interpreter is still
-suitable, and otherwise tells you to run `make clean` first.
+suitable, and otherwise tells you to run `make clean` first. A completed install
+is re-checked the same way, so an environment that was later removed in part, or
+whose base interpreter disappeared from under it, is rejected with the same
+guidance rather than being treated as ready.
 
 After `make dev`, the repo-local CLI entrypoint for this checkout is:
 
