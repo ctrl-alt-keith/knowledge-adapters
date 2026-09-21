@@ -66,6 +66,12 @@ def _environment_built_by_another_interpreter(tmp_path: Path) -> Path:
     """
     venv = tmp_path / "other-venv"
     (venv / "bin").mkdir(parents=True)
+    # A stamped environment must otherwise look complete, or the readiness check
+    # rejects it for a missing tool before the interpreter comparison is reached.
+    for tool in INVOKED_TOOLS:
+        stub = venv / "bin" / tool
+        stub.write_text("#!/bin/sh\n", encoding="utf-8")
+        stub.chmod(0o755)
     python = venv / "bin" / "python"
     python.write_text(
         "#!/bin/sh\n"
@@ -97,6 +103,50 @@ def test_explicit_interpreter_is_not_ignored_for_an_existing_environment(
     assert result.returncode != 0
     assert "make clean" in result.stderr
     assert "/nonexistent/other-python" in result.stderr
+
+
+INVOKED_TOOLS = ("pip", "ruff", "mypy", "pytest")
+
+
+def _completed_environment(tmp_path: Path, *, missing: str | None = None) -> Path:
+    """An environment whose stamp says the install finished."""
+    venv = tmp_path / "complete-venv"
+    (venv / "bin").mkdir(parents=True)
+    (venv / "bin" / "python").symlink_to(sys.executable)
+    for tool in INVOKED_TOOLS:
+        if tool == missing:
+            continue
+        stub = venv / "bin" / tool
+        stub.write_text("#!/bin/sh\n", encoding="utf-8")
+        stub.chmod(0o755)
+    (venv / ".dev-install-complete").touch()
+    return venv
+
+
+@pytest.mark.parametrize("missing", INVOKED_TOOLS)
+def test_a_stamp_is_rejected_when_an_invoked_tool_is_missing(tmp_path: Path, missing: str) -> None:
+    """A runnable interpreter is not evidence that the install survived.
+
+    An environment can keep bin/python while losing the tools the stamp claims
+    were installed. Accepting that defers the failure to the first target that
+    invokes one, which is the missing-tool error this guard exists to prevent.
+    """
+    venv = _completed_environment(tmp_path, missing=missing)
+
+    result = _run_make("dev", f"VENV={venv}")
+
+    assert result.returncode != 0
+    assert missing in result.stderr
+    assert "make clean" in result.stderr
+
+
+def test_a_complete_environment_is_accepted(tmp_path: Path) -> None:
+    """The readiness check must not reject an environment that is actually complete."""
+    venv = _completed_environment(tmp_path)
+
+    result = _run_make("dev", f"VENV={venv}")
+
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.parametrize("interpreter_shape", ["missing", "dangling-symlink"])

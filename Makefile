@@ -16,6 +16,12 @@ CHAOS_SCENARIO ?=
 CHAOS_NODEID ?=
 MIN_PYTHON_VERSION = 3.13
 VENV_READY = $(VENV)/.dev-install-complete
+# The environment executables this Makefile invokes. The readiness guard checks
+# exactly these and nothing deeper: the stamp asserts the install finished, and
+# their presence is what that assertion has to mean for any target here to run.
+# It does not verify package versions, site-packages integrity, or import
+# health, and never re-runs installation to find out.
+VENV_TOOLS = $(PYTHON) $(PIP) $(RUFF) $(MYPY) $(PYTEST)
 PYTHON_BIN ?=
 
 # Print the first interpreter that satisfies requires-python, or fail with an
@@ -57,6 +63,14 @@ verify-venv-interpreter:
 		echo "Error: $(VENV) exists but has no usable Python $(MIN_PYTHON_VERSION)+ interpreter at $(PYTHON)." >&2; \
 		echo "Run 'make clean' to remove it, then re-run this target." >&2; \
 		exit 1; \
+	fi; \
+	if [ -e $(VENV_READY) ]; then \
+		for tool in $(VENV_TOOLS); do \
+			[ -x "$$tool" ] && continue; \
+			echo "Error: $(VENV) is marked complete but $$tool is missing or not executable." >&2; \
+			echo "Run 'make clean' to remove it, then re-run this target." >&2; \
+			exit 1; \
+		done; \
 	fi; \
 	[ -n "$(PYTHON_BIN)" ] || exit 0; \
 	interpreter="$$($(select_python))" || exit 1; \
