@@ -260,14 +260,23 @@ def test_verifier_rejects_manifest_before_parsing(tmp_path: Path) -> None:
     assert result.verified_claims is None
 
 
-def test_builder_rejects_unsafe_paths() -> None:
+@pytest.mark.parametrize("path", ["../escape", "."])
+def test_builder_rejects_unsafe_paths(path: str) -> None:
     value = builder()
-    try:
-        value.add_artifact(Artifact("../escape", b"x", "bad", "text/plain"))
-    except ValueError as exc:
-        assert "unsafe" in str(exc)
-    else:
-        raise AssertionError("unsafe path accepted")
+    with pytest.raises(ValueError, match="unsafe"):
+        value.add_artifact(Artifact(path, b"x", "bad", "text/plain"))
+
+
+def test_verifier_rejects_package_root_as_artifact_path(tmp_path: Path) -> None:
+    destination = tmp_path / "package"
+    assert builder().seal(destination).ok
+    rewrite_manifest(destination, lambda manifest: manifest["artifacts"][0].update(path="."))
+
+    result = verify_package(destination)
+
+    assert result.state == "rejected"
+    assert result.findings[0].code == "unsafe-artifact-path"
+    assert result.findings[0].stage == "path-safety"
 
 
 def test_builder_rejects_reserved_manifest_fields_and_request_artifact() -> None:

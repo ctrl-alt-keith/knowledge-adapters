@@ -158,9 +158,10 @@ source-package/
 ```
 
 All manifest paths are package-relative, use `/` separators, and cannot escape
-the package root. Files are UTF-8 JSON or UTF-8 markdown unless an artifact
-entry declares another media type. Raw provider responses and large binaries
-are optional, quarantined artifacts rather than required package content.
+the package root. Each path names a file; `.` does not name an artifact. Files
+are UTF-8 JSON or UTF-8 markdown unless an artifact entry declares another
+media type. Raw provider responses and large binaries are optional, quarantined
+artifacts rather than required package content.
 
 `package.json` is the authoritative inventory of every other handoff artifact
 except `package.sha256`, which is excluded to avoid circular self-reference.
