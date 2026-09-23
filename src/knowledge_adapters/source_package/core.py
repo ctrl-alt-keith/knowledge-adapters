@@ -84,6 +84,7 @@ def _safe_path(value: str) -> bool:
     path = PurePosixPath(value)
     return (
         bool(value)
+        and bool(path.parts)
         and "\\" not in value
         and not path.is_absolute()
         and ".." not in path.parts
