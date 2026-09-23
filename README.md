@@ -638,9 +638,10 @@ This repository is a public-by-design workspace for building source adapters tha
 - keep source-specific logic separate from downstream processing
 - avoid embedding environment-specific details in the codebase
 
-The initial implementation focuses on **Confluence** and **local file**
-adapters, but the repository is intentionally scoped for additional adapters
-over time.
+The repository began with **Confluence** and **local file** adapters and now
+also supports bounded public-source, repository, GitHub metadata, and YouTube
+acquisition flows. It remains intentionally scoped for additional adapters over
+time.
 
 ---
 
@@ -679,8 +680,12 @@ over time.
   issues, pull requests, and releases
 - Confluence single-page and tree flows with default stub and opt-in real
   clients, incremental sync, pacing, and cache controls
+- The `youtube` Source Package producer for explicit video and bounded playlist
+  acquisition, with deterministic caption selection and normalization
 - Source Package verification, deterministic bundle rendering, config-driven
   multi-source runs, and replay-acceptance diagnostics
+- Explicit, operator-selected Google Docs publication through `publish`; source
+  acquisition, runs, and bundling never publish
 - CI through the repository `make check` target and contract-focused tests
 
 ---
