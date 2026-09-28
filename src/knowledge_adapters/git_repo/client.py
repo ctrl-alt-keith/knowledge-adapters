@@ -70,7 +70,16 @@ def fetch_repo_snapshot(
 
     normalized_subdir = normalize_subdir(subdir)
     if normalized_subdir is not None:
-        subdir_path = repo_dir / Path(*PurePosixPath(normalized_subdir).parts)
+        subdir_parts = PurePosixPath(normalized_subdir).parts
+        if any(
+            repo_dir.joinpath(*subdir_parts[:index]).is_symlink()
+            for index in range(1, len(subdir_parts) + 1)
+        ):
+            raise ValueError(
+                f"Subdirectory contains a symbolic link at ref {resolved_ref!r}: "
+                f"{normalized_subdir}."
+            )
+        subdir_path = repo_dir.joinpath(*subdir_parts)
         if not subdir_path.exists():
             raise ValueError(
                 f"Subdirectory does not exist at ref {resolved_ref!r}: {normalized_subdir}."
@@ -96,6 +105,11 @@ def fetch_repo_snapshot(
     skipped_files: list[SkippedGitRepoFile] = []
     for repo_path in selected_paths:
         source_path = repo_dir / Path(*PurePosixPath(repo_path).parts)
+        if source_path.is_symlink():
+            skipped_files.append(
+                SkippedGitRepoFile(repo_path=repo_path, reason="symbolic link")
+            )
+            continue
         if not source_path.exists():
             skipped_files.append(
                 SkippedGitRepoFile(

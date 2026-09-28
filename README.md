@@ -246,7 +246,8 @@ path filtering, previews one markdown artifact per included UTF-8 text file,
 and does not write files in dry-run mode. Binary and non-UTF-8 files are skipped
 with explicit reporting. Use include filters for first runs; ingesting an entire
 repository is usually noisier than reviewing one known documentation or source
-surface.
+surface. Tracked symbolic links are skipped; a symbolic link cannot be used as
+the ingestion subdirectory.
 
 GitHub metadata first run:
 
