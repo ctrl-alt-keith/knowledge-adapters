@@ -21,7 +21,7 @@ def test_select_strategy_returns_requested_named_strategy() -> None:
 def test_select_strategy_rejects_unknown_name_with_supported_options() -> None:
     with pytest.raises(
         ValueError,
-        match="^Unsupported adapter strategy 'missing'\. Use 'primary' or 'fallback'\.$",
+        match=r"^Unsupported adapter strategy 'missing'\. Use 'primary' or 'fallback'\.$",
     ):
         select_strategy(
             {"primary": object(), "fallback": object()},
