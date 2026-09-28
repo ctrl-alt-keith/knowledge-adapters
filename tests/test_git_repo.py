@@ -5,9 +5,11 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
 from pytest import CaptureFixture
 
 from knowledge_adapters.cli import main
+from knowledge_adapters.git_repo.client import fetch_repo_snapshot
 from knowledge_adapters.git_repo.writer import markdown_path
 from tests.artifact_assertions import assert_markdown_document
 from tests.cli_output_assertions import (
@@ -60,6 +62,37 @@ def _sha256_text(path: Path) -> str:
 def test_git_repo_markdown_path_avoids_double_md_extension() -> None:
     assert markdown_path("/tmp/out", "README.md") == Path("/tmp/out/pages/README.md")
     assert markdown_path("/tmp/out", "docs/guide.txt") == Path("/tmp/out/pages/docs/guide.txt.md")
+
+
+def test_git_repo_skips_tracked_symbolic_links(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    _init_repo(repo_dir)
+    _write_text(repo_dir / "README.md", "# Safe\n")
+    _write_text(tmp_path / "outside.txt", "private text\n")
+    (repo_dir / "outside-link.txt").symlink_to(tmp_path / "outside.txt")
+    (repo_dir / "inside-link.txt").symlink_to("README.md")
+    (repo_dir / "broken-link.txt").symlink_to("missing.txt")
+    _commit_all(repo_dir, "add text and symbolic links")
+
+    snapshot = fetch_repo_snapshot(str(repo_dir))
+
+    assert [source.repo_path for source in snapshot.files] == ["README.md"]
+    assert [(item.repo_path, item.reason) for item in snapshot.skipped_files] == [
+        ("broken-link.txt", "symbolic link"),
+        ("inside-link.txt", "symbolic link"),
+        ("outside-link.txt", "symbolic link"),
+    ]
+
+
+def test_git_repo_rejects_symbolic_link_subdirectory(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    _init_repo(repo_dir)
+    _write_text(repo_dir / "docs" / "guide.md", "# Guide\n")
+    (repo_dir / "linked-docs").symlink_to("docs", target_is_directory=True)
+    _commit_all(repo_dir, "add linked directory")
+
+    with pytest.raises(ValueError, match="Subdirectory contains a symbolic link"):
+        fetch_repo_snapshot(str(repo_dir), subdir="linked-docs")
 
 
 def test_git_repo_cli_writes_repo_files_with_manifest_metadata(
