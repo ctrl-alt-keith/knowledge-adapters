@@ -95,6 +95,18 @@ def test_git_repo_rejects_symbolic_link_subdirectory(tmp_path: Path) -> None:
         fetch_repo_snapshot(str(repo_dir), subdir="linked-docs")
 
 
+def test_git_repo_rejects_symbolic_link_in_subdirectory_path(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    _init_repo(repo_dir)
+    _write_text(repo_dir / "docs" / "chapter" / "guide.md", "# Guide\n")
+    _write_text(repo_dir / "nested" / "placeholder.md", "# Nested\n")
+    (repo_dir / "nested" / "linked-docs").symlink_to("../docs", target_is_directory=True)
+    _commit_all(repo_dir, "add nested linked directory")
+
+    with pytest.raises(ValueError, match="Subdirectory contains a symbolic link"):
+        fetch_repo_snapshot(str(repo_dir), subdir="nested/linked-docs/chapter")
+
+
 def test_git_repo_cli_writes_repo_files_with_manifest_metadata(
     tmp_path: Path,
     capsys: CaptureFixture[str],
