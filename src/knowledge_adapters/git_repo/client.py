@@ -366,4 +366,6 @@ def _run_git(
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout).strip() or "git command failed."
         raise ValueError(f"Could not {operation}: {detail}")
-    return completed.stdout.strip()
+    # Preserve whitespace in NUL-delimited `ls-files -z` paths. Other Git
+    # responses here end with a line terminator, not meaningful spaces.
+    return completed.stdout.rstrip("\n")
