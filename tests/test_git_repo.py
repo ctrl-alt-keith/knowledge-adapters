@@ -84,6 +84,20 @@ def test_git_repo_skips_tracked_symbolic_links(tmp_path: Path) -> None:
     ]
 
 
+def test_git_repo_preserves_leading_whitespace_in_first_tracked_path(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    _init_repo(repo_dir)
+    _write_text(repo_dir / " leading.txt", "# Leading space\n")
+    _commit_all(repo_dir, "add leading-space filename")
+
+    snapshot = fetch_repo_snapshot(str(repo_dir))
+
+    assert snapshot.discovered_paths == (" leading.txt",)
+    assert [item.repo_path for item in snapshot.files] == [" leading.txt"]
+    assert [item.content for item in snapshot.files] == ["# Leading space\n"]
+    assert snapshot.skipped_files == ()
+
+
 def test_git_repo_rejects_symbolic_link_subdirectory(tmp_path: Path) -> None:
     repo_dir = tmp_path / "repo"
     _init_repo(repo_dir)
