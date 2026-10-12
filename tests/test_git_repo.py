@@ -98,6 +98,24 @@ def test_git_repo_preserves_leading_whitespace_in_first_tracked_path(tmp_path: P
     assert snapshot.skipped_files == ()
 
 
+def test_git_repo_requested_branch_uses_refreshed_remote_tip(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    _init_repo(repo_dir)
+    source_path = repo_dir / "README.md"
+    _write_text(source_path, "# First\n")
+    first_sha = _commit_all(repo_dir, "first")
+
+    first = fetch_repo_snapshot(str(repo_dir), ref="main")
+    assert first.commit_sha == first_sha
+
+    _write_text(source_path, "# Second\n")
+    second_sha = _commit_all(repo_dir, "second")
+
+    second = fetch_repo_snapshot(str(repo_dir), ref="main")
+    assert second.commit_sha == second_sha
+    assert [source.content for source in second.files] == ["# Second\n"]
+
+
 def test_git_repo_rejects_symbolic_link_subdirectory(tmp_path: Path) -> None:
     repo_dir = tmp_path / "repo"
     _init_repo(repo_dir)
