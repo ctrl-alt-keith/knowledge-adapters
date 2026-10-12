@@ -247,7 +247,13 @@ def _checkout_ref(repo_dir: Path, requested_ref: str | None) -> str:
         )
         return default_branch
 
-    for candidate in (requested_ref, f"origin/{requested_ref}"):
+    # A bare tag takes precedence over a branch of the same name. For branch
+    # names, use the refreshed remote tip instead of a stale local clone branch.
+    for candidate in (
+        f"refs/tags/{requested_ref}",
+        f"refs/remotes/origin/{requested_ref}",
+        requested_ref,
+    ):
         if _git_ref_exists(repo_dir, candidate):
             _run_git(
                 "checkout",
@@ -269,7 +275,7 @@ def _checkout_ref(repo_dir: Path, requested_ref: str | None) -> str:
         cwd=repo_dir,
         operation=f"fetch ref {requested_ref!r}",
     )
-    for candidate in ("FETCH_HEAD", requested_ref, f"origin/{requested_ref}"):
+    for candidate in ("FETCH_HEAD", f"refs/remotes/origin/{requested_ref}", requested_ref):
         if _git_ref_exists(repo_dir, candidate):
             _run_git(
                 "checkout",
