@@ -116,6 +116,30 @@ def test_git_repo_requested_branch_uses_refreshed_remote_tip(tmp_path: Path) -> 
     assert [source.content for source in second.files] == ["# Second\n"]
 
 
+def test_git_repo_tag_wins_over_branch_with_same_name(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    _init_repo(repo_dir)
+    source_path = repo_dir / "README.md"
+    _write_text(source_path, "# Tagged\n")
+    tagged_sha = _commit_all(repo_dir, "tagged version")
+    _git(repo_dir, "tag", "release")
+    _git(repo_dir, "checkout", "-b", "release")
+    _write_text(source_path, "# Branch\n")
+    branch_sha = _commit_all(repo_dir, "branch version")
+
+    tagged = fetch_repo_snapshot(str(repo_dir), ref="release")
+    assert tagged.commit_sha == tagged_sha
+    assert [source.content for source in tagged.files] == ["# Tagged\n"]
+
+    for explicit_ref, expected_sha in (
+        ("refs/tags/release", tagged_sha),
+        ("refs/heads/release", branch_sha),
+        ("refs/remotes/origin/release", branch_sha),
+        (tagged_sha, tagged_sha),
+    ):
+        assert fetch_repo_snapshot(str(repo_dir), ref=explicit_ref).commit_sha == expected_sha
+
+
 def test_git_repo_rejects_symbolic_link_subdirectory(tmp_path: Path) -> None:
     repo_dir = tmp_path / "repo"
     _init_repo(repo_dir)

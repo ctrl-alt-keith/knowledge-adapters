@@ -247,9 +247,11 @@ and does not write files in dry-run mode. Binary and non-UTF-8 files are skipped
 with explicit reporting. Use include filters for first runs; ingesting an entire
 repository is usually noisier than reviewing one known documentation or source
 surface. When `--ref` names a remote branch, each run uses its freshly fetched
-tip. Tracked symbolic links are skipped; a symbolic link cannot be used as
-the ingestion subdirectory. Leading and trailing spaces in tracked file names
-are preserved in their repository paths and generated artifact paths.
+tip. A bare name shared by a tag and branch selects the tag; use
+`refs/remotes/origin/<name>` to select that branch. Tracked symbolic links are
+skipped; a symbolic link cannot be used as the ingestion subdirectory. Leading
+and trailing spaces in tracked file names are preserved in their repository
+paths and generated artifact paths.
 
 GitHub metadata first run:
 

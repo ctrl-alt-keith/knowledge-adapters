@@ -247,9 +247,13 @@ def _checkout_ref(repo_dir: Path, requested_ref: str | None) -> str:
         )
         return default_branch
 
-    # A clone keeps a local branch at its original commit after later fetches.
-    # Prefer the refreshed remote branch when a branch name was requested.
-    for candidate in (f"refs/remotes/origin/{requested_ref}", requested_ref):
+    # A bare tag takes precedence over a branch of the same name. For branch
+    # names, use the refreshed remote tip instead of a stale local clone branch.
+    for candidate in (
+        f"refs/tags/{requested_ref}",
+        f"refs/remotes/origin/{requested_ref}",
+        requested_ref,
+    ):
         if _git_ref_exists(repo_dir, candidate):
             _run_git(
                 "checkout",
