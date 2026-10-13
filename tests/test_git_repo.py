@@ -345,6 +345,47 @@ def test_git_repo_cli_uses_requested_ref_for_artifact_content_and_manifest(
     assert manifest_payload["files"][0]["commit_sha"] == first_commit
 
 
+def test_git_repo_cli_refreshes_requested_branch_artifact_and_manifest(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    repo_dir = tmp_path / "repo"
+    _init_repo(repo_dir)
+    readme_path = repo_dir / "README.md"
+    _write_text(readme_path, "# First version\n")
+    first_commit = _commit_all(repo_dir, "first version")
+    output_dir = tmp_path / "out"
+    argv = [
+        "git_repo",
+        "--repo-url",
+        str(repo_dir),
+        "--ref",
+        "main",
+        "--output-dir",
+        str(output_dir),
+    ]
+
+    assert main(argv) == 0
+    capsys.readouterr()
+    first_manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert first_manifest["files"][0]["commit_sha"] == first_commit
+
+    _write_text(readme_path, "# Second version\n")
+    second_commit = _commit_all(repo_dir, "second version")
+
+    assert main(argv) == 0
+    captured = capsys.readouterr()
+    assert f"commit_sha: {second_commit}" in captured.out
+    artifact = output_dir / "pages" / "README.md"
+    assert "# Second version" in artifact.read_text(encoding="utf-8")
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["files"][0]["ref"] == "main"
+    assert manifest["files"][0]["commit_sha"] == second_commit
+    assert manifest["files"][0]["canonical_id"] == (
+        f"{repo_dir}@{second_commit}:README.md"
+    )
+
+
 def test_git_repo_cli_reports_stale_artifacts_when_output_paths_change(
     tmp_path: Path,
     capsys: CaptureFixture[str],
