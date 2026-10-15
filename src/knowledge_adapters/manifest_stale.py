@@ -343,7 +343,7 @@ def plan_orphaned_artifact_prune(
             continue
 
         if not any(
-            _is_relative_to(resolved_artifact_path, artifact_root)
+            resolved_artifact_path.is_relative_to(artifact_root)
             for artifact_root in artifact_roots
         ):
             validation_errors.append(
@@ -431,11 +431,3 @@ def _is_under_any_output_subdirectory(
         output_path_parts[: len(Path(output_subdirectory).parts)] == Path(output_subdirectory).parts
         for output_subdirectory in output_subdirectories
     )
-
-
-def _is_relative_to(path: Path, other: Path) -> bool:
-    try:
-        path.relative_to(other)
-    except ValueError:
-        return False
-    return True
