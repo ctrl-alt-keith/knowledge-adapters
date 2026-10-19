@@ -8,10 +8,12 @@ import re
 import socket
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from http.client import HTTPMessage
 from pathlib import Path
+from typing import IO, Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 DEFAULT_USER_AGENT = "knowledge-adapters/0.8 public-source-ingestion"
 DEFAULT_FETCH_TIMEOUT_SECONDS = 30
@@ -27,6 +29,26 @@ class FetchedPublicResource:
     content_type: str
     content_charset: str | None
     retrieved_at: str
+
+
+class _PublicRedirectHandler(HTTPRedirectHandler):
+    """Reject non-public redirect targets before issuing the next request."""
+
+    def redirect_request(
+        self,
+        req: Request,
+        fp: IO[bytes],
+        code: int,
+        msg: str,
+        headers: HTTPMessage,
+        newurl: str,
+    ) -> Request | None:
+        validate_public_http_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _open_public_request(request: Request, timeout: int) -> Any:
+    return build_opener(_PublicRedirectHandler()).open(request, timeout=timeout)
 
 
 def fetch_public_url(
@@ -46,7 +68,7 @@ def fetch_public_url(
         },
     )
     try:
-        with urlopen(request, timeout=timeout_seconds) as response:
+        with _open_public_request(request, timeout=timeout_seconds) as response:
             final_url = response.geturl()
             validate_public_http_url(final_url)
             headers = response.headers
