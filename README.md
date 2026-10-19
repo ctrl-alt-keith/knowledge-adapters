@@ -145,8 +145,8 @@ This fetches the public HTTP(S) URL, extracts visible text with the Python
 standard-library HTML parser, previews the generated candidate markdown, and
 does not write files in dry-run mode. Localhost, `.local`, private, link-local,
 multicast, unspecified, reserved, and credential-bearing targets are rejected
-before fetch and after redirects. Raw fetched HTML is held only in memory. The
-output is explicitly unreviewed candidate material; links, images, tables,
+before fetch and before each redirect. Raw fetched HTML is held only in memory.
+The output is explicitly unreviewed candidate material; links, images, tables,
 comments, and publication metadata may be incomplete. Clearly mechanical page
 chrome such as subscription, sign-in, sharing, discussion, footer/legal, and
 platform-promotion prompts may be suppressed; article body text remains
@@ -168,8 +168,8 @@ knowledge-adapters public_pdf \
 This fetches the public PDF URL, extracts text with `pypdf`, previews candidate
 markdown with extraction limitations, and does not write files in dry-run mode.
 Localhost, `.local`, private, link-local, multicast, unspecified, reserved, and
-credential-bearing targets are rejected before fetch and after redirects. Raw
-fetched PDF bytes are held only in memory. PDF layout, tables, figures,
+credential-bearing targets are rejected before fetch and before each redirect.
+Raw fetched PDF bytes are held only in memory. PDF layout, tables, figures,
 footnotes, headers, reading order, and scanned image-only pages may be incomplete
 or missing, so review against the source PDF before retaining any knowledge. The
 PDF adapter applies only mechanical replay-noise normalization: it repairs

@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from email.message import Message
 from pathlib import Path
 from typing import Any, Literal
+from urllib.request import Request
 
 import pytest
 from pytest import CaptureFixture, MonkeyPatch
@@ -97,7 +98,7 @@ def test_fetch_public_url_uses_in_memory_response_and_metadata(
             charset="utf-8",
         )
 
-    monkeypatch.setattr("knowledge_adapters.public_sources.urlopen", fake_urlopen)
+    monkeypatch.setattr("knowledge_adapters.public_sources._open_public_request", fake_urlopen)
 
     fetched = fetch_public_url(
         MEANINGFULTECH_URL,
@@ -123,7 +124,7 @@ def test_fetch_public_url_rejects_oversized_declared_response_before_reading(
         content_length=1001,
     )
     monkeypatch.setattr(
-        "knowledge_adapters.public_sources.urlopen",
+        "knowledge_adapters.public_sources._open_public_request",
         lambda request, timeout: response,
     )
 
@@ -152,7 +153,7 @@ def test_fetch_public_url_rejects_invalid_declared_response_size_before_reading(
     )
     response.headers.replace_header("Content-Length", content_length)
     monkeypatch.setattr(
-        "knowledge_adapters.public_sources.urlopen",
+        "knowledge_adapters.public_sources._open_public_request",
         lambda request, timeout: response,
     )
 
@@ -182,7 +183,7 @@ def test_fetch_public_url_accepts_decimal_declared_response_size_with_http_white
     )
     response.headers.replace_header("Content-Length", content_length)
     monkeypatch.setattr(
-        "knowledge_adapters.public_sources.urlopen",
+        "knowledge_adapters.public_sources._open_public_request",
         lambda request, timeout: response,
     )
 
@@ -206,7 +207,7 @@ def test_fetch_public_url_rejects_oversized_streamed_response_with_bounded_read(
         include_content_length=False,
     )
     monkeypatch.setattr(
-        "knowledge_adapters.public_sources.urlopen",
+        "knowledge_adapters.public_sources._open_public_request",
         lambda request, timeout: response,
     )
 
@@ -280,7 +281,7 @@ def test_fetch_public_url_does_not_request_rejected_original_url(
         del request, timeout
         raise AssertionError("blocked original URL should not be requested")
 
-    monkeypatch.setattr("knowledge_adapters.public_sources.urlopen", fake_urlopen)
+    monkeypatch.setattr("knowledge_adapters.public_sources._open_public_request", fake_urlopen)
 
     with pytest.raises(ValueError, match="private IP"):
         fetch_public_url(
@@ -302,7 +303,7 @@ def test_fetch_public_url_revalidates_and_rejects_redirect_final_url(
             charset="utf-8",
         )
 
-    monkeypatch.setattr("knowledge_adapters.public_sources.urlopen", fake_urlopen)
+    monkeypatch.setattr("knowledge_adapters.public_sources._open_public_request", fake_urlopen)
 
     with pytest.raises(ValueError, match="link-local"):
         fetch_public_url(
@@ -310,6 +311,43 @@ def test_fetch_public_url_revalidates_and_rejects_redirect_final_url(
             accepted_content_types=("text/html",),
             max_bytes=1000,
         )
+
+
+def test_fetch_public_url_rejects_link_local_redirect_before_following(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    requested_urls: list[str] = []
+
+    class FakeOpener:
+        def __init__(self, redirect_handler: Any) -> None:
+            self.redirect_handler = redirect_handler
+
+        def open(self, request: Request, timeout: int) -> None:
+            del timeout
+            requested_urls.append(request.full_url)
+            self.redirect_handler.redirect_request(
+                request,
+                None,
+                302,
+                "Found",
+                Message(),
+                "http://169.254.169.254/latest/meta-data/",
+            )
+            raise AssertionError("private redirect should not be requested")
+
+    monkeypatch.setattr(
+        "knowledge_adapters.public_sources.build_opener",
+        lambda redirect_handler: FakeOpener(redirect_handler),
+    )
+
+    with pytest.raises(ValueError, match="link-local"):
+        fetch_public_url(
+            "https://example.com/redirect",
+            accepted_content_types=("text/html",),
+            max_bytes=1000,
+        )
+
+    assert requested_urls == ["https://example.com/redirect"]
 
 
 def test_fetch_webpage_extracts_title_and_visible_text(monkeypatch: MonkeyPatch) -> None:
@@ -336,7 +374,7 @@ def test_fetch_webpage_extracts_title_and_visible_text(monkeypatch: MonkeyPatch)
             charset="utf-8",
         )
 
-    monkeypatch.setattr("knowledge_adapters.public_sources.urlopen", fake_urlopen)
+    monkeypatch.setattr("knowledge_adapters.public_sources._open_public_request", fake_urlopen)
 
     document = fetch_webpage(MEANINGFULTECH_URL)
 
