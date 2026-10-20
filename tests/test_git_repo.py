@@ -116,6 +116,24 @@ def test_git_repo_requested_branch_uses_refreshed_remote_tip(tmp_path: Path) -> 
     assert [source.content for source in second.files] == ["# Second\n"]
 
 
+def test_git_repo_rejects_cached_checkout_with_different_origin(tmp_path: Path) -> None:
+    source_repo = tmp_path / "source"
+    _init_repo(source_repo)
+    _write_text(source_repo / "README.md", "# Expected source\n")
+    _commit_all(source_repo, "add source")
+
+    other_repo = tmp_path / "other"
+    _init_repo(other_repo)
+    _write_text(other_repo / "README.md", "# Different source\n")
+    _commit_all(other_repo, "add other source")
+
+    first = fetch_repo_snapshot(str(source_repo))
+    _git(first.repo_dir, "remote", "set-url", "origin", str(other_repo))
+
+    with pytest.raises(ValueError, match="points to .* not .*Remove the cache"):
+        fetch_repo_snapshot(str(source_repo))
+
+
 def test_git_repo_tag_wins_over_branch_with_same_name(tmp_path: Path) -> None:
     repo_dir = tmp_path / "repo"
     _init_repo(repo_dir)
