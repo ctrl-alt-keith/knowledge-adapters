@@ -75,15 +75,20 @@ knowledge-adapters github_metadata --help
 knowledge-adapters confluence --help
 ```
 
-Every adapter follows the same high-level shape:
+The manifest-backed CLI adapters follow the same high-level shape:
 
 - inspect one source input
-- plan a markdown artifact under `pages/`
+- plan markdown artifacts under source-specific paths (for example, `pages/`
+  or `issues/`)
 - plan `manifest.json` in the selected output directory
 - write only when `--dry-run` is not set
 
 Recommended first run: use `--dry-run` to confirm the planned source,
 artifact path, and manifest path, then rerun without it.
+
+The [YouTube Source Package producer](docs/youtube-source-package-adapter.md)
+is a Python API, not a CLI subcommand. It emits sealed Source Packages rather
+than the manifest-backed artifact layout described here.
 
 Manifest-backed adapter commands that write artifacts also support opt-in
 artifact cleanup: `local_files`, `public_webpage`, `public_pdf`, `confluence`,

@@ -524,9 +524,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="knowledge-adapters",
         description=(
-            "Normalize knowledge sources into a shared local artifact layout. "
-            "Every run inspects a source, plans a markdown artifact under pages/ "
-            "plus manifest.json, and writes only when --dry-run is not set."
+            "Acquire sources into local artifacts. Adapter commands plan "
+            "source-specific markdown paths and a manifest.json; --dry-run "
+            "previews them without writing output artifacts. Use run for "
+            "configured sources, bundle to combine artifacts, source_package "
+            "to verify packages, and publish for explicit delivery."
         ),
         epilog=TOP_LEVEL_HELP_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
