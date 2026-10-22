@@ -79,18 +79,9 @@ def assert_write_summary(
     unchanged_pages: int | None = None,
     stale_artifacts: int | None = None,
 ) -> None:
-    normalized = normalize_whitespace(output)
-    if f"Summary: wrote {wrote}, skipped {skipped}" in normalized:
-        pass
-    elif skipped == 0 and (
-        f"Summary: wrote {wrote} file" in normalized
-        or f"Summary: wrote {wrote} files" in normalized
-    ):
-        pass
-    else:
-        raise AssertionError(
-            f"expected write summary for wrote={wrote}, skipped={skipped} in output:\n{output}"
-        )
+    assert f"Summary: wrote {wrote}, skipped {skipped}" in normalize_whitespace(
+        output
+    )
 
     if new_pages is not None:
         assert f"new_pages: {new_pages}" in output
