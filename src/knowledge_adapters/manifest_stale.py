@@ -77,6 +77,12 @@ def _load_previous_manifest_indexes(
             f"Could not read prior manifest {path}. Fix or remove the manifest and try again."
         ) from exc
 
+    if not isinstance(payload, dict):
+        raise RuntimeError(
+            f"Prior manifest {path} is invalid: expected a JSON object. "
+            "Fix or remove the manifest and try again."
+        )
+
     files = payload.get("files")
     if not isinstance(files, list):
         raise RuntimeError(

@@ -118,6 +118,16 @@ def test_load_previous_manifest_index_rejects_duplicate_canonical_ids(
         load_previous_manifest_index(str(tmp_path))
 
 
+@pytest.mark.parametrize("payload", ["null", "[]"])
+def test_load_previous_manifest_index_rejects_non_object_root(
+    tmp_path: Path, payload: str
+) -> None:
+    (tmp_path / "manifest.json").write_text(payload, encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="invalid: expected a JSON object"):
+        load_previous_manifest_index(str(tmp_path))
+
+
 def test_find_orphaned_artifacts_reports_unreferenced_markdown_under_pages(
     tmp_path: Path,
 ) -> None:
