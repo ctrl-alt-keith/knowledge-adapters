@@ -118,6 +118,24 @@ def test_load_previous_manifest_index_rejects_duplicate_canonical_ids(
         load_previous_manifest_index(str(tmp_path))
 
 
+def test_load_previous_manifest_index_rejects_duplicate_output_paths(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "manifest.json").write_text(
+        """{
+  "files": [
+    {"canonical_id": "page:1", "output_path": "pages/shared.md"},
+    {"canonical_id": "page:2", "output_path": "pages/shared.md"}
+  ]
+}
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="duplicate output_path 'pages/shared.md'"):
+        load_previous_manifest_index(str(tmp_path))
+
+
 @pytest.mark.parametrize("payload", ["null", "[]"])
 def test_load_previous_manifest_index_rejects_non_object_root(
     tmp_path: Path, payload: str
