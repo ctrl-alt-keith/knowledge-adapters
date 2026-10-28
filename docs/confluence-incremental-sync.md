@@ -1,5 +1,10 @@
 # Confluence Incremental Sync Design
 
+This is the original v1 design, retained for historical context. The current
+implementation also compares source `page_version` or `last_modified` with the
+prior manifest before skipping a page; changed or non-comparable metadata causes a
+rewrite. See the [README's current skip guidance](../README.md#repo-local-developer-examples).
+
 ## Purpose
 
 This document defines a minimal v1 incremental sync capability for the Confluence adapter.
