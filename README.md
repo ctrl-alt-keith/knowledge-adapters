@@ -787,11 +787,12 @@ and an opt-in real client for live fetches.
 - writes `manifest.json` for normal runs
 - supports dry-run output and manifest-based skip logic for the resolved page
 
-The recursive traversal and incremental sync docs still matter: they describe
-the bounds and behavior of those implemented flows. See
+The recursive traversal doc describes the implemented bounds. The incremental
+sync doc records the original v1 design; current skip behavior is summarized
+below. See
 [`docs/confluence-recursive-fetch.md`](docs/confluence-recursive-fetch.md) and
 [`docs/confluence-incremental-sync.md`](docs/confluence-incremental-sync.md) for
-those contracts.
+details and the original design.
 
 ## Examples
 
@@ -932,21 +933,23 @@ Clear or change the cache directory when tree structure changes.
 > Traversal cache entries are operator-managed. Clear or change the cache
 > directory when pages are added, removed, or reorganized.
 
-Confluence incremental skip eligibility uses the existing `manifest.json` plus
-on-disk file existence. A page counts as already written only when:
+Confluence incremental skip eligibility uses the existing `manifest.json`,
+on-disk file existence, and source change metadata. A page is skipped only when:
 
 - `canonical_id` matches a prior manifest entry
 - `output_path` matches the current deterministic path such as `pages/12345.md`
 - that file still exists on disk
+- the first comparable source change field (`page_version`, then
+  `last_modified`) matches its prior manifest value
 
-If any of those checks fail, the page is treated as a write. Skipped pages still
-appear in dry-run output. With the default client, this behavior applies to the
-resolved root-page artifact only.
+If any check fails, or usable source change metadata is missing, the page is
+treated as a write. Skipped pages still appear in dry-run output. With the
+default client, this behavior applies to the resolved root-page artifact only.
 
 Incremental sync is artifact-based within the chosen output directory, not
 target-based. Reusing an output directory for a different target is allowed, but
-overlapping canonical page IDs may still be skipped when the manifest and on-disk
-artifact match.
+overlapping canonical page IDs may still be skipped when the manifest, on-disk
+artifact, and source change metadata match.
 
 During a normal write run, the tool also writes exactly one
 `manifest.json` file in the output directory. With the default single-page
