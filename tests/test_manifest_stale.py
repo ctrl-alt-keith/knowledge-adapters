@@ -100,6 +100,35 @@ def test_prune_stale_artifacts_rejects_directories_without_deleting_them(
     assert stale_dir.is_dir()
 
 
+def test_prune_stale_artifacts_rejects_in_root_symlink_before_deleting_anything(
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "out"
+    safe_file = output_dir / "pages" / "safe.md"
+    target = output_dir / "pages" / "target.md"
+    linked_file = output_dir / "pages" / "linked.md"
+    safe_file.parent.mkdir(parents=True)
+    safe_file.write_text("safe\n", encoding="utf-8")
+    target.write_text("target\n", encoding="utf-8")
+    try:
+        linked_file.symlink_to(target)
+    except OSError as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
+
+    with pytest.raises(RuntimeError, match="not a regular file"):
+        prune_stale_artifacts(
+            output_dir,
+            (
+                StaleArtifact(canonical_id="safe", output_path="pages/safe.md"),
+                StaleArtifact(canonical_id="linked", output_path="pages/linked.md"),
+            ),
+        )
+
+    assert safe_file.read_text(encoding="utf-8") == "safe\n"
+    assert target.read_text(encoding="utf-8") == "target\n"
+    assert linked_file.is_symlink()
+
+
 def test_load_previous_manifest_index_rejects_duplicate_canonical_ids(
     tmp_path: Path,
 ) -> None:
