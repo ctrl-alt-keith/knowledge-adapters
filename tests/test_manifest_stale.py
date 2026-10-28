@@ -104,7 +104,7 @@ def test_prune_stale_artifacts_rejects_in_root_symlink_before_deleting_anything(
     tmp_path: Path,
 ) -> None:
     output_dir = tmp_path / "out"
-    safe_file = output_dir / "pages" / "safe.md"
+    safe_file = output_dir / "pages" / "a-safe.md"
     target = output_dir / "pages" / "target.md"
     linked_file = output_dir / "pages" / "linked.md"
     safe_file.parent.mkdir(parents=True)
@@ -119,7 +119,7 @@ def test_prune_stale_artifacts_rejects_in_root_symlink_before_deleting_anything(
         prune_stale_artifacts(
             output_dir,
             (
-                StaleArtifact(canonical_id="safe", output_path="pages/safe.md"),
+                StaleArtifact(canonical_id="safe", output_path="pages/a-safe.md"),
                 StaleArtifact(canonical_id="linked", output_path="pages/linked.md"),
             ),
         )
