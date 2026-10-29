@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Literal
 
 from knowledge_adapters.incremental_sync import SyncChangeKey, classify_incremental_sync
-from knowledge_adapters.manifest_stale import PreviousManifestEntry
+from knowledge_adapters.manifest_stale import PreviousManifestEntry, normalize_metadata_value
 
 PageSyncStatus = Literal["new", "changed", "unchanged"]
 
@@ -21,16 +21,6 @@ class PageSyncDecision:
     rewrite_reason: str | None = None
 
 
-def _normalize_metadata_value(value: object) -> str | None:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return str(value)
-    if isinstance(value, str) and value:
-        return value
-    return None
-
-
 def classify_page_sync(
     output_dir: str,
     previous_manifest_index: dict[str, PreviousManifestEntry] | None,
@@ -41,8 +31,8 @@ def classify_page_sync(
     """Classify a page as new, changed, or unchanged for incremental sync."""
     canonical_id = str(page.get("canonical_id") or "")
     expected_output_path = output_path.relative_to(Path(output_dir)).as_posix()
-    current_page_version = _normalize_metadata_value(page.get("page_version"))
-    current_last_modified = _normalize_metadata_value(page.get("last_modified"))
+    current_page_version = normalize_metadata_value(page.get("page_version"))
+    current_last_modified = normalize_metadata_value(page.get("last_modified"))
     decision = classify_incremental_sync(
         output_dir,
         previous_manifest_index,

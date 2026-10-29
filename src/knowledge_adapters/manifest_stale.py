@@ -52,7 +52,7 @@ class PrunedOrphanedArtifact:
     path: Path
 
 
-def _normalize_metadata_value(value: object) -> str | None:
+def normalize_metadata_value(value: object) -> str | None:
     if isinstance(value, bool):
         return None
     if isinstance(value, int):
@@ -122,9 +122,9 @@ def _load_previous_manifest_indexes(
         entries_by_id[canonical_id] = PreviousManifestEntry(
             canonical_id=canonical_id,
             output_path=output_path,
-            page_version=_normalize_metadata_value(entry.get("page_version")),
-            last_modified=_normalize_metadata_value(entry.get("last_modified")),
-            content_hash=_normalize_metadata_value(entry.get("content_hash")),
+            page_version=normalize_metadata_value(entry.get("page_version")),
+            last_modified=normalize_metadata_value(entry.get("last_modified")),
+            content_hash=normalize_metadata_value(entry.get("content_hash")),
         )
         entries_by_output_path[output_path] = canonical_id
 
