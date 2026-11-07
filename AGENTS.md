@@ -1,33 +1,6 @@
 # AGENTS
 
-This file defines repository-specific expectations for Codex agents working in
-`knowledge-adapters`.
-
-This repository follows the shared workflow defined in the
-`ai-workflow-playbook` repository.
-
-- Engineering baseline: `ai-workflow-playbook/docs/engineering-baseline.md`
-- Workflow rules: `ai-workflow-playbook/docs/`
-- Start here: `ai-workflow-playbook/docs/start-here.md`
-
-Use the playbook for general workflow rules. Follow this AGENTS.md for
-repo-specific execution details where they are more specific. Repo-local rules
-take precedence only for repo-specific behavior.
-Do not restate shared workflow rules in repo docs; link to ai-workflow-playbook
-and keep only repo-specific guidance.
-
-## Startup And Interaction Mode
-
-- Start with `ai-workflow-playbook/docs/start-here.md` before repository or
-  software work.
-- Before acting, select the interaction mode from
-  `ai-workflow-playbook/docs/repo-readiness.md`: implementation, review/audit,
-  or orchestration/prompt-authoring.
-- Implementation agents make explicit repo changes and carry them through
-  validation, commit, push, and PR delivery.
-- Review/audit agents inspect and report findings without mutating the repo.
-- Orchestration/prompt-authoring agents produce complete, self-contained
-  handoffs or prompts unless explicitly asked to implement.
+Start with `ai-workflow-playbook/docs/start-here.md`.
 
 ## File Placement
 
@@ -37,49 +10,13 @@ and keep only repo-specific guidance.
 - Keep source-specific supporting material under `adapters/<source>/` when that
   repo path already exists for the integration.
 
----
-
-## Local Execution
-
-- Run commands from this repository working directory by default.
-- Keep temporary workflow state repo-local, for example `.worktrees/`.
-- Use direct command execution for ordinary repo commands such as `git ...`,
-  `gh ...`, `make ...`, `python ...`, and repo-local scripts or tools.
-- Before using `zsh`, `bash`, `sh`, `zsh -lc`, `bash -lc`, `sh -c`, aliases, or
-  equivalent wrapper shells, check whether the command has a direct form and
-  use that direct form when it does.
-- Use shell wrappers only when shell syntax is genuinely required, such as
-  pipelines, redirection, glob expansion, command chaining, scoped environment
-  assignment, compound commands, or shell builtins.
-
----
-
-## Branches
-
-- Use repo-appropriate branch prefixes such as `feat/`, `fix/`, `docs/`,
-  `chore/`, `refactor/`, and `test/`.
-- Keep branch names short and descriptive, for example
-  `feat/<short-name>` or `docs/<short-name>`.
-
----
-
 ## Validation
-
-Before committing or opening a PR:
-
-```bash
-make check
-```
 
 `make check` is the canonical local blocking validation entrypoint. It runs:
 
 - `make lint`
 - `make typecheck`
 - `make test`
-
-Run validation through the Makefile targets for this repository. Do not invoke
-`pytest`, `mypy`, or `ruff` directly; use `make check` and other documented
-`make` targets instead.
 
 If lint issues are auto-fixable:
 
@@ -106,11 +43,3 @@ Run `make check-gh-env` before pull request or release workflows that require
 an authenticated `gh` session. Release-only targets such as `make release-check`
 and `make release-publish` are scoped to the documented release workflow and are
 not part of normal local PR validation.
-
----
-
-## Pull Requests
-
-- Target `main`.
-- Include a clear summary of changes.
-- Include a testing or verification section.
