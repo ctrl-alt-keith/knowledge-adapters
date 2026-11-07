@@ -18,6 +18,8 @@ Start with `ai-workflow-playbook/docs/start-here.md`.
 - `make typecheck`
 - `make test`
 
+Run `make check` before committing or opening a PR.
+
 If lint issues are auto-fixable:
 
 ```bash
@@ -43,3 +45,7 @@ Run `make check-gh-env` before pull request or release workflows that require
 an authenticated `gh` session. Release-only targets such as `make release-check`
 and `make release-publish` are scoped to the documented release workflow and are
 not part of normal local PR validation.
+
+## Pull Requests
+
+- Include a testing or verification section.
