@@ -345,6 +345,24 @@ def test_plan_orphaned_artifact_prune_does_not_delete_files(tmp_path: Path) -> N
     assert orphaned.read_text(encoding="utf-8") == "orphaned\n"
 
 
+def test_prune_orphaned_artifacts_rejects_output_directory_as_artifact_root(
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+    unrelated = output_dir / "README.md"
+    unrelated.write_text("keep this file\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="relative subdirectories"):
+        prune_orphaned_artifacts(
+            output_dir,
+            (OrphanedArtifact(output_path="README.md"),),
+            output_subdirectories=(".",),
+        )
+
+    assert unrelated.read_text(encoding="utf-8") == "keep this file\n"
+
+
 def test_prune_orphaned_artifacts_rejects_unsafe_candidates_before_deleting(
     tmp_path: Path,
 ) -> None:

@@ -415,7 +415,7 @@ def _normalize_output_subdirectories(output_subdirectories: Collection[str]) -> 
     for output_subdirectory in output_subdirectories:
         normalized = _normalize_output_path(output_subdirectory).removesuffix("/")
         path = Path(normalized)
-        if not normalized or path.is_absolute() or ".." in path.parts:
+        if not path.parts or path.is_absolute() or ".." in path.parts:
             raise ValueError(
                 "orphan artifact output_subdirectories must be relative "
                 "subdirectories under output_dir"
