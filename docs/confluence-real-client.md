@@ -301,9 +301,14 @@ Failure class:
 
 ### Child-page discovery failure
 
-Child-page discovery is not part of real-client v1.
+Real child-page discovery is supported for opt-in `--client-mode real --tree`
+runs. `list_real_child_page_ids(...)` returns direct canonical child page IDs;
+the traversal layer owns depth, ordering, and deduplication. See
+[`docs/confluence-real-traversal.md`](./confluence-real-traversal.md) for its
+behavior.
 
-If a future implementation starts populating `children`, any failure to retrieve or validate that child listing should also fail the run rather than silently dropping descendants.
+If a child listing cannot be retrieved or validated, the run fails rather than
+silently dropping descendants.
 
 ## Testing Strategy
 
