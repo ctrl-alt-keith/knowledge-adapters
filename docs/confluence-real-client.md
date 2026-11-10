@@ -13,6 +13,7 @@ v1 covers only:
 - keeping the current stub client as the default CLI behavior
 - adding an explicit real-client mode for live page fetches
 - fetching one Confluence page by canonical page ID
+- listing direct child page IDs for real `--tree` runs
 - returning only the page fields already needed by the existing normalization and writing pipeline
 - isolating auth/config handling so future auth modes can be added without changing traversal, manifest, or writer contracts
 
@@ -23,7 +24,7 @@ v1 does not make the real client the default.
 Today the Confluence adapter already has the following shape:
 
 - CLI resolves `--target` into a canonical page ID
-- CLI calls one client-layer fetch function
+- the single-page path calls a page-fetch client function; real tree mode also calls a direct-child listing function
 - normalization expects a page payload with `canonical_id`, `title`, `content`, and `source_url`
 - traversal, deduplication, manifest handling, and writing are already separate layers
 - the default client is a stub and does not contact Confluence
@@ -35,9 +36,9 @@ This design keeps those boundaries intact.
 The adapter should support two client modes:
 
 - `stub`: the existing default behavior, unchanged
-- `real`: an explicit opt-in path that performs a live Confluence fetch for one canonical page ID
+- `real`: an explicit opt-in path that fetches individual pages and lists direct child IDs when tree mode is requested
 
-The CLI remains responsible for runtime selection and top-level error reporting. The client layer remains responsible only for fetching and returning page data. Auth remains isolated behind a small auth/config boundary used only by the real client.
+The CLI remains responsible for runtime selection and top-level error reporting. The client layer fetches individual pages and lists direct child IDs; traversal policy remains outside the client. Auth remains isolated behind a small auth/config boundary used only by the real client.
 
 ## Client Mode Strategy
 
@@ -310,8 +311,9 @@ behavior.
 Child-list pagination for large lists is not implemented; each child listing
 uses one request.
 
-If a child listing cannot be retrieved or validated, the run fails rather than
-silently dropping descendants.
+If the fetched child-list response cannot be retrieved or validated, the run
+fails. The client does not follow a response's `next` link, so a paginated
+Confluence child list can omit later descendants without an error.
 
 ## Testing Strategy
 
@@ -327,7 +329,7 @@ v1 test coverage should rely on mocked or fixture-based tests for:
 - response-to-payload mapping
 - error mapping and classification for `401/403`, `404`, `429`, `5xx`,
   transport failures, and malformed response bodies
-- real-mode tree CLI behavior, including child discovery and traversal failures
+- real-mode tree CLI depth semantics and fail-fast handling of child-list retrieval or validation failures
 
 ### Preferred test style
 
