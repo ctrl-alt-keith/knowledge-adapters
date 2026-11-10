@@ -79,7 +79,7 @@ The migration is intentionally non-breaking:
 
 ### Supported fetch operation
 
-The real client v1 supports exactly one live operation:
+The real page-fetch operation handles one page at a time:
 
 - fetch a single page by canonical page ID after the existing target-resolution step
 
@@ -307,6 +307,9 @@ the traversal layer owns depth, ordering, and deduplication. See
 [`docs/confluence-real-traversal.md`](./confluence-real-traversal.md) for its
 behavior.
 
+Child-list pagination for large lists is not implemented; each child listing
+uses one request.
+
 If a child listing cannot be retrieved or validated, the run fails rather than
 silently dropping descendants.
 
@@ -324,7 +327,7 @@ v1 test coverage should rely on mocked or fixture-based tests for:
 - response-to-payload mapping
 - error mapping and classification for `401/403`, `404`, `429`, `5xx`,
   transport failures, and malformed response bodies
-- rejection of unsupported real-mode tree usage
+- real-mode tree CLI behavior, including child discovery and traversal failures
 
 ### Preferred test style
 
