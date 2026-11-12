@@ -59,19 +59,6 @@ targets conflict, the adapter keeps the wrapper capture as
 `likely-wrong-capture-target` and records candidate targets plus the selection
 reason for operator review.
 
-Live observation on May 13, 2026: the Google Cloud 2025 DORA page at
-`https://cloud.google.com/devops/state-of-devops` was detected as
-`likely_wrong_capture_target`, selected exactly one embedded same-page PDF
-target, and routed replay through the public PDF adapter:
-`https://services.google.com/fh/files/misc/2025_state_of_ai_assisted_software_development.pdf`.
-
-Operational-research observations on May 13, 2026 are recorded in
-`docs/public-operational-research-live-proof.md`. The short version: no
-previously failed or diagnostic source became a proven selected-target live
-success in PR #291; the PR improves classification clarity while preserving
-conservative no-selection behavior for ambiguous, mutable, commercial, and
-chapter-navigation sources.
-
 The shared replay classification reports `review-ready` for retained or routed
 substantive target content, `likely-wrong-capture-target` for retained wrapper
 content that needs source-target review, and `diagnostic-only` when suppression
