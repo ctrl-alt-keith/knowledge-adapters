@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -192,9 +193,16 @@ def save_checkpoint_artifacts(
     for relative, data in artifacts:
         destination = _artifact_path(checkpoint_path, relative)
         destination.parent.mkdir(parents=True, exist_ok=True)
-        temporary = destination.with_name(f".{destination.name}.tmp-{os.getpid()}")
-        temporary.write_bytes(data)
-        temporary.replace(destination)
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{destination.name}.tmp-", dir=destination.parent
+        )
+        temporary = Path(temporary_name)
+        try:
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(data)
+            temporary.replace(destination)
+        finally:
+            temporary.unlink(missing_ok=True)
     return captured_relative, normalized_relative
 
 

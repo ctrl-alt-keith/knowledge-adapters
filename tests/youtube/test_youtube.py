@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import shutil
 from dataclasses import asdict, replace
 from pathlib import Path
@@ -888,6 +889,25 @@ def test_checkpoint_artifacts_reject_symlinked_owned_directories(
         )
     assert not (outside / "youtube-video-video_001" / "normalized.md").exists()
     assert not (outside / "normalized.md").exists()
+
+
+def test_checkpoint_artifact_write_does_not_follow_preplanted_temporary_symlink(
+    tmp_path: Path,
+) -> None:
+    checkpoint = tmp_path / "checkpoint.json"
+    video_directory = tmp_path / "checkpoint.data" / "youtube-video-video_001"
+    video_directory.mkdir(parents=True)
+    outside = tmp_path / "outside.md"
+    outside.write_bytes(b"keep outside\n")
+    (video_directory / f".normalized.md.tmp-{os.getpid()}").symlink_to(outside)
+
+    save_checkpoint_artifacts(
+        checkpoint, video_id="video_001", captured=None, normalized=b"fixture\n"
+    )
+
+    assert outside.read_bytes() == b"keep outside\n"
+    assert (video_directory / "normalized.md").read_bytes() == b"fixture\n"
+    assert not (video_directory / "normalized.md").is_symlink()
 
 
 def test_checkpoint_read_and_depth_are_bounded(tmp_path: Path) -> None:
