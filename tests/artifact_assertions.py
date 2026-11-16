@@ -13,15 +13,11 @@ def assert_markdown_document(
     metadata: Mapping[str, str],
     content: str,
 ) -> None:
-    actual_title, actual_metadata, actual_content = _parse_markdown_document(markdown)
+    actual_title, actual_metadata, actual_content = parse_markdown_document(markdown)
 
     assert actual_title == title
     assert actual_metadata == dict(metadata)
     assert actual_content == content.rstrip("\n")
-
-
-def parse_markdown_document(markdown: str) -> tuple[str, dict[str, str], str]:
-    return _parse_markdown_document(markdown)
 
 
 def manifest_file(
@@ -91,7 +87,7 @@ def _load_manifest(manifest_path: Path) -> dict[str, Any]:
     return payload
 
 
-def _parse_markdown_document(markdown: str) -> tuple[str, dict[str, str], str]:
+def parse_markdown_document(markdown: str) -> tuple[str, dict[str, str], str]:
     title_block, metadata_marker, remainder = markdown.partition("\n## Metadata\n")
     assert metadata_marker
 
