@@ -243,6 +243,8 @@ def test_validate_public_http_url_accepts_public_http_targets(url: str) -> None:
         "https://user:pass@example.com/report",
         "https://localhost/report",
         "https://localhost./report",
+        "https://service.localhost/report",
+        "https://SERVICE.LOCALHOST./report",
         "https://printer.local/report",
         "https://printer.local./report",
         "https://127.0.0.1/report",

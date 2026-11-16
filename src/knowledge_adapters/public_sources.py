@@ -136,8 +136,8 @@ def _validate_public_hostname(hostname: str) -> None:
     normalized_hostname = hostname.rstrip(".").lower()
     if "%" in normalized_hostname:
         raise ValueError("URL host must not include an IPv6 zone identifier.")
-    if normalized_hostname == "localhost":
-        raise ValueError("URL host must not be localhost.")
+    if normalized_hostname == "localhost" or normalized_hostname.endswith(".localhost"):
+        raise ValueError("URL host must not be localhost or a .localhost hostname.")
     if normalized_hostname.endswith(".local"):
         raise ValueError("URL host must not be a .local hostname.")
 
