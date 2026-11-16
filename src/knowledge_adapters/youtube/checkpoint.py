@@ -159,7 +159,12 @@ def _artifact_path(checkpoint_path: Path, relative: str) -> Path:
         or pure.parts[0] != owned_root
     ):
         raise ValueError("unsafe checkpoint artifact path")
-    return checkpoint_path.parent.joinpath(*pure.parts)
+    path = checkpoint_path.parent
+    for part in pure.parts:
+        path = path / part
+        if path.is_symlink():
+            raise ValueError("unsafe checkpoint artifact path")
+    return path
 
 
 def save_checkpoint_artifacts(

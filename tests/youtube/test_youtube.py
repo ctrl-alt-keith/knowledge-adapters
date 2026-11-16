@@ -868,6 +868,28 @@ def test_checkpoint_validation_and_changed_playlist_reconciliation(tmp_path: Pat
         load_checkpoint(path, expected_fingerprint=fingerprint)
 
 
+@pytest.mark.parametrize("linked_directory", ["checkpoint root", "video directory"])
+def test_checkpoint_artifacts_reject_symlinked_owned_directories(
+    tmp_path: Path, linked_directory: str
+) -> None:
+    checkpoint = tmp_path / "checkpoint.json"
+    owned_root = tmp_path / "checkpoint.data"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    if linked_directory == "checkpoint root":
+        owned_root.symlink_to(outside, target_is_directory=True)
+    else:
+        owned_root.mkdir()
+        (owned_root / "youtube-video-video_001").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="unsafe checkpoint artifact path"):
+        save_checkpoint_artifacts(
+            checkpoint, video_id="video_001", captured=None, normalized=b"fixture\n"
+        )
+    assert not (outside / "youtube-video-video_001" / "normalized.md").exists()
+    assert not (outside / "normalized.md").exists()
+
+
 def test_checkpoint_read_and_depth_are_bounded(tmp_path: Path) -> None:
     path = tmp_path / "checkpoint.json"
     path.write_bytes(b"{" + b"x" * MAX_CHECKPOINT_BYTES + b"}")
